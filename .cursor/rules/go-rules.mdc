@@ -1,0 +1,428 @@
+---
+description: Rules for writing Go code in the Auxot ecosystem. Applied when working in any Go codebase (auxot, auxot-cloud).
+globs:
+  - "**/*.go"
+  - "**/go.mod"
+  - "**/go.sum"
+  - "**/Makefile"
+---
+
+# Go Rules — Non-Negotiable Constraints for AI Assistants
+
+The user does not have deep Go experience. YOU are the Go expert. That means:
+- You MUST be right. Don't guess. If unsure, say so.
+- You MUST verify. Compile and test after every change.
+- You MUST explain WHY, not just WHAT. The user needs to learn Go through this process.
+- You MUST NOT take shortcuts. Every line must be intentional.
+
+---
+
+## The Verify Loop (MANDATORY)
+
+After writing or modifying ANY Go code, you MUST run these commands IN ORDER:
+
+```bash
+# 1. Does it compile?
+go build ./...
+
+# 2. Does it pass vet? (catches common mistakes)
+go vet ./...
+
+# 3. Do tests pass?
+go test ./...
+
+# 4. Are there race conditions? (when tests involve concurrency)
+go test -race ./...
+```
+
+If ANY of these fail, fix the issue BEFORE moving on. Do NOT present code to the user that doesn't compile.
+
+**NEVER say "this should work" without running the compiler.**
+
+---
+
+## Go Idioms (Follow These Exactly)
+
+### Error Handling
+
+```go
+// ✅ CORRECT: Handle every error explicitly
+result, err := doSomething()
+if err != nil {
+    return fmt.Errorf("doing something: %w", err)
+}
+
+// ❌ FORBIDDEN: Ignoring errors
+result, _ := doSomething()
+
+// ❌ FORBIDDEN: Panicking on errors (except truly unrecoverable)
+result, err := doSomething()
+if err != nil {
+    panic(err)
+}
+```
+
+The ONLY acceptable uses of `_` for errors:
+- `defer f.Close()` (where you can't act on the error anyway)
+- Test cleanup
+
+### Naming
+
+```go
+// ✅ Go uses MixedCaps, not snake_case
+func FindByOrgID(orgID string) {}    // Exported
+func parseMessage(data []byte) {}     // Unexported
+
+// ✅ Acronyms are all-caps
+var httpClient *http.Client  // not Http
+type GPUPool struct {}       // not GpuPool
+var userID string            // not userId
+
+// ❌ FORBIDDEN: Java-style stuttering
+type GPUGPUPool struct {}    // NO
+gpu.NewGPUPool()             // NO — just gpu.NewPool()
+```
+
+### Interfaces
+
+```go
+// ✅ CORRECT: Small interfaces, defined by the CONSUMER, not the provider
+// Only define an interface when you actually need to mock or swap implementations
+
+type JobEnqueuer interface {
+    Enqueue(ctx context.Context, job Job) error
+}
+
+// ✅ The implementation returns a concrete struct
+func NewRedisQueue(client *redis.Client) *RedisQueue { ... }
+
+// ❌ FORBIDDEN: Premature interfaces
+// Don't create interfaces "for testing" before you have tests
+// Don't create interfaces with 5+ methods (that's a struct, not an interface)
+// Don't create interfaces and implementations in the same package
+```
+
+### Context
+
+```go
+// ✅ CORRECT: context.Context is the FIRST parameter, always
+func (s *Server) HandleJob(ctx context.Context, job Job) error { ... }
+
+// ✅ CORRECT: Use context for cancellation, not channels
+func (p *Poller) Poll(ctx context.Context) error {
+    for {
+        select {
+        case <-ctx.Done():
+            return ctx.Err()
+        default:
+            // do work
+        }
+    }
+}
+
+// ❌ FORBIDDEN: Missing context
+func (s *Server) HandleJob(job Job) error { ... }
+```
+
+### Goroutines
+
+```go
+// ✅ CORRECT: Every goroutine has a cancellation path
+func (s *Server) Start(ctx context.Context) {
+    g, ctx := errgroup.WithContext(ctx)
+    
+    g.Go(func() error {
+        return s.pollJobs(ctx)  // ctx cancellation stops the goroutine
+    })
+    
+    return g.Wait()
+}
+
+// ❌ FORBIDDEN: Fire-and-forget goroutines
+go doSomething()  // WHO CLEANS THIS UP?
+
+// ❌ FORBIDDEN: Goroutines without cancellation
+go func() {
+    for {
+        time.Sleep(time.Second)
+        doWork()  // RUNS FOREVER, LEAKS
+    }
+}()
+```
+
+### Packages
+
+```go
+// ✅ Go packages are FLAT, not deeply nested
+pkg/
+  protocol/     // WebSocket message types
+  gpu/          // GPU pool management
+  queue/        // Redis Streams operations
+  auth/         // API key verification
+  registry/     // Model registry
+
+// ❌ FORBIDDEN: Java-style deep nesting
+pkg/
+  core/
+    domain/
+      models/
+        gpu/
+          pool/
+            manager/  // NO. STOP.
+```
+
+A package should be 1-5 files. If it's getting bigger, split by responsibility, not by abstraction layer.
+
+### Structs and Methods
+
+```go
+// ✅ CORRECT: Flat structs, exported fields where appropriate
+type Worker struct {
+    GPUID        string
+    Conn         *websocket.Conn
+    Policy       Policy
+    ActiveJobs   map[string]*Job
+    MaxSlots     int
+    LastHearbeat time.Time
+    mu           sync.Mutex  // unexported - internal synchronization
+}
+
+// ✅ CORRECT: Methods directly on the struct, not a "service" class
+func (w *Worker) HasCapacity() bool {
+    w.mu.Lock()
+    defer w.mu.Unlock()
+    return len(w.ActiveJobs) < w.MaxSlots
+}
+
+// ❌ FORBIDDEN: "Service" or "Manager" or "Handler" classes that wrap everything
+type WorkerService struct {
+    pool *Pool
+}
+func (s *WorkerService) AddWorker(w *Worker) { ... }
+func (s *WorkerService) RemoveWorker(w *Worker) { ... }
+// Just put AddWorker/RemoveWorker on Pool directly!
+```
+
+### Testing
+
+```go
+// ✅ CORRECT: Table-driven tests (the Go way)
+func TestParseMessage(t *testing.T) {
+    tests := []struct {
+        name    string
+        input   []byte
+        want    Message
+        wantErr bool
+    }{
+        {
+            name:  "valid hello",
+            input: []byte(`{"type":"hello","gpu_key":"adm_xxx"}`),
+            want:  HelloMessage{Type: "hello", GPUKey: "adm_xxx"},
+        },
+        {
+            name:    "invalid json",
+            input:   []byte(`{invalid}`),
+            wantErr: true,
+        },
+    }
+    
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            got, err := ParseMessage(tt.input)
+            if tt.wantErr {
+                require.Error(t, err)
+                return
+            }
+            require.NoError(t, err)
+            assert.Equal(t, tt.want, got)
+        })
+    }
+}
+
+// ✅ Use testify for assertions (require = fatal, assert = non-fatal)
+// go get github.com/stretchr/testify
+
+// ✅ Test files live next to the code they test
+// pool.go → pool_test.go (in the same package)
+
+// ❌ FORBIDDEN: Tests in a separate test/ directory
+// ❌ FORBIDDEN: Tests without descriptive names
+// ❌ FORBIDDEN: Skipping edge cases
+```
+
+---
+
+## Architectural Rules
+
+### No Premature Abstraction
+
+Write the simplest thing that works FIRST. Refactor AFTER you have two concrete implementations that share logic. Not before.
+
+```go
+// ✅ Phase 1: Concrete implementation
+func VerifyAdminKey(key string, hash string) (bool, error) { ... }
+
+// ✅ Phase 2 (later, when actually needed): Extract interface
+type KeyVerifier interface {
+    Verify(key string) (bool, error)
+}
+```
+
+### No Global State
+
+```go
+// ❌ FORBIDDEN: Package-level mutable state
+var redisClient *redis.Client  // BAD: who initializes this? when?
+
+// ✅ CORRECT: Explicit dependency injection via struct fields
+type Server struct {
+    redis *redis.Client
+    pool  *gpu.Pool
+    queue *queue.JobQueue
+}
+
+func NewServer(redis *redis.Client, pool *gpu.Pool, queue *queue.JobQueue) *Server {
+    return &Server{redis: redis, pool: pool, queue: queue}
+}
+```
+
+### Configuration
+
+```go
+// ✅ CORRECT: Config struct, loaded once, passed explicitly
+type Config struct {
+    Port          int
+    RedisURL      string
+    AdminKeyHash  string
+    APIKeyHash    string
+    ModelName     string
+    Quantization  string
+    ContextSize   int
+    MaxParallelism int
+}
+
+func LoadConfig() (*Config, error) {
+    // Parse env vars, validate, return
+}
+
+// ❌ FORBIDDEN: Reading env vars deep in business logic
+func HandleHello(msg HelloMessage) {
+    hash := os.Getenv("ROUTER_ADMIN_KEY_HASH")  // NO
+}
+```
+
+### Dependencies
+
+Keep dependencies MINIMAL. Go's standard library is excellent.
+
+**Allowed dependencies:**
+- `github.com/redis/go-redis/v9` — Redis client
+- `github.com/gorilla/websocket` — WebSocket
+- `golang.org/x/crypto/argon2` — Key hashing
+- `github.com/stretchr/testify` — Test assertions
+- `github.com/alicebob/miniredis/v2` — Mock Redis for tests
+- `github.com/jackc/pgx/v5` — PostgreSQL (paid product only)
+
+**FORBIDDEN dependencies:**
+- Dependency injection frameworks (wire, dig, fx) — use constructor functions
+- HTTP routers (chi, gin, echo) — use `net/http` stdlib for the OSS router
+- ORM frameworks (gorm, ent) — use raw SQL or sqlc
+- Logging frameworks (zap, zerolog) — use `log/slog` (stdlib, Go 1.21+)
+- Configuration libraries (viper, envconfig) — parse env vars directly
+- UUID libraries — use `crypto/rand` to generate, or `google/uuid` if needed
+
+The Go standard library has: HTTP server, JSON encoding, TLS, testing, logging, crypto, context, sync primitives. Use them.
+
+---
+
+## Build and CI
+
+### Makefile
+
+Every Go project MUST have a Makefile with these targets:
+
+```makefile
+.PHONY: build test lint vet check
+
+build:
+	go build ./...
+
+test:
+	go test ./...
+
+test-race:
+	go test -race ./...
+
+vet:
+	go vet ./...
+
+lint:
+	golangci-lint run
+
+# Run ALL checks (this is what CI runs)
+check: vet lint test-race build
+```
+
+### golangci-lint
+
+Install and configure `golangci-lint`. Create `.golangci.yml`:
+
+```yaml
+linters:
+  enable:
+    - errcheck      # Check error returns
+    - govet         # Go vet checks
+    - staticcheck   # Advanced static analysis
+    - unused        # Find unused code
+    - gosimple      # Simplification suggestions
+    - ineffassign   # Detect ineffectual assignments
+    - gocritic      # Opinionated style checks
+    - revive        # Replacement for golint
+```
+
+---
+
+## Development Workflow
+
+### One Package at a Time
+
+1. Write the package (e.g., `pkg/protocol`)
+2. Write tests for the package
+3. Run `go build ./...` — does it compile?
+4. Run `go test ./pkg/protocol/...` — do tests pass?
+5. Run `go vet ./...` — any issues?
+6. ONLY THEN move to the next package
+
+### No Big Bang
+
+Do NOT write 5 packages at once and hope they work together. Build incrementally:
+
+1. `pkg/protocol` — message types + serialization + tests
+2. `pkg/auth` — key verification + tests
+3. `pkg/registry` — model loading + tests
+4. `pkg/queue` — Redis Streams + tests (with miniredis)
+5. `pkg/gpu` — pool management + tests
+6. `pkg/openai` — format translation + tests
+7. `cmd/auxot-router` — wire it all together
+8. Integration tests
+
+Each step must compile and have passing tests before the next begins.
+
+---
+
+## What to Do When Unsure
+
+If you (the AI) are not confident about a Go pattern:
+
+1. **Say so.** "I'm not sure if this is idiomatic Go. Let me check."
+2. **Reference the Go standard library.** If the stdlib does it a certain way, that's the right way.
+3. **Don't invent patterns.** Go is deliberately simple. If your solution feels complex, it's wrong.
+4. **Ask the user.** "This could go two ways: X or Y. X is simpler but less flexible. Y handles edge case Z. Which do you prefer?"
+
+**Go proverbs to internalize:**
+- "Clear is better than clever."
+- "A little copying is better than a little dependency."
+- "Don't communicate by sharing memory; share memory by communicating."
+- "The bigger the interface, the weaker the abstraction."
+- "Make the zero value useful."
+- "Errors are values."
