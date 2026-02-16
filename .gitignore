@@ -1,6 +1,6 @@
-# Binaries
-auxot-router
-auxot-worker
+# Binaries (root-level only — don't ignore cmd/ source)
+/auxot-router
+/auxot-worker
 *.exe
 *.exe~
 *.dll

@@ -1,0 +1,377 @@
+// Command auxot-worker is the GPU inference worker binary.
+//
+// Lifecycle:
+//  1. Connect to router → authenticate → receive policy (model, quant, ctx, parallelism)
+//  2. Download model from HuggingFace (cached to ~/.auxot/models/)
+//  3. Download llama.cpp binary from GitHub releases (cached to ~/.auxot/llama-server/)
+//  4. Detect GPU hardware
+//  5. Spawn llama.cpp as subprocess
+//  6. Discover capabilities from running llama.cpp
+//  7. Reconnect to router permanently → send capabilities → process jobs
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"strconv"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/joho/godotenv"
+
+	"github.com/auxothq/auxot/internal/worker"
+	"github.com/auxothq/auxot/pkg/gpudetect"
+	"github.com/auxothq/auxot/pkg/llamabin"
+	"github.com/auxothq/auxot/pkg/logutil"
+	"github.com/auxothq/auxot/pkg/modeldown"
+	"github.com/auxothq/auxot/pkg/protocol"
+)
+
+func main() {
+	_ = godotenv.Load()
+
+	// Manual argument parsing (--debug has optional value that flag package can't handle)
+	var flags worker.CLIFlags
+	debugLevel := 0
+
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "version":
+			fmt.Println("auxot-worker v0.1.0")
+			return
+		case "help", "--help", "-h":
+			printHelp()
+			return
+		case "--gpu-key":
+			if i+1 < len(args) {
+				i++
+				flags.GPUKey = args[i]
+			}
+		case "--router-url":
+			if i+1 < len(args) {
+				i++
+				flags.RouterURL = args[i]
+			}
+		case "--model-path":
+			if i+1 < len(args) {
+				i++
+				flags.ModelPath = args[i]
+			}
+		case "--llama-server-path":
+			if i+1 < len(args) {
+				i++
+				flags.LlamaServerPath = args[i]
+			}
+		case "--debug":
+			// --debug (default 1) or --debug 1 or --debug 2
+			debugLevel = 1
+			if i+1 < len(args) {
+				if n, err := strconv.Atoi(args[i+1]); err == nil && (n == 1 || n == 2) {
+					debugLevel = n
+					i++
+				}
+			}
+		}
+	}
+
+	// Set debug level BEFORE anything else
+	worker.SetDebugLevel(debugLevel)
+
+	// All output is JSON via slog. Pretty-printed when stderr is a TTY.
+	logger := slog.New(slog.NewJSONHandler(
+		logutil.Output(os.Stderr),
+		&slog.HandlerOptions{Level: slogLevel()},
+	))
+	slog.SetDefault(logger)
+
+	cfg, err := worker.LoadConfig(flags)
+	if err != nil {
+		logger.Error("configuration error", "error", err.Error())
+		os.Exit(1)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := run(ctx, cfg, logger); err != nil {
+		logger.Error("fatal", "error", err.Error())
+		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
+	logger.Info("auxot-worker starting", "version", "0.1.0")
+
+	// ----------------------------------------------------------------
+	// Phase 1: Fetch policy from router (temporary connection)
+	// ----------------------------------------------------------------
+	conn := worker.NewConnection(cfg.RouterURL, cfg.AdminKey, cfg, logger)
+
+	policy, err := conn.FetchPolicy()
+	if err != nil {
+		return fmt.Errorf("fetching policy: %w", err)
+	}
+	logger.Info("authenticated", "gpu_id", conn.GPUID())
+	logger.Info("policy",
+		"model", policy.ModelName,
+		"quantization", policy.Quantization,
+		"context_size", policy.ContextSize,
+		"max_parallelism", policy.MaxParallelism,
+	)
+
+	// ----------------------------------------------------------------
+	// Phase 2: Download model
+	// ----------------------------------------------------------------
+	modelPath, err := modeldown.Ensure(ctx, policy, cfg.ModelsDir, cfg.ModelFile, logger)
+	if err != nil {
+		return fmt.Errorf("ensuring model: %w", err)
+	}
+	logger.Info("model ready", "path", modelPath)
+
+	// ----------------------------------------------------------------
+	// Phase 3: Download llama.cpp binary + detect GPU
+	// ----------------------------------------------------------------
+	binaryPath := cfg.LlamaBinaryPath
+	if binaryPath == "" {
+		bp, err := llamabin.Ensure(cfg.LlamaCacheDir, logger)
+		if err != nil {
+			return fmt.Errorf("ensuring llama.cpp binary: %w", err)
+		}
+		binaryPath = bp
+	}
+	logger.Info("llama.cpp binary", "path", binaryPath)
+
+	gpuResult := gpudetect.Detect()
+	logger.Info("gpu detected",
+		"backend", gpuResult.Backend,
+		"detected", gpuResult.Detected,
+	)
+	if gpuResult.Warning != "" {
+		logger.Warn("gpu", "warning", gpuResult.Warning)
+	}
+
+	// Find a free port for llama.cpp
+	llamaPort, err := worker.FindFreePort()
+	if err != nil {
+		return fmt.Errorf("finding free port: %w", err)
+	}
+
+	// ----------------------------------------------------------------
+	// Phase 4: Spawn llama.cpp
+	// ----------------------------------------------------------------
+	llama := worker.NewLlamaProcess(worker.LlamaOpts{
+		BinaryPath:  binaryPath,
+		ModelPath:   modelPath,
+		ContextSize: policy.ContextSize,
+		Parallelism: policy.MaxParallelism,
+		Port:        llamaPort,
+		Host:        "127.0.0.1",
+		GPULayers:   cfg.GPULayers,
+		Threads:     cfg.Threads,
+	}, logger)
+
+	if err := llama.Start(); err != nil {
+		return fmt.Errorf("starting llama.cpp: %w", err)
+	}
+	defer llama.Stop()
+
+	logger.Info("llama.cpp started", "port", llamaPort)
+	logger.Info("waiting for llama.cpp")
+
+	if err := llama.WaitForReady(ctx, 120*time.Second); err != nil {
+		return fmt.Errorf("llama.cpp not ready: %w", err)
+	}
+	logger.Info("llama.cpp ready")
+
+	llama.Warmup()
+	logger.Info("model warmed up")
+
+	// ----------------------------------------------------------------
+	// Phase 5: Discover capabilities
+	// ----------------------------------------------------------------
+	caps, err := llama.DiscoverCapabilities()
+	if err != nil {
+		return fmt.Errorf("discovering capabilities: %w", err)
+	}
+
+	logger.Info("capabilities",
+		"model", caps.Model,
+		"backend", caps.Backend,
+		"ctx_size", caps.CtxSize,
+		"total_slots", caps.TotalSlots,
+		"vram_gb", caps.VRAMGB,
+		"parameters", caps.Parameters,
+	)
+
+	// ----------------------------------------------------------------
+	// Phase 6: Permanent connection
+	// ----------------------------------------------------------------
+	if err := conn.ConnectPermanent(caps); err != nil {
+		return fmt.Errorf("permanent connection: %w", err)
+	}
+	defer conn.Close()
+
+	// CRITICAL: When context is cancelled (SIGINT), close the WebSocket
+	// connection to unblock ReadMessage(). Without this, Ctrl+C hangs forever.
+	go func() {
+		<-ctx.Done()
+		conn.Close()
+	}()
+
+	logger.Info("worker ready", "gpu_id", conn.GPUID())
+
+	// ----------------------------------------------------------------
+	// Phase 7: Process jobs
+	// ----------------------------------------------------------------
+	executor := worker.NewExecutor(llama.URL(), cfg.JobTimeout, logger)
+	activeJobs := &sync.Map{}
+
+	conn.OnJob(func(job protocol.JobMessage) {
+		abortCtx, cancel := context.WithCancel(ctx)
+		activeJobs.Store(job.JobID, cancel)
+		defer func() {
+			activeJobs.Delete(job.JobID)
+			cancel()
+		}()
+
+		executor.Execute(
+			abortCtx,
+			job,
+			func(token string) error {
+				return conn.SendToken(job.JobID, token)
+			},
+			func(fullResponse string, inputTokens, outputTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
+				return conn.SendComplete(job.JobID, fullResponse, durationMS, inputTokens, outputTokens, toolCalls)
+			},
+			func(errMsg, details string) error {
+				return conn.SendError(job.JobID, errMsg)
+			},
+		)
+	})
+
+	conn.OnCancel(func(jobID string) {
+		if cancel, ok := activeJobs.Load(jobID); ok {
+			cancel.(context.CancelFunc)()
+		}
+	})
+
+	// Handle llama.cpp crash → auto-restart
+	llama.OnCrash(func(exitCode int, err error) {
+		logger.Error("llama.cpp crashed", "exit_code", exitCode, "error", err)
+		logger.Info("restarting llama.cpp")
+		time.Sleep(2 * time.Second)
+
+		if restartErr := llama.Start(); restartErr != nil {
+			logger.Error("failed to restart llama.cpp", "error", restartErr)
+			return
+		}
+		if err := llama.WaitForReady(ctx, 120*time.Second); err != nil {
+			logger.Error("restarted llama.cpp not ready", "error", err)
+			return
+		}
+		logger.Info("llama.cpp recovered")
+	})
+
+	// Block on message loop (reconnects on disconnect)
+	for {
+		err := conn.RunMessageLoop()
+		if ctx.Err() != nil {
+			logger.Info("shutting down")
+			return nil
+		}
+		if err != nil {
+			logger.Warn("disconnected", "error", err.Error())
+		}
+
+		// Reconnect with backoff
+		delay := cfg.ReconnectDelay
+		for {
+			if ctx.Err() != nil {
+				return nil
+			}
+
+			logger.Info("reconnecting", "delay", delay.String())
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(delay):
+			}
+
+			if err := conn.ConnectPermanent(caps); err != nil {
+				logger.Warn("reconnect failed", "error", err.Error())
+				delay *= 2
+				if delay > cfg.ReconnectMaxDelay {
+					delay = cfg.ReconnectMaxDelay
+				}
+				continue
+			}
+			logger.Info("reconnected", "gpu_id", conn.GPUID())
+			break
+		}
+	}
+}
+
+func printHelp() {
+	fmt.Println(`auxot-worker — GPU inference worker
+
+Usage:
+  auxot-worker                Connect to router and start processing jobs
+  auxot-worker version        Print version
+  auxot-worker help           Print this help
+
+Flags:
+  --gpu-key <key>             Admin key for authentication (overrides AUXOT_GPU_KEY)
+  --router-url <url>          Router WebSocket URL (overrides AUXOT_ROUTER_URL)
+  --model-path <path>         Path to local GGUF model file (overrides AUXOT_MODEL_FILE)
+                              Skips model download — for air-gapped deployments
+  --llama-server-path <path>  Path to local llama-server binary (overrides AUXOT_LLAMA_BINARY)
+                              Skips binary download — for air-gapped deployments
+  --debug [level]             Enable debug logging (level 1 or 2, default: 1)
+                              Level 1: WebSocket messages (router <-> worker) - smart/collapsed
+                              Level 2: Level 1 + full llama.cpp requests/responses + per-token output
+
+Environment Variables:
+  AUXOT_ROUTER_URL            Router WebSocket URL (default: ws://localhost:8080/ws)
+  AUXOT_GPU_KEY               Admin key (required, adm_... from router setup)
+  AUXOT_MODEL_FILE            Path to local GGUF file (air-gapped, skip download)
+  AUXOT_MODELS_DIR            Model cache dir (default: ~/.auxot/models)
+  AUXOT_LLAMA_CACHE_DIR       llama.cpp cache dir (default: ~/.auxot/llama-server)
+  AUXOT_LLAMA_BINARY          Path to llama-server binary (skip download)
+  AUXOT_GPU_LAYERS            GPU layers to offload (default: 9999 = all)
+  AUXOT_THREADS               CPU threads for llama.cpp (default: auto)
+  AUXOT_HEARTBEAT_INTERVAL    Heartbeat interval (default: 10s)
+  AUXOT_RECONNECT_DELAY       Initial reconnect delay (default: 2s)
+  AUXOT_RECONNECT_MAX_DELAY   Max reconnect backoff (default: 60s)
+  AUXOT_JOB_TIMEOUT           Max job duration (default: 5m)
+  AUXOT_LOG_LEVEL             Log level: debug, info, warn, error (default: info)
+
+Air-Gapped Deployment:
+  For deployments without internet access, provide both a local model file and
+  a local llama-server binary. The worker will skip all downloads and use the
+  provided paths directly.
+
+  Example:
+    auxot-worker \
+      --gpu-key adm_xxx \
+      --router-url ws://router.internal:8080/ws \
+      --model-path /opt/models/qwen3-8b-Q4_K_M.gguf \
+      --llama-server-path /opt/bin/llama-server`)
+}
+
+func slogLevel() slog.Level {
+	switch os.Getenv("AUXOT_LOG_LEVEL") {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
