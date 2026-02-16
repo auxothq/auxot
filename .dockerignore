@@ -36,6 +36,5 @@ LICENSE
 # Development only
 docker-compose.yml
 Tiltfile
-Makefile
 
 # Don't ignore go.mod, go.sum, or source code
