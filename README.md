@@ -22,14 +22,14 @@ Run any open-source LLM on your own GPU and serve it as an API — OpenAI-compat
 ### Deploy to Fly.io (no clone required)
 
 ```bash
-npx @auxot/cli setup --fly
+npx --yes @auxot/cli setup --fly
 ```
 
 Follow the printed steps — create app, set secrets, deploy. Then connect your GPU:
 
 ```bash
 # Run this on your GPU machine. Keep it running.
-npx @auxot/worker-cli --gpu-key adm_xxx --router-url wss://your-app.fly.dev/ws
+npx --yes @auxot/worker-cli --gpu-key adm_xxx --router-url wss://your-app.fly.dev/ws
 ```
 
 ### Configure Your Tools
@@ -45,11 +45,21 @@ Point any OpenAI or Anthropic-compatible tool at your router:
 
 Works with Claude Code, Cursor, Open WebUI, LangChain, and anything that speaks these protocols.
 
+### Verify Your Setup
+
+```bash
+npx --yes @auxot/cli verify \
+  --router-url https://your-app.fly.dev \
+  --api-key rtr_xxx
+```
+
+Runs a health check, lists models, sends a test prompt, and shows performance stats (tokens/sec, time to first token, wall time).
+
 ### Run Locally
 
 ```bash
 # Generate keys
-npx @auxot/cli setup
+npx --yes @auxot/cli setup
 
 # Set environment variables (copy from setup output)
 export AUXOT_ADMIN_KEY_HASH='$argon2id$...'
@@ -72,7 +82,7 @@ docker run -p 8080:8080 \
 Connect a GPU worker (on any machine with a GPU):
 
 ```bash
-npx @auxot/worker-cli --gpu-key adm_xxx --router-url ws://localhost:8080/ws
+npx --yes @auxot/worker-cli --gpu-key adm_xxx --router-url ws://localhost:8080/ws
 ```
 
 Then configure your tools with `http://localhost:8080/api/openai` or `http://localhost:8080/api/anthropic` as the base URL.
@@ -168,13 +178,13 @@ curl -L https://fly.io/install.sh | sh
 fly auth login
 
 # Generate keys + get step-by-step commands
-npx @auxot/cli setup --fly
+npx --yes @auxot/cli setup --fly
 ```
 
 ### Interactive deploy
 
 ```bash
-npx @auxot/cli deploy
+npx --yes @auxot/cli deploy
 ```
 
 The `deploy` command is interactive — it creates the app, generates keys, sets secrets, and deploys the pre-built Docker image.
@@ -223,6 +233,16 @@ auxot-worker --router-url wss://...   # Connect to remote router
 auxot-worker --debug                  # Debug logging (level 1)
 auxot-worker --debug 2                # Verbose logging (llama.cpp output)
 auxot-worker help                     # Print help
+```
+
+### CLI Tool
+
+```bash
+npx --yes @auxot/cli setup                  # Generate keys and env vars
+npx --yes @auxot/cli setup --fly            # Step-by-step Fly.io deploy commands
+npx --yes @auxot/cli deploy                 # Interactive Fly.io deploy
+npx --yes @auxot/cli verify --router-url URL --api-key KEY   # Health + inference test
+npx --yes @auxot/cli verify --prompt "..."  # Custom test prompt
 ```
 
 ## API Reference
