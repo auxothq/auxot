@@ -47,6 +47,7 @@ type StreamToken struct {
 
 // Timings contains llama.cpp performance metrics from the last chunk.
 type Timings struct {
+	CacheTokens      int     `json:"cache_n"`
 	PromptTokens     int     `json:"prompt_n"`
 	PromptMS         float64 `json:"prompt_ms"`
 	PredictedTokens  int     `json:"predicted_n"`
@@ -59,6 +60,7 @@ type CompletionResult struct {
 	FullResponse  string
 	ToolCalls     []openai.ToolCall
 	FinishReason  string
+	CacheTokens   int
 	InputTokens   int
 	OutputTokens  int
 	DurationMS    float64
@@ -277,6 +279,7 @@ func CollectStream(tokens <-chan StreamToken) *CompletionResult {
 		}
 
 		if token.Timings != nil {
+			result.CacheTokens = token.Timings.CacheTokens
 			result.InputTokens = token.Timings.PromptTokens
 			result.OutputTokens = token.Timings.PredictedTokens
 			result.DurationMS = token.Timings.PredictedMS + token.Timings.PromptMS

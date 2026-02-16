@@ -477,8 +477,9 @@ func (h *APIHandler) streamChatResponse(w http.ResponseWriter, r *http.Request, 
 			json.Unmarshal(entry.Event.Data, &complete)
 
 			var usage *openai.Usage
-			if complete.InputTokens > 0 || complete.OutputTokens > 0 {
+			if complete.InputTokens > 0 || complete.OutputTokens > 0 || complete.CacheTokens > 0 {
 				usage = &openai.Usage{
+					CacheTokens:      complete.CacheTokens,
 					PromptTokens:     complete.InputTokens,
 					CompletionTokens: complete.OutputTokens,
 					TotalTokens:      complete.InputTokens + complete.OutputTokens,
@@ -556,41 +557,42 @@ func (h *APIHandler) blockingChatResponse(w http.ResponseWriter, r *http.Request
 					fullContent.WriteString(token)
 				}
 
-			case "done":
-				var complete protocol.CompleteMessage
-				if err := json.Unmarshal(entry.Event.Data, &complete); err == nil {
-					inputTokens = complete.InputTokens
-					outputTokens = complete.OutputTokens
+		case "done":
+			var complete protocol.CompleteMessage
+			if err := json.Unmarshal(entry.Event.Data, &complete); err == nil {
+				inputTokens = complete.InputTokens
+				outputTokens = complete.OutputTokens
 
-					if complete.FullResponse != "" {
-						fullContent.Reset()
-						fullContent.WriteString(complete.FullResponse)
-					}
-
-					for _, tc := range complete.ToolCalls {
-						toolCalls = append(toolCalls, openai.ToolCall{
-							ID:   tc.ID,
-							Type: tc.Type,
-							Function: openai.ToolCallFunction{
-								Name:      tc.Function.Name,
-								Arguments: tc.Function.Arguments,
-							},
-						})
-					}
+				if complete.FullResponse != "" {
+					fullContent.Reset()
+					fullContent.WriteString(complete.FullResponse)
 				}
 
-				usage := &openai.Usage{
-					PromptTokens:     inputTokens,
-					CompletionTokens: outputTokens,
-					TotalTokens:      inputTokens + outputTokens,
+				for _, tc := range complete.ToolCalls {
+					toolCalls = append(toolCalls, openai.ToolCall{
+						ID:   tc.ID,
+						Type: tc.Type,
+						Function: openai.ToolCallFunction{
+							Name:      tc.Function.Name,
+							Arguments: tc.Function.Arguments,
+						},
+					})
 				}
+			}
 
-				var resp *openai.ChatCompletionResponse
-				if len(toolCalls) > 0 {
-					resp = openai.NewToolCallResponse(model, toolCalls, usage)
-				} else {
-					resp = openai.NewNonStreamingResponse(model, fullContent.String(), "stop", usage)
-				}
+			usage := &openai.Usage{
+				CacheTokens:      complete.CacheTokens,
+				PromptTokens:     inputTokens,
+				CompletionTokens: outputTokens,
+				TotalTokens:      inputTokens + outputTokens,
+			}
+
+			var resp *openai.ChatCompletionResponse
+			if len(toolCalls) > 0 {
+				resp = openai.NewToolCallResponse(model, toolCalls, usage)
+			} else {
+				resp = openai.NewNonStreamingResponse(model, fullContent.String(), "stop", usage)
+			}
 
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(resp)
@@ -738,24 +740,25 @@ func (h *APIHandler) blockingLegacyResponse(w http.ResponseWriter, r *http.Reque
 					fullContent.WriteString(token)
 				}
 
-			case "done":
-				var complete protocol.CompleteMessage
-				if err := json.Unmarshal(entry.Event.Data, &complete); err == nil {
-					inputTokens = complete.InputTokens
-					outputTokens = complete.OutputTokens
-					if complete.FullResponse != "" {
-						fullContent.Reset()
-						fullContent.WriteString(complete.FullResponse)
-					}
+		case "done":
+			var complete protocol.CompleteMessage
+			if err := json.Unmarshal(entry.Event.Data, &complete); err == nil {
+				inputTokens = complete.InputTokens
+				outputTokens = complete.OutputTokens
+				if complete.FullResponse != "" {
+					fullContent.Reset()
+					fullContent.WriteString(complete.FullResponse)
 				}
+			}
 
-				usage := &openai.Usage{
-					PromptTokens:     inputTokens,
-					CompletionTokens: outputTokens,
-					TotalTokens:      inputTokens + outputTokens,
-				}
+			usage := &openai.Usage{
+				CacheTokens:      complete.CacheTokens,
+				PromptTokens:     inputTokens,
+				CompletionTokens: outputTokens,
+				TotalTokens:      inputTokens + outputTokens,
+			}
 
-				resp := openai.NewCompletionResponse(model, fullContent.String(), "stop", usage)
+			resp := openai.NewCompletionResponse(model, fullContent.String(), "stop", usage)
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(resp)
 				return

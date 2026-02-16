@@ -283,8 +283,8 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 			func(token string) error {
 				return conn.SendToken(job.JobID, token)
 			},
-			func(fullResponse string, inputTokens, outputTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
-				return conn.SendComplete(job.JobID, fullResponse, durationMS, inputTokens, outputTokens, toolCalls)
+			func(fullResponse string, cacheTokens, inputTokens, outputTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
+				return conn.SendComplete(job.JobID, fullResponse, durationMS, cacheTokens, inputTokens, outputTokens, toolCalls)
 			},
 			func(errMsg, details string) error {
 				return conn.SendError(job.JobID, errMsg)

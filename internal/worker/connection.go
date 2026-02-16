@@ -247,12 +247,13 @@ func (c *Connection) SendToken(jobID, token string) error {
 }
 
 // SendComplete sends a completion message to the router.
-func (c *Connection) SendComplete(jobID, fullResponse string, durationMS int64, inputTokens, outputTokens int, toolCalls []protocol.ToolCall) error {
+func (c *Connection) SendComplete(jobID, fullResponse string, durationMS int64, cacheTokens, inputTokens, outputTokens int, toolCalls []protocol.ToolCall) error {
 	return c.sendJSON(protocol.CompleteMessage{
 		Type:         protocol.TypeComplete,
 		JobID:        jobID,
 		FullResponse: fullResponse,
 		DurationMS:   durationMS,
+		CacheTokens:  cacheTokens,
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
 		ToolCalls:    toolCalls,

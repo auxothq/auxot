@@ -85,6 +85,7 @@ type Choice struct {
 
 // Usage reports token counts.
 type Usage struct {
+	CacheTokens      int `json:"cache_tokens,omitempty"`
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`

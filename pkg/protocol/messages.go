@@ -101,6 +101,7 @@ type CompleteMessage struct {
 	JobID        string      `json:"job_id"`
 	FullResponse string      `json:"full_response"`
 	DurationMS   int64       `json:"duration_ms,omitempty"`
+	CacheTokens  int         `json:"cache_tokens,omitempty"`
 	InputTokens  int         `json:"input_tokens,omitempty"`
 	OutputTokens int         `json:"output_tokens,omitempty"`
 	ToolCalls    []ToolCall  `json:"tool_calls,omitempty"`

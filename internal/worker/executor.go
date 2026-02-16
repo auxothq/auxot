@@ -36,7 +36,7 @@ func (e *Executor) Execute(
 	ctx context.Context,
 	job protocol.JobMessage,
 	sendToken func(token string) error,
-	sendComplete func(fullResponse string, inputTokens, outputTokens int, durationMS int64, toolCalls []protocol.ToolCall) error,
+	sendComplete func(fullResponse string, cacheTokens, inputTokens, outputTokens int, durationMS int64, toolCalls []protocol.ToolCall) error,
 	sendError func(errMsg, details string) error,
 ) {
 	jobCtx, cancel := context.WithTimeout(ctx, e.jobTimeout)
@@ -177,17 +177,18 @@ func (e *Executor) Execute(
 		}
 	}
 
-	inputTokens, outputTokens, durationMS := 0, 0, int64(0)
+	cacheTokens, inputTokens, outputTokens, durationMS := 0, 0, 0, int64(0)
 	if finalTimings != nil {
+		cacheTokens = finalTimings.CacheTokens
 		inputTokens = finalTimings.PromptTokens
 		outputTokens = finalTimings.PredictedTokens
 		durationMS = int64(finalTimings.PromptMS + finalTimings.PredictedMS)
 	}
 
 	// Log job completion with progressive detail based on debug level
-	logJobCompleted(e.logger, job.JobID, finishReason, inputTokens, outputTokens, durationMS, fullResponse.String(), protoToolCalls)
+	logJobCompleted(e.logger, job.JobID, finishReason, cacheTokens, inputTokens, outputTokens, durationMS, fullResponse.String(), protoToolCalls)
 
-	if err := sendComplete(fullResponse.String(), inputTokens, outputTokens, durationMS, protoToolCalls); err != nil {
+	if err := sendComplete(fullResponse.String(), cacheTokens, inputTokens, outputTokens, durationMS, protoToolCalls); err != nil {
 		e.logger.Error("failed to send completion", "job_id", job.JobID, "error", err)
 	}
 }
@@ -196,13 +197,14 @@ func (e *Executor) Execute(
 // Level 0: Summary stats only (job_id, tokens, duration, finish_reason)
 // Level 1: Level 0 + full response text + tool calls with arguments
 // Level 2: Level 0 + Level 1 (same as level 1, streaming tokens shown separately via ws_send)
-func logJobCompleted(logger *slog.Logger, jobID, finishReason string, inputTokens, outputTokens int, durationMS int64, fullResponse string, toolCalls []protocol.ToolCall) {
+func logJobCompleted(logger *slog.Logger, jobID, finishReason string, cacheTokens, inputTokens, outputTokens int, durationMS int64, fullResponse string, toolCalls []protocol.ToolCall) {
 	level := DebugLevel()
 
 	// Level 0: Always log summary stats
 	attrs := []any{
 		"job_id", jobID,
 		"finish_reason", finishReason,
+		"cache_tokens", cacheTokens,
 		"input_tokens", inputTokens,
 		"output_tokens", outputTokens,
 		"duration_ms", durationMS,
