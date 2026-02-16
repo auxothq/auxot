@@ -1,4 +1,4 @@
-.PHONY: build test test-integration test-race vet lint check clean sync-registry
+.PHONY: build test test-integration test-race vet lint check clean sync-registry tag-release
 
 # Build all binaries to ./bin/
 build: bin/auxot-router bin/auxot-worker
@@ -51,14 +51,18 @@ sync-registry:
 	MODEL_COUNT=$$(python3 -c "import json; print(len(json.load(open('pkg/registry/registry.json'))['models']))") && \
 	echo "✓ Updated pkg/registry/registry.json ($$MODEL_COUNT models)"
 
-# Cross-compile for all platforms
-PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
-
-release:
-	@for platform in $(PLATFORMS); do \
-		os=$$(echo $$platform | cut -d/ -f1); \
-		arch=$$(echo $$platform | cut -d/ -f2); \
-		echo "Building $$os/$$arch..."; \
-		GOOS=$$os GOARCH=$$arch go build -o bin/auxot-router-$$os-$$arch ./cmd/auxot-router; \
-		GOOS=$$os GOARCH=$$arch go build -o bin/auxot-worker-$$os-$$arch ./cmd/auxot-worker; \
-	done
+# Tag a release — triggers GoReleaser + Docker build via GitHub Actions.
+# Usage: make tag-release V=0.1.0
+tag-release:
+ifndef V
+	$(error Usage: make tag-release V=0.1.0)
+endif
+	@echo "" && \
+	echo "  Tagging v$(V)..." && \
+	git tag "v$(V)" && \
+	git push origin "v$(V)" && \
+	echo "" && \
+	echo "  ✓ Tagged: v$(V)" && \
+	echo "  GoReleaser + Docker build started." && \
+	echo "  Watch: https://github.com/auxothq/auxot/actions" && \
+	echo ""
