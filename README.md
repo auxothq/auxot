@@ -9,55 +9,28 @@
 
 ---
 
-Auxot routes OpenAI-compatible and Anthropic-compatible API requests to GPU workers running [llama.cpp](https://github.com/ggerganov/llama.cpp). You run the router on a server, connect one or more GPUs, and point your tools at it.
+Run any open-source LLM on your own GPU and serve it as an API — OpenAI-compatible and Anthropic-compatible out of the box. Point Claude Code, Cursor, Open WebUI, or any tool at it and start using your own hardware for inference. No vendor lock-in. No tokens burned. Your GPU, your data, your rules.
 
-- **Single binary** — no runtime dependencies, no Redis to manage
-- **FROM scratch** Docker image — ~10MB, starts in milliseconds
-- **OpenAI + Anthropic API compatible** — works with any client that speaks those protocols
-- **700+ models** — embedded model registry with automatic quantization selection
-- **Resumable downloads** — workers auto-download models from HuggingFace with resume support
-- **Tool calling** — full streaming tool call support for agentic workflows
-- **Dead worker recovery** — automatic job reclamation when GPU workers disconnect
-
-## How It Works
-
-```
-┌──────────────┐       ┌──────────────┐       ┌──────────────┐
-│   Your App   │──────▶│  auxot-router │◀─────▶│  auxot-worker │
-│  (any client)│  API  │  (server)    │  WS   │  (your GPU)  │
-└──────────────┘       └──────────────┘       └──────────────┘
-                              │
-                        ┌─────┴─────┐
-                        │   Redis   │
-                        │(embedded) │
-                        └───────────┘
-```
-
-The router accepts API requests, queues them via Redis Streams, and distributes them to connected GPU workers. Workers run llama.cpp and stream tokens back through the router to your application.
-
-Redis is **embedded by default** (in-memory, ephemeral). No external services needed. Set `AUXOT_REDIS_URL` if you want persistence or multi-instance routing.
+- **One command to deploy, one command to connect your GPU** — no cluster, no orchestrator, no YAML
+- **Works with every tool that speaks OpenAI or Anthropic** — Claude Code, Cursor, Open WebUI, LangChain, anything
+- **700+ models** — automatic quantization selection, just pick a name
+- **Streaming tool calls** — full agentic workflow support for coding assistants
+- **Dead simple** — single binary, no dependencies, embedded Redis, `FROM scratch` Docker image (~10MB)
 
 ## Quickstart
 
 ### Deploy to Fly.io (no clone required)
 
-The fastest way to get a production router running:
-
 ```bash
-# Generate keys and get step-by-step deploy commands
 npx @auxot/cli setup --fly
 ```
 
-This prints a complete copy-paste flow: create the Fly app, write `fly.toml`, set secrets, deploy the pre-built image, and connect a GPU worker. Follow the steps in order.
-
-Then connect a GPU worker from any machine with a GPU:
+Follow the printed steps — create app, set secrets, deploy. Then connect your GPU:
 
 ```bash
-# This is a long-running process — keep it running on your GPU machine
+# Run this on your GPU machine. Keep it running.
 npx @auxot/worker-cli --gpu-key adm_xxx --router-url wss://your-app.fly.dev/ws
 ```
-
-That's it. Your router is live and your GPU is serving requests.
 
 ### Configure Your Tools
 
@@ -70,7 +43,7 @@ Point any OpenAI or Anthropic-compatible tool at your router:
 
 **API Key:** the `rtr_...` key from setup.
 
-Works with Claude Code, Cursor, Open WebUI, LangChain, and anything that speaks OpenAI or Anthropic API.
+Works with Claude Code, Cursor, Open WebUI, LangChain, and anything that speaks these protocols.
 
 ### Run Locally
 
@@ -81,7 +54,6 @@ npx @auxot/cli setup
 # Set environment variables (copy from setup output)
 export AUXOT_ADMIN_KEY_HASH='$argon2id$...'
 export AUXOT_API_KEY_HASH='$argon2id$...'
-export AUXOT_MODEL=Qwen3-Coder-30B-A3B
 
 # Start the router
 go install github.com/auxothq/auxot/cmd/auxot-router@latest
@@ -90,27 +62,18 @@ auxot-router
 
 Or download a binary from [Releases](https://github.com/auxothq/auxot/releases).
 
-### Connect a GPU Worker
-
-On a machine with a GPU:
+Connect a GPU worker (on any machine with a GPU):
 
 ```bash
 npx @auxot/worker-cli --gpu-key adm_xxx --router-url ws://localhost:8080/ws
 ```
 
-The worker will:
-1. Connect to the router and receive the model policy
-2. Download the model from HuggingFace (cached in `~/.auxot/models/`)
-3. Download llama.cpp (cached in `~/.auxot/llama-server/`)
-4. Detect GPU hardware (Metal, CUDA, Vulkan, or CPU fallback)
-5. Launch llama.cpp and start serving requests
+Then configure your tools with `http://localhost:8080/api/openai` or `http://localhost:8080/api/anthropic` as the base URL.
 
 ### Send Requests
 
-Use any OpenAI-compatible client:
-
 ```bash
-curl http://localhost:8080/api/openai/v1/chat/completions \
+curl http://localhost:8080/api/openai/chat/completions \
   -H "Authorization: Bearer rtr_xxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{
@@ -120,23 +83,9 @@ curl http://localhost:8080/api/openai/v1/chat/completions \
   }'
 ```
 
-Or any Anthropic-compatible client:
-
-```bash
-curl http://localhost:8080/api/anthropic/v1/messages \
-  -H "x-api-key: rtr_xxxxxxxxx" \
-  -H "anthropic-version: 2023-06-01" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "any",
-    "max_tokens": 1024,
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
-```
-
 ## Defaults
 
-Out of the box, Auxot is configured to be useful for chat and agentic tools (Claude Code, OpenClaw, Cursor, etc.):
+Out of the box, Auxot is configured to be useful for chat and agentic tools (Claude Code, Cursor, etc.):
 
 | Setting | Default | Why |
 |---|---|---|
@@ -145,9 +94,11 @@ Out of the box, Auxot is configured to be useful for chat and agentic tools (Cla
 | Context | 128K | Large enough for agentic tool use |
 | Parallel | 2 | Handle concurrent requests without queueing |
 
+The worker automatically dials down parallelism if your GPU doesn't have enough memory.
+
 ### Raising the Defaults
 
-If you have more GPU headroom, you can increase quality and throughput:
+If you have more GPU headroom:
 
 ```bash
 # Bigger model (needs ~74GB VRAM)
@@ -166,11 +117,35 @@ AUXOT_MAX_PARALLEL=4
 ### Choosing a Different Model
 
 ```bash
-# List all available models with context sizes and VRAM requirements
 auxot-router models
 ```
 
-Or browse models with `go run github.com/auxothq/auxot/cmd/auxot-router@latest models`.
+Lists all 700+ available models with context sizes and VRAM requirements.
+
+## How It Works
+
+```
+┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+│   Your App   │─────▶│ auxot-router │◀────▶│ auxot-worker │
+│  (any client)│ API  │   (server)   │  WS  │  (your GPU)  │
+└──────────────┘      └──────────────┘      └──────────────┘
+                             │
+                       ┌─────┴─────┐
+                       │   Redis   │
+                       │(embedded) │
+                       └───────────┘
+```
+
+Auxot routes OpenAI-compatible and Anthropic-compatible API requests to GPU workers running [llama.cpp](https://github.com/ggerganov/llama.cpp). The router accepts API requests, queues them via Redis Streams, and distributes them to connected GPU workers. Workers run llama.cpp and stream tokens back through the router to your application.
+
+Redis is **embedded by default** (in-memory, ephemeral). No external services needed. Set `AUXOT_REDIS_URL` if you want persistence or multi-instance routing.
+
+The worker automatically:
+1. Connects to the router and receives the model policy
+2. Downloads the model from HuggingFace (cached in `~/.auxot/models/`)
+3. Downloads llama.cpp (cached in `~/.auxot/llama-server/`)
+4. Detects GPU hardware (Metal, CUDA, Vulkan, or CPU fallback)
+5. Launches llama.cpp and starts serving requests
 
 ## Deploy to Fly.io
 
@@ -183,20 +158,17 @@ The router deploys to [Fly.io](https://fly.io) as a single `FROM scratch` contai
 curl -L https://fly.io/install.sh | sh
 fly auth login
 
-# Generate keys + deploy
+# Generate keys + get step-by-step commands
+npx @auxot/cli setup --fly
+```
+
+### Interactive deploy
+
+```bash
 npx @auxot/cli deploy
 ```
 
-The `deploy` command is interactive — it creates the app, generates keys, sets secrets, and deploys the pre-built Docker image from GHCR.
-
-### Manual deploy
-
-```bash
-# Generate keys (prints step-by-step commands)
-npx @auxot/cli setup --fly --model Qwen3-235B-A22B-128K
-
-# Follow the printed steps: create app, write fly.toml, set secrets, deploy
-```
+The `deploy` command is interactive — it creates the app, generates keys, sets secrets, and deploys the pre-built Docker image.
 
 ### Scaling
 
@@ -218,8 +190,30 @@ docker pull ghcr.io/auxothq/auxot-router:latest
 docker run -p 8080:8080 \
   -e AUXOT_ADMIN_KEY_HASH='...' \
   -e AUXOT_API_KEY_HASH='...' \
-  -e AUXOT_MODEL=Qwen3-Coder-30B-A3B \
   ghcr.io/auxothq/auxot-router:latest
+```
+
+## CLI Commands
+
+### Router
+
+```bash
+auxot-router              # Start the router
+auxot-router setup        # Generate keys and print configuration
+auxot-router setup --fly  # Generate keys with Fly.io secrets format
+auxot-router models       # List all available models with context sizes
+auxot-router help         # Print help
+```
+
+### Worker
+
+```bash
+auxot-worker                          # Connect to router and start processing
+auxot-worker --gpu-key adm_xxx        # Authenticate with GPU key
+auxot-worker --router-url wss://...   # Connect to remote router
+auxot-worker --debug                  # Debug logging (level 1)
+auxot-worker --debug 2                # Verbose logging (llama.cpp output)
+auxot-worker help                     # Print help
 ```
 
 ## API Reference
@@ -228,8 +222,8 @@ docker run -p 8080:8080 \
 
 | Endpoint | Description |
 |---|---|
-| `POST /api/openai/v1/chat/completions` | Chat completions (streaming + blocking) |
-| `GET /api/openai/v1/models` | List available models |
+| `POST /api/openai/chat/completions` | Chat completions (streaming + blocking) |
+| `GET /api/openai/models` | List available models |
 
 ### Anthropic-Compatible
 
@@ -287,48 +281,6 @@ auxot-worker \
   --llama-server-path /opt/bin/llama-server
 ```
 
-## CLI Commands
-
-### Router
-
-```bash
-auxot-router              # Start the router
-auxot-router setup        # Generate keys and print configuration
-auxot-router setup --fly  # Generate keys with Fly.io secrets format
-auxot-router models       # List all available models with context sizes
-auxot-router help         # Print help
-```
-
-### Worker
-
-```bash
-auxot-worker                          # Connect to router and start processing
-auxot-worker --gpu-key adm_xxx        # Authenticate with GPU key
-auxot-worker --router-url wss://...   # Connect to remote router
-auxot-worker --debug                  # Debug logging (level 1)
-auxot-worker --debug 2                # Verbose logging (llama.cpp output)
-auxot-worker help                     # Print help
-```
-
-## Development
-
-```bash
-# Build both binaries
-make build
-
-# Run tests
-make test
-
-# Run integration tests (uses embedded Redis — no external deps)
-make test-integration
-
-# Run all checks (vet, lint, race, build)
-make check
-
-# Cross-compile for all platforms
-make release
-```
-
 ## Architecture
 
 ```
@@ -365,6 +317,25 @@ auxot/
 - **FROM scratch** — the Docker image is a single Go binary. Nothing else.
 - **Embedded model registry** — compiled into the binary at build time. No API calls to discover models.
 - **Argon2id authentication** — only key hashes are stored. Plaintext keys are shown once during setup.
+
+## Development
+
+```bash
+# Build both binaries
+make build
+
+# Run tests
+make test
+
+# Run integration tests (uses embedded Redis — no external deps)
+make test-integration
+
+# Run all checks (vet, lint, race, build)
+make check
+
+# Cross-compile for all platforms
+make release
+```
 
 ## Auxot Cloud
 
