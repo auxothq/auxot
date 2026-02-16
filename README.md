@@ -9,7 +9,7 @@
 
 ---
 
-Run any open-source LLM on your own GPU and serve it as an API — OpenAI-compatible and Anthropic-compatible out of the box. Point Claude Code, Cursor, Open WebUI, or any tool at it and start using your own hardware for inference. No vendor lock-in. No tokens burned. Your GPU, your data, your rules.
+Run any open-source LLM on your own GPU and serve it as an API — OpenAI-compatible and Anthropic-compatible out of the box. Point Claude Code, Cursor, Open WebUI, or any tool at it and start using your own hardware for inference. No vendor lock-in. No tokens burned. Your GPU, your data, your rules. Runs air-gapped if needed.
 
 - **One command to deploy, one command to connect your GPU** — no cluster, no orchestrator, no YAML
 - **Works with every tool that speaks OpenAI or Anthropic** — Claude Code, Cursor, Open WebUI, LangChain, anything
@@ -77,7 +77,7 @@ curl http://localhost:8080/api/openai/chat/completions \
   -H "Authorization: Bearer rtr_xxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "any",
+    "model": "any - required but ignored",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": true
   }'
@@ -85,7 +85,7 @@ curl http://localhost:8080/api/openai/chat/completions \
 
 ## Defaults
 
-Out of the box, Auxot is configured to be useful for chat and agentic tools (Claude Code, Cursor, etc.):
+Out of the box, Auxot is configured to be useful for chat and agentic tools (Claude Code, OpenClaw, Cursor, etc.):
 
 | Setting | Default | Why |
 |---|---|---|
@@ -97,6 +97,8 @@ Out of the box, Auxot is configured to be useful for chat and agentic tools (Cla
 The worker automatically dials down parallelism if your GPU doesn't have enough memory.
 
 ### Raising the Defaults
+
+This is configured on the server side, the worker honors the server side model policy.
 
 If you have more GPU headroom:
 
