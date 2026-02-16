@@ -31,8 +31,8 @@ type Config struct {
 	// Model policy — resolved from the registry at startup
 	ModelName    string          // Resolved model name (from registry)
 	Quantization string          // Resolved quantization (from registry)
-	ContextSize  int             // Context window to use (default: model's default_context_size)
-	MaxParallel  int             // Max concurrent jobs per GPU (default: 1)
+	ContextSize  int             // Context window to use (default: 131072 / 128K)
+	MaxParallel  int             // Max concurrent jobs per GPU (default: 2)
 	ModelEntry   *registry.Model // The full registry entry — nil only in tests
 
 	// Timeouts
@@ -65,8 +65,8 @@ func LoadConfig() (*Config, error) {
 		RedisURL:          os.Getenv("AUXOT_REDIS_URL"), // Empty string = use embedded miniredis
 		AdminKeyHash:      os.Getenv("AUXOT_ADMIN_KEY_HASH"),
 		APIKeyHash:        os.Getenv("AUXOT_API_KEY_HASH"),
-		ContextSize:       envInt("AUXOT_CTX_SIZE", 0), // 0 = use model default
-		MaxParallel:       envInt("AUXOT_MAX_PARALLEL", 1),
+		ContextSize:       envInt("AUXOT_CTX_SIZE", 131072), // 128K — good for chat + agentic use
+		MaxParallel:       envInt("AUXOT_MAX_PARALLEL", 2),
 		HeartbeatInterval: envDuration("AUXOT_HEARTBEAT_INTERVAL", 15*time.Second),
 		DeadWorkerTimeout: envDuration("AUXOT_DEAD_WORKER_TIMEOUT", 45*time.Second),
 		JobTimeout:        envDuration("AUXOT_JOB_TIMEOUT", 5*time.Minute),
@@ -85,7 +85,7 @@ func LoadConfig() (*Config, error) {
 	// --- Model validation against registry ---
 	modelInput := os.Getenv("AUXOT_MODEL")
 	if modelInput == "" {
-		return nil, fmt.Errorf("AUXOT_MODEL is required — set it to a model name from the registry\n\nRun 'auxot-router models' to see available models")
+		modelInput = "Qwen3-Coder-30B-A3B" // Good default: small, fast, capable — chat + agentic
 	}
 
 	explicitQuant := os.Getenv("AUXOT_QUANTIZATION") // Empty string if not set
@@ -105,10 +105,6 @@ func LoadConfig() (*Config, error) {
 	cfg.Quantization = entry.Quantization
 	cfg.ModelEntry = entry
 
-	// If no context size specified, use the model's default
-	if cfg.ContextSize == 0 {
-		cfg.ContextSize = entry.DefaultContextSize
-	}
 	// Clamp to model's max context size
 	if cfg.ContextSize > entry.MaxContextSize {
 		cfg.ContextSize = entry.MaxContextSize

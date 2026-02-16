@@ -135,7 +135,7 @@ func main() {
 //   - Default:       Prints configuration and plaintext keys to stdout
 //   - --write-env:   Writes configuration to .env file (refuses if exists)
 //   - --fly:         Outputs a single `fly secrets set` command for Fly.io deployment
-//   - --model NAME:  Sets the model name (default: Qwen3-30B-A3B-Instruct-2507)
+//   - --model NAME:  Sets the model name (default: Qwen3-Coder-30B-A3B)
 func runSetup(writeEnv, flySecrets bool, model string) {
 	if writeEnv {
 		if _, err := os.Stat(".env"); err == nil {
@@ -145,7 +145,7 @@ func runSetup(writeEnv, flySecrets bool, model string) {
 	}
 
 	if model == "" {
-		model = "Qwen3-30B-A3B-Instruct-2507"
+		model = "Qwen3-Coder-30B-A3B"
 	}
 
 	adminKey, err := auth.GenerateAdminKey()
@@ -241,11 +241,12 @@ func runModels() {
 
 	// Group by model name
 	type modelGroup struct {
-		name   string
-		quants []string
-		vrams  []float64
-		family string
-		params string
+		name       string
+		quants     []string
+		vrams      []float64
+		family     string
+		params     string
+		maxCtxSize int
 	}
 
 	groups := make(map[string]*modelGroup)
@@ -255,9 +256,10 @@ func runModels() {
 		g, exists := groups[m.ModelName]
 		if !exists {
 			g = &modelGroup{
-				name:   m.ModelName,
-				family: m.Family,
-				params: m.Parameters,
+				name:       m.ModelName,
+				family:     m.Family,
+				params:     m.Parameters,
+				maxCtxSize: m.MaxContextSize,
 			}
 			groups[m.ModelName] = g
 			order = append(order, m.ModelName)
@@ -282,13 +284,27 @@ func runModels() {
 			}
 			quantList += q
 		}
-		fmt.Printf("  %-50s %s  %s  min %.0fGB  [%s]\n",
-			name, g.family, g.params, minVRAM, quantList)
+		fmt.Printf("  %-50s %s  %s  ctx %-6s  min %.0fGB  [%s]\n",
+			name, g.family, g.params, formatCtxSize(g.maxCtxSize), minVRAM, quantList)
 	}
 
 	fmt.Println()
 	fmt.Println("Usage: AUXOT_MODEL=<model-name>")
 	fmt.Println("       AUXOT_QUANTIZATION=<quant>  (optional — auto-selects if omitted)")
+}
+
+// formatCtxSize formats a context size as a human-readable string (e.g. 128K, 1M).
+func formatCtxSize(size int) string {
+	if size >= 1000000 && size%1000000 == 0 {
+		return fmt.Sprintf("%dM", size/1000000)
+	}
+	if size >= 1000000 {
+		return fmt.Sprintf("%.1fM", float64(size)/1000000)
+	}
+	if size >= 1024 && size%1024 == 0 {
+		return fmt.Sprintf("%dK", size/1024)
+	}
+	return fmt.Sprintf("%dK", size/1000)
 }
 
 // printHelp prints usage information.
@@ -300,18 +316,18 @@ Usage:
   auxot-router setup                 Generate keys and print configuration
   auxot-router setup --write-env     Write keys to .env file
   auxot-router setup --fly           Output "fly secrets set" command for Fly.io
-  auxot-router setup --model NAME    Use a specific model (default: Qwen3-30B-A3B-Instruct-2507)
+  auxot-router setup --model NAME    Use a specific model (default: Qwen3-Coder-30B-A3B)
   auxot-router models                List all available models
   auxot-router version               Print version
   auxot-router help                  Print this help
 
 Environment Variables:
-  AUXOT_MODEL                  Model name to serve (required, validated against registry)
+  AUXOT_MODEL                  Model name (default: Qwen3-Coder-30B-A3B)
   AUXOT_ADMIN_KEY_HASH         Argon2id hash of the GPU key (required)
   AUXOT_API_KEY_HASH           Argon2id hash of the API key (required)
-  AUXOT_QUANTIZATION           Quantization (optional — auto-selects best if omitted)
-  AUXOT_CTX_SIZE               Context window size (default: model's default)
-  AUXOT_MAX_PARALLEL           Max concurrent jobs per GPU (default: 1)
+  AUXOT_QUANTIZATION           Quantization (default: Q4_K_S — auto-selects if omitted)
+  AUXOT_CTX_SIZE               Context window size (default: 131072 / 128K)
+  AUXOT_MAX_PARALLEL           Max concurrent jobs per GPU (default: 2)
   AUXOT_PORT                   HTTP listen port (default: 8080)
   AUXOT_HOST                   Bind address (default: 0.0.0.0)
   AUXOT_LOG_LEVEL              Log level: debug, info, warn, error (default: info)

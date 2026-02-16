@@ -14,7 +14,7 @@ Auxot routes OpenAI-compatible and Anthropic-compatible API requests to GPU work
 - **Single binary** — no runtime dependencies, no Redis to manage
 - **FROM scratch** Docker image — ~10MB, starts in milliseconds
 - **OpenAI + Anthropic API compatible** — works with any client that speaks those protocols
-- **200+ models** — embedded model registry with automatic quantization selection
+- **700+ models** — embedded model registry with automatic quantization selection
 - **Resumable downloads** — workers auto-download models from HuggingFace with resume support
 - **Tool calling** — full streaming tool call support for agentic workflows
 - **Dead worker recovery** — automatic job reclamation when GPU workers disconnect
@@ -70,7 +70,7 @@ npx @auxot/cli setup
 # Set environment variables (copy from setup output)
 export AUXOT_ADMIN_KEY_HASH='$argon2id$...'
 export AUXOT_API_KEY_HASH='$argon2id$...'
-export AUXOT_MODEL=Qwen3-30B-A3B-Instruct-2507
+export AUXOT_MODEL=Qwen3-Coder-30B-A3B
 
 # Start the router
 go install github.com/auxothq/auxot/cmd/auxot-router@latest
@@ -123,20 +123,43 @@ curl http://localhost:8080/api/anthropic/v1/messages \
   }'
 ```
 
-## Choosing a Model
+## Defaults
+
+Out of the box, Auxot is configured to be useful for chat and agentic tools (Claude Code, OpenClaw, Cursor, etc.):
+
+| Setting | Default | Why |
+|---|---|---|
+| Model | `Qwen3-Coder-30B-A3B` | Fast MoE coding model, fits in ~16GB VRAM |
+| Quantization | `Q4_K_S` | Best speed/quality tradeoff |
+| Context | 128K | Large enough for agentic tool use |
+| Parallel | 2 | Handle concurrent requests without queueing |
+
+### Raising the Defaults
+
+If you have more GPU headroom, you can increase quality and throughput:
 
 ```bash
-# List available models
-go run github.com/auxothq/auxot/cmd/auxot-router@latest models
+# Bigger model (needs ~74GB VRAM)
+AUXOT_MODEL=Qwen3-235B-A22B-128K
+
+# Higher quality quantization (needs more VRAM)
+AUXOT_QUANTIZATION=Q6_K
+
+# Larger context window (needs more VRAM)
+AUXOT_CTX_SIZE=262144    # 256K
+
+# More concurrent requests (needs more VRAM per slot)
+AUXOT_MAX_PARALLEL=4
 ```
 
-Set your model in environment:
+### Choosing a Different Model
 
 ```bash
-AUXOT_MODEL=Qwen3-30B-A3B-Instruct-2507     # Required
-AUXOT_QUANTIZATION=Q5_K_S                    # Optional (auto-selects Q4_K_S)
-AUXOT_CTX_SIZE=32768                         # Optional (uses model default)
+# List all available models with context sizes and VRAM requirements
+auxot-router models
 ```
+
+Or browse models with `go run github.com/auxothq/auxot/cmd/auxot-router@latest models`.
 
 ## Deploy to Fly.io
 
@@ -192,7 +215,7 @@ docker pull ghcr.io/auxothq/auxot-router:latest
 docker run -p 8080:8080 \
   -e AUXOT_ADMIN_KEY_HASH='...' \
   -e AUXOT_API_KEY_HASH='...' \
-  -e AUXOT_MODEL=Qwen3-30B-A3B-Instruct-2507 \
+  -e AUXOT_MODEL=Qwen3-Coder-30B-A3B \
   ghcr.io/auxothq/auxot-router:latest
 ```
 
@@ -226,12 +249,12 @@ All configuration is via environment variables (or `.env` file).
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `AUXOT_MODEL` | Yes | — | Model to serve (validated against registry) |
+| `AUXOT_MODEL` | No | `Qwen3-Coder-30B-A3B` | Model to serve (validated against registry) |
 | `AUXOT_ADMIN_KEY_HASH` | Yes | — | Argon2id hash of GPU key |
 | `AUXOT_API_KEY_HASH` | Yes | — | Argon2id hash of API key |
-| `AUXOT_QUANTIZATION` | No | auto | Quantization (Q4_K_S preferred) |
-| `AUXOT_CTX_SIZE` | No | model default | Context window size |
-| `AUXOT_MAX_PARALLEL` | No | 1 | Concurrent jobs per GPU |
+| `AUXOT_QUANTIZATION` | No | `Q4_K_S` | Quantization (auto-selects if omitted) |
+| `AUXOT_CTX_SIZE` | No | 131072 (128K) | Context window size |
+| `AUXOT_MAX_PARALLEL` | No | 2 | Concurrent jobs per GPU |
 | `AUXOT_PORT` | No | 8080 | HTTP listen port |
 | `AUXOT_HOST` | No | 0.0.0.0 | Bind address |
 | `AUXOT_LOG_LEVEL` | No | info | debug, info, warn, error |
@@ -301,7 +324,7 @@ auxot/
 │   ├── openai/           # OpenAI API types
 │   ├── protocol/         # WebSocket message protocol
 │   ├── queue/            # Redis Streams job queue, sweeper, heartbeat
-│   └── registry/         # Embedded model registry (200+ models)
+│   └── registry/         # Embedded model registry (700+ models)
 ├── tests/integration/    # Integration tests
 ├── Dockerfile            # FROM scratch production image
 ├── fly.toml              # Fly.io deployment config
