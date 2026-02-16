@@ -162,31 +162,69 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 	}
 
 	// ----------------------------------------------------------------
-	// Phase 4: Spawn llama.cpp
+	// Phase 4: Spawn llama.cpp (with parallel dial-down on failure)
 	// ----------------------------------------------------------------
-	llama := worker.NewLlamaProcess(worker.LlamaOpts{
-		BinaryPath:  binaryPath,
-		ModelPath:   modelPath,
-		ContextSize: policy.ContextSize,
-		Parallelism: policy.MaxParallelism,
-		Port:        llamaPort,
-		Host:        "127.0.0.1",
-		GPULayers:   cfg.GPULayers,
-		Threads:     cfg.Threads,
-	}, logger)
+	// The router requests max_parallelism, but the worker may not have enough
+	// memory to run that many concurrent slots. We try the requested parallelism
+	// first, and on failure (OOM, crash), dial down until we find one that works.
+	parallelism := policy.MaxParallelism
+	var llama *worker.LlamaProcess
 
-	if err := llama.Start(); err != nil {
-		return fmt.Errorf("starting llama.cpp: %w", err)
+	for parallelism >= 1 {
+		llama = worker.NewLlamaProcess(worker.LlamaOpts{
+			BinaryPath:  binaryPath,
+			ModelPath:   modelPath,
+			ContextSize: policy.ContextSize,
+			Parallelism: parallelism,
+			Port:        llamaPort,
+			Host:        "127.0.0.1",
+			GPULayers:   cfg.GPULayers,
+			Threads:     cfg.Threads,
+		}, logger)
+
+		if err := llama.Start(); err != nil {
+			if parallelism > 1 {
+				logger.Warn("llama.cpp failed to start, reducing parallelism",
+					"parallelism", parallelism,
+					"next", parallelism-1,
+					"error", err.Error(),
+				)
+				parallelism--
+				continue
+			}
+			return fmt.Errorf("starting llama.cpp: %w", err)
+		}
+
+		logger.Info("llama.cpp started", "port", llamaPort, "parallelism", parallelism)
+		logger.Info("waiting for llama.cpp")
+
+		if err := llama.WaitForReady(ctx, 120*time.Second); err != nil {
+			llama.Stop()
+			if parallelism > 1 {
+				logger.Warn("llama.cpp failed to become ready, reducing parallelism",
+					"parallelism", parallelism,
+					"next", parallelism-1,
+					"error", err.Error(),
+				)
+				parallelism--
+				continue
+			}
+			return fmt.Errorf("llama.cpp not ready: %w", err)
+		}
+
+		// Success — llama.cpp is up and running
+		break
 	}
+
 	defer llama.Stop()
 
-	logger.Info("llama.cpp started", "port", llamaPort)
-	logger.Info("waiting for llama.cpp")
-
-	if err := llama.WaitForReady(ctx, 120*time.Second); err != nil {
-		return fmt.Errorf("llama.cpp not ready: %w", err)
+	if parallelism < policy.MaxParallelism {
+		logger.Info("parallelism reduced from router policy",
+			"requested", policy.MaxParallelism,
+			"actual", parallelism,
+		)
 	}
-	logger.Info("llama.cpp ready")
+	logger.Info("llama.cpp ready", "parallelism", parallelism)
 
 	llama.Warmup()
 	logger.Info("model warmed up")

@@ -44,22 +44,33 @@ Redis is **embedded by default** (in-memory, ephemeral). No external services ne
 The fastest way to get a production router running:
 
 ```bash
-# Generate keys and get your fly secrets command
+# Generate keys and get step-by-step deploy commands
 npx @auxot/cli setup --fly
-
-# Create the app and deploy the pre-built image
-fly apps create my-router
-fly secrets set ...   # paste the output from setup
-fly deploy --image ghcr.io/auxothq/auxot-router:latest
 ```
 
-Then connect a GPU worker from any machine:
+This prints a complete copy-paste flow: create the Fly app, write `fly.toml`, set secrets, deploy the pre-built image, and connect a GPU worker. Follow the steps in order.
+
+Then connect a GPU worker from any machine with a GPU:
 
 ```bash
-npx @auxot/worker-cli --gpu-key adm_xxx --router wss://my-router.fly.dev/ws
+# This is a long-running process — keep it running on your GPU machine
+npx @auxot/worker-cli --gpu-key adm_xxx --router-url wss://your-app.fly.dev/ws
 ```
 
 That's it. Your router is live and your GPU is serving requests.
+
+### Configure Your Tools
+
+Point any OpenAI or Anthropic-compatible tool at your router:
+
+| Protocol | Base URL |
+|---|---|
+| OpenAI-compatible | `https://your-app.fly.dev/api/openai` |
+| Anthropic-compatible | `https://your-app.fly.dev/api/anthropic` |
+
+**API Key:** the `rtr_...` key from setup.
+
+Works with Claude Code, Cursor, Open WebUI, LangChain, and anything that speaks OpenAI or Anthropic API.
 
 ### Run Locally
 
@@ -84,7 +95,7 @@ Or download a binary from [Releases](https://github.com/auxothq/auxot/releases).
 On a machine with a GPU:
 
 ```bash
-npx @auxot/worker-cli --gpu-key adm_xxx --router ws://localhost:8080/ws
+npx @auxot/worker-cli --gpu-key adm_xxx --router-url ws://localhost:8080/ws
 ```
 
 The worker will:
@@ -181,18 +192,10 @@ The `deploy` command is interactive — it creates the app, generates keys, sets
 ### Manual deploy
 
 ```bash
-# Generate keys
+# Generate keys (prints step-by-step commands)
 npx @auxot/cli setup --fly --model Qwen3-235B-A22B-128K
 
-# Create app and set secrets
-fly apps create auxot-router
-fly secrets set \
-  AUXOT_ADMIN_KEY_HASH='...' \
-  AUXOT_API_KEY_HASH='...' \
-  AUXOT_MODEL='Qwen3-235B-A22B-128K'
-
-# Deploy the pre-built image
-fly deploy --image ghcr.io/auxothq/auxot-router:latest
+# Follow the printed steps: create app, write fly.toml, set secrets, deploy
 ```
 
 ### Scaling
@@ -282,6 +285,29 @@ auxot-worker \
   --router-url ws://router.internal:8080/ws \
   --model-path /opt/models/qwen3-8b-Q4_K_M.gguf \
   --llama-server-path /opt/bin/llama-server
+```
+
+## CLI Commands
+
+### Router
+
+```bash
+auxot-router              # Start the router
+auxot-router setup        # Generate keys and print configuration
+auxot-router setup --fly  # Generate keys with Fly.io secrets format
+auxot-router models       # List all available models with context sizes
+auxot-router help         # Print help
+```
+
+### Worker
+
+```bash
+auxot-worker                          # Connect to router and start processing
+auxot-worker --gpu-key adm_xxx        # Authenticate with GPU key
+auxot-worker --router-url wss://...   # Connect to remote router
+auxot-worker --debug                  # Debug logging (level 1)
+auxot-worker --debug 2                # Verbose logging (llama.cpp output)
+auxot-worker help                     # Print help
 ```
 
 ## Development
