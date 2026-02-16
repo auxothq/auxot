@@ -1,0 +1,184 @@
+# AGENTS.md — Rules for AI Assistants
+
+This file defines constraints for AI agents operating in this repository.
+
+**Read the entire file before making changes. If something conflicts: stop and ask.**
+
+---
+
+## Project Overview
+
+Auxot is an open-source GPU inference router written in Go. It has two binaries:
+
+1. **auxot-router** — HTTP/WebSocket server that accepts API requests and distributes them to GPU workers
+2. **auxot-worker** — connects to the router, downloads models, runs llama.cpp, and processes inference jobs
+
+The router uses Redis Streams for job queuing. Redis is **embedded by default** (miniredis, in-process) and does not require external infrastructure. Setting `AUXOT_REDIS_URL` connects to external Redis instead.
+
+### Architecture Summary
+
+```
+API Callers → auxot-router → Redis Streams → auxot-worker → llama.cpp
+                  ↑                              ↓
+              WebSocket ←──── tokens ────────────┘
+```
+
+- API callers authenticate with an API key (`rtr_...`)
+- GPU workers authenticate with a GPU key (`adm_...`)
+- Only key hashes are stored (Argon2id). Plaintext keys are shown once during `auxot-router setup`.
+- The router is stateless. All state is in Redis (or embedded miniredis).
+
+---
+
+## Technology Stack
+
+- **Language:** Go 1.23+
+- **No CGO** — all binaries are statically compiled (`CGO_ENABLED=0`)
+- **Redis client:** `github.com/redis/go-redis/v9`
+- **Embedded Redis:** `github.com/alicebob/miniredis/v2` (pure Go, no C dependencies)
+- **WebSocket:** `github.com/gorilla/websocket`
+- **Logging:** `log/slog` (structured JSON logging)
+- **Docker:** `FROM scratch` — production images contain only the binary
+- **Package manager:** Go modules (`go.mod`)
+- **Build:** `make build` — no external build tools
+
+---
+
+## Repository Structure
+
+```
+cmd/
+  auxot-router/main.go    Entry point for the router binary
+  auxot-worker/main.go     Entry point for the worker binary
+internal/
+  router/                  Router server (HTTP, WebSocket, API handlers)
+  worker/                  Worker (llama.cpp manager, job executor)
+pkg/
+  anthropic/               Anthropic API types
+  auth/                    Key generation and verification (Argon2id)
+  gpu/                     GPU worker pool tracking
+  gpudetect/               GPU hardware detection
+  llamabin/                llama.cpp binary downloader
+  llamacpp/                llama.cpp HTTP client
+  modeldown/               Model file downloader (HuggingFace)
+  openai/                  OpenAI API types
+  protocol/                WebSocket message protocol (router <-> worker)
+  queue/                   Redis Streams job queue, sweeper, heartbeat
+  registry/                Embedded model registry
+tests/integration/         Integration tests (require Redis)
+```
+
+---
+
+## Hard Rules
+
+### Code Style
+
+- Go standard library conventions. No frameworks.
+- All logging via `log/slog`. No `fmt.Println` in library code (only in CLI subcommands like `setup`, `models`, `help`).
+- All errors wrapped with context: `fmt.Errorf("doing thing: %w", err)`
+- No `panic` in library code. Return errors.
+- No global state except singletons explicitly documented.
+- `context.Context` as first parameter for anything cancellable.
+
+### Architecture Boundaries
+
+- **`cmd/`** — CLI parsing, signal handling, process lifecycle. No business logic.
+- **`internal/`** — Application-specific logic not intended for import by other projects.
+- **`pkg/`** — Reusable packages with clean APIs. Could be imported by external projects.
+- **`internal/router/`** owns the HTTP server and handlers. All API translation happens here.
+- **`internal/worker/`** owns llama.cpp lifecycle and job execution.
+- **`pkg/queue/`** owns all Redis operations. No Redis calls outside this package.
+- **`pkg/protocol/`** defines the WebSocket message format. Both router and worker import this.
+
+### Redis Rules
+
+- All Redis operations go through `pkg/queue/`. Never use the Redis client directly elsewhere.
+- The router uses Redis Streams with consumer groups for job distribution.
+- Each GPU worker is a consumer in the `workers` consumer group.
+- Heartbeats are Redis keys with TTL. The sweeper detects dead workers by missing heartbeats.
+- When `AUXOT_REDIS_URL` is empty, the router starts embedded miniredis. This is not a test mode — it is the default production behavior for single-instance deployments.
+
+### API Compatibility
+
+- OpenAI API endpoints under `/api/openai/v1/...`
+- Anthropic API endpoints under `/api/anthropic/v1/...`
+- WebSocket endpoint at `/ws`
+- Health check at `/health` (no auth)
+- The `model` field in requests is ignored — the router serves whatever model it is configured with.
+- Streaming responses use Server-Sent Events (SSE) matching the exact format of the upstream APIs.
+
+### Authentication
+
+- Two key types: GPU keys (`adm_...`) and API keys (`rtr_...`)
+- Keys are generated by `auxot-router setup`
+- Only Argon2id hashes are stored in environment variables
+- Verification results are cached in-memory (default: 5 minutes)
+- GPU workers authenticate via WebSocket handshake
+- API callers authenticate via `Authorization: Bearer` header (OpenAI) or `x-api-key` header (Anthropic)
+
+### Worker Protocol
+
+- Workers connect via WebSocket to `/ws`
+- The router sends a `hello_ack` with the model policy (model name, quantization, context size)
+- Workers download the model and llama.cpp binary, then reconnect permanently
+- Jobs are delivered as `job` messages, tokens streamed back as `token` messages
+- Workers send periodic `heartbeat` messages to signal liveness
+- The sweeper reclaims jobs from dead workers and reassigns to live ones
+
+### Model Registry
+
+- The model registry (`pkg/registry/registry.json`) is embedded in the binary via `//go:embed`
+- It is built by a separate Node.js tool in the Auxot monorepo and published as `@auxot/model-registry` on npm
+- `make sync-registry` fetches the latest version from npm (no Node.js required)
+- The Dockerfile runs `make sync-registry` during the build stage
+- Never edit `registry.json` by hand — it is generated
+
+### Testing
+
+- Unit tests: `make test` (no external dependencies)
+- Integration tests: `make test-integration` (uses embedded miniredis — no external dependencies)
+- Race detector: `make test-race`
+- All checks: `make check` (vet + lint + race + build)
+- To test against real Redis: `AUXOT_TEST_REDIS_URL=redis://localhost:6379 make test-integration`
+
+### Docker
+
+- `FROM scratch` production images. No shell, no package manager.
+- The binary is the only file in the image (~10MB stripped). No CA certificates — the router makes no outbound connections.
+- `CGO_ENABLED=0` is mandatory for `FROM scratch` compatibility.
+
+---
+
+## What NOT To Do
+
+- **Do not add a database.** The router is intentionally stateless. Redis is the only data store.
+- **Do not add CGO dependencies.** The project must compile with `CGO_ENABLED=0` for `FROM scratch` Docker images.
+- **Do not use `fmt.Printf` for logging.** Use `slog.Info`, `slog.Error`, etc.
+- **Do not add external Redis as a hard requirement.** Embedded miniredis must remain the default.
+- **Do not import `internal/` packages from `pkg/`.** Dependencies flow: `cmd → internal → pkg`, never the reverse.
+- **Do not edit `registry.json` by hand.** Run `make sync-registry` to update it.
+- **Do not add authentication schemes beyond Argon2id key hashes.** The router is intentionally simple.
+- **Do not add a web UI.** The router is an API-only service. [auxot.com](https://auxot.com) provides the web interface.
+
+---
+
+## Deployment
+
+The router is designed for two deployment models:
+
+1. **Local / bare metal** — Run the binary directly. No Docker, no Redis, no dependencies.
+2. **Fly.io** — `fly deploy` with a `FROM scratch` image. Use `auxot-router setup --fly` to generate secrets.
+
+The router does NOT need:
+- A database
+- A reverse proxy (it handles TLS termination via Fly.io or your own infra)
+- A process manager (it handles signals and graceful shutdown)
+- An external Redis (embedded miniredis is the default)
+
+---
+
+## Related Projects
+
+- **[auxot.com](https://auxot.com)** — Managed Auxot Cloud (SaaS) with multi-tenant GPU sharing, encryption, billing, and enterprise features.
+- **[llama.cpp](https://github.com/ggerganov/llama.cpp)** — The inference engine used by auxot-worker.

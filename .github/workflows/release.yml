@@ -1,0 +1,82 @@
+# Build and release auxot binaries + Docker image on tag push.
+#
+# Trigger: git tag v0.1.0 && git push --tags
+#
+# Produces:
+#   - GitHub Release with cross-compiled binaries (linux/darwin × amd64/arm64)
+#   - Multi-arch Docker image at ghcr.io/auxothq/auxot-router
+#
+# No secrets needed — uses GITHUB_TOKEN (auto-provided on public repos).
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # GitHub Release uploads
+  packages: write   # GHCR push
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────
+  # Job 1: GoReleaser — cross-compiled binaries + GitHub Release
+  # ──────────────────────────────────────────────────────────────────
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # GoReleaser needs full history for changelog
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install build deps (for sync-registry)
+        run: sudo apt-get update && sudo apt-get install -y curl tar
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ──────────────────────────────────────────────────────────────────
+  # Job 2: Docker — multi-arch image pushed to GHCR
+  # ──────────────────────────────────────────────────────────────────
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from tag
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/auxothq/auxot-router:${{ steps.meta.outputs.version }}
+            ghcr.io/auxothq/auxot-router:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

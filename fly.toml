@@ -1,0 +1,51 @@
+# Auxot Open Router - Fly.io Configuration
+# Deploy: fly deploy
+# Logs: fly logs
+# Scale: fly scale count 2
+
+app = 'auxot-router'
+primary_region = 'iad' # US East (Ashburn) - change as needed
+
+[build]
+
+[env]
+  # Router configuration
+  AUXOT_HTTP_PORT = '8080'
+  AUXOT_LOG_LEVEL = 'info'
+  # Heartbeat check interval (how often to check for dead workers)
+  AUXOT_HEARTBEAT_CHECK_INTERVAL = '30s'
+  # Worker timeout (consider dead if no heartbeat for this long)
+  AUXOT_WORKER_TIMEOUT = '60s'
+  # Redis: Leave unset to use embedded miniredis (ephemeral, in-memory)
+  # Set REDIS_URL via secrets for persistent external Redis:
+  #   fly secrets set REDIS_URL=redis://...
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+  [http_service.concurrency]
+    type = 'connections'
+    hard_limit = 250
+    soft_limit = 200
+
+  [[http_service.checks]]
+    grace_period = '10s'
+    interval = '30s'
+    method = 'GET'
+    timeout = '5s'
+    path = '/health'
+
+# VM resources
+# shared-cpu-1x: 256MB RAM, 1 shared CPU (free tier)
+# shared-cpu-2x: 512MB RAM, 2 shared CPUs
+# dedicated-cpu-1x: 2GB RAM, 1 dedicated CPU
+[vm]
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 256
+

@@ -1,0 +1,70 @@
+# GoReleaser configuration for auxot
+# Triggered by: git tag v0.1.0 && git push --tags
+# Docs: https://goreleaser.com
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - make sync-registry
+
+builds:
+  - id: auxot-router
+    main: ./cmd/auxot-router
+    binary: auxot-router
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+
+  - id: auxot-worker
+    main: ./cmd/auxot-worker
+    binary: auxot-worker
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # Package both binaries into one archive per platform
+    builds:
+      - auxot-router
+      - auxot-worker
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+
+release:
+  github:
+    owner: auxothq
+    name: auxot
+  prerelease: auto
+  name_template: "v{{.Version}}"

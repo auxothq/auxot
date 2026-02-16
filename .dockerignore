@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+bin/
+*.test
+*.out
+coverage.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+testdata/
+*.log
+
+# Documentation
+*.md
+docs/
+LICENSE
+
+# CI/CD (not needed in image)
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Development only
+docker-compose.yml
+Tiltfile
+Makefile
+
+# Don't ignore go.mod, go.sum, or source code

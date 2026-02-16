@@ -60,10 +60,11 @@ type HeartbeatMessage struct {
 	Type MessageType `json:"type"`
 }
 
-// ConfigMessage is sent by the worker to update its configuration.
+// ConfigMessage is sent by the worker after spawning llama.cpp to advertise
+// its discovered capabilities. The server validates these against the policy.
 type ConfigMessage struct {
-	Type   MessageType     `json:"type"`
-	Config json.RawMessage `json:"config"`
+	Type         MessageType  `json:"type"`
+	Capabilities Capabilities `json:"capabilities"`
 }
 
 // TokenMessage streams a single token from the worker for a running job.
@@ -80,10 +81,18 @@ type ToolCall struct {
 	Function ToolFunction `json:"function"`
 }
 
-// ToolFunction contains the name and arguments of a tool call.
+// ToolFunction contains the name and arguments of a tool call (response side).
 type ToolFunction struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
+}
+
+// ToolDefinition describes a tool the model can call (request side).
+// Parameters is the raw JSON Schema for the function's input.
+type ToolDefinition struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
 }
 
 // CompleteMessage is sent by the worker when a job finishes.
@@ -99,9 +108,10 @@ type CompleteMessage struct {
 
 // ErrorMessage is sent by the worker when a job fails.
 type ErrorMessage struct {
-	Type  MessageType `json:"type"`
-	JobID string      `json:"job_id,omitempty"`
-	Error string      `json:"error"`
+	Type    MessageType `json:"type"`
+	JobID   string      `json:"job_id,omitempty"`
+	Error   string      `json:"error"`
+	Details string      `json:"details,omitempty"`
 }
 
 // --- Server → Worker messages ---
@@ -147,10 +157,12 @@ type ChatMessage struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 }
 
-// Tool describes a tool/function the model can call.
+// Tool describes a tool/function the model can call (request side).
+// Uses ToolDefinition (not ToolFunction) because definitions carry
+// description and parameters schema, not call arguments.
 type Tool struct {
-	Type     string       `json:"type"`
-	Function ToolFunction `json:"function"`
+	Type     string         `json:"type"`
+	Function ToolDefinition `json:"function"`
 }
 
 // JobMessage is sent by the server to assign work to a worker.

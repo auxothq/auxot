@@ -104,10 +104,14 @@ func TestParseMessage_WorkerMessages(t *testing.T) {
 		},
 		{
 			name:  "config",
-			input: `{"type":"config","config":{"model":"qwen3","quantization":"Q4_K_M"}}`,
+			input: `{"type":"config","capabilities":{"backend":"llama.cpp","model":"qwen3","ctx_size":8192}}`,
 			want: ConfigMessage{
-				Type:   TypeConfig,
-				Config: json.RawMessage(`{"model":"qwen3","quantization":"Q4_K_M"}`),
+				Type: TypeConfig,
+				Capabilities: Capabilities{
+					Backend: "llama.cpp",
+					Model:   "qwen3",
+					CtxSize: 8192,
+				},
 			},
 		},
 	}
@@ -204,7 +208,7 @@ func TestParseMessage_ServerMessages(t *testing.T) {
 		},
 		{
 			name:  "job with tools",
-			input: `{"type":"job","job_id":"job-789","messages":[{"role":"user","content":"What is the weather?"}],"tools":[{"type":"function","function":{"name":"get_weather","arguments":""}}]}`,
+			input: `{"type":"job","job_id":"job-789","messages":[{"role":"user","content":"What is the weather?"}],"tools":[{"type":"function","function":{"name":"get_weather","description":"Get current weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}]}`,
 			want: JobMessage{
 				Type:  TypeJob,
 				JobID: "job-789",
@@ -214,9 +218,10 @@ func TestParseMessage_ServerMessages(t *testing.T) {
 				Tools: []Tool{
 					{
 						Type: "function",
-						Function: ToolFunction{
-							Name:      "get_weather",
-							Arguments: "",
+						Function: ToolDefinition{
+							Name:        "get_weather",
+							Description: "Get current weather",
+							Parameters:  json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}}}`),
 						},
 					},
 				},
