@@ -60,7 +60,14 @@ go install github.com/auxothq/auxot/cmd/auxot-router@latest
 auxot-router
 ```
 
-Or download a binary from [Releases](https://github.com/auxothq/auxot/releases).
+Or download a binary from [Releases](https://github.com/auxothq/auxot/releases), or run the Docker image:
+
+```bash
+docker run -p 8080:8080 \
+  -e AUXOT_ADMIN_KEY_HASH='$argon2id$...' \
+  -e AUXOT_API_KEY_HASH='$argon2id$...' \
+  ghcr.io/auxothq/auxot-router:latest
+```
 
 Connect a GPU worker (on any machine with a GPU):
 
