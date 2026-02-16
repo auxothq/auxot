@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/auxothq/auxot/pkg/auth"
@@ -127,11 +128,17 @@ func NewServer(cfg *Config, logger *slog.Logger) (*Server, error) {
 		writeErrorJSON(w, http.StatusNotFound, "not_found", "endpoint not found")
 	})
 
+	// Wrap the mux with v1-tolerance middleware.
+	// Many LLMs reflexively add /v1 to base URLs. This absorbs that:
+	//   /api/openai/v1/chat/completions  → /api/openai/chat/completions
+	//   /api/anthropic/v1/v1/messages    → /api/anthropic/v1/messages
+	handler := v1Tolerant(mux)
+
 	listenAddr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 
 	httpServer := &http.Server{
 		Addr:              listenAddr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -203,4 +210,38 @@ func (s *Server) Shutdown() error {
 
 	s.logger.Info("shutdown complete")
 	return nil
+}
+
+// v1Tolerant is middleware that absorbs accidental /v1 in base URLs.
+//
+// LLMs and SDK defaults reflexively add /v1 to base URLs, producing paths like:
+//
+//	/api/openai/v1/chat/completions   (should be /api/openai/chat/completions)
+//	/api/anthropic/v1/v1/messages     (should be /api/anthropic/v1/messages)
+//
+// This middleware rewrites the path before it reaches the mux so both forms work.
+func v1Tolerant(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+
+		// /api/openai/v1/... → /api/openai/...
+		// The canonical routes don't have /v1, so strip the extra one.
+		if strings.HasPrefix(p, "/api/openai/v1/") {
+			r.URL.Path = "/api/openai/" + strings.TrimPrefix(p, "/api/openai/v1/")
+			if r.URL.RawPath != "" {
+				r.URL.RawPath = "/api/openai/" + strings.TrimPrefix(r.URL.RawPath, "/api/openai/v1/")
+			}
+		}
+
+		// /api/anthropic/v1/v1/... → /api/anthropic/v1/...
+		// The canonical routes already include one /v1, so strip the doubled one.
+		if strings.HasPrefix(p, "/api/anthropic/v1/v1/") {
+			r.URL.Path = "/api/anthropic/v1/" + strings.TrimPrefix(p, "/api/anthropic/v1/v1/")
+			if r.URL.RawPath != "" {
+				r.URL.RawPath = "/api/anthropic/v1/" + strings.TrimPrefix(r.URL.RawPath, "/api/anthropic/v1/v1/")
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
