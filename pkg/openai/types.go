@@ -99,6 +99,7 @@ type ChatCompletionChunk struct {
 	Created int64    `json:"created"`
 	Model   string   `json:"model"`
 	Choices []Choice `json:"choices"`
+	Usage   *Usage   `json:"usage,omitempty"`
 }
 
 // --- Builder functions ---
@@ -185,8 +186,8 @@ func NewStreamingRoleChunk(completionID, model string) *ChatCompletionChunk {
 	}
 }
 
-// NewStreamingDoneChunk builds the final SSE chunk with a finish reason.
-func NewStreamingDoneChunk(completionID, model, finishReason string) *ChatCompletionChunk {
+// NewStreamingDoneChunk builds the final SSE chunk with a finish reason and optional usage.
+func NewStreamingDoneChunk(completionID, model, finishReason string, usage *Usage) *ChatCompletionChunk {
 	fr := finishReason
 	return &ChatCompletionChunk{
 		ID:      completionID,
@@ -200,6 +201,7 @@ func NewStreamingDoneChunk(completionID, model, finishReason string) *ChatComple
 				FinishReason: &fr,
 			},
 		},
+		Usage: usage,
 	}
 }
 

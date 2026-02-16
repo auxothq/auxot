@@ -441,7 +441,7 @@ func (h *APIHandler) streamChatResponse(w http.ResponseWriter, r *http.Request, 
 
 		if time.Now().After(deadline) {
 			h.logger.Warn("streaming timeout", "job_id", jobID)
-			errChunk := openai.NewStreamingDoneChunk(completionID, model, "stop")
+			errChunk := openai.NewStreamingDoneChunk(completionID, model, "stop", nil)
 			if data, err := openai.FormatSSE(errChunk); err == nil {
 				w.Write(data)
 			}
@@ -472,22 +472,31 @@ func (h *APIHandler) streamChatResponse(w http.ResponseWriter, r *http.Request, 
 					flusher.Flush()
 				}
 
-			case "done":
-				var complete protocol.CompleteMessage
-				if err := json.Unmarshal(entry.Event.Data, &complete); err == nil && len(complete.ToolCalls) > 0 {
-					doneChunk := openai.NewStreamingDoneChunk(completionID, model, "tool_calls")
-					if data, err := openai.FormatSSE(doneChunk); err == nil {
-						w.Write(data)
-					}
-				} else {
-					doneChunk := openai.NewStreamingDoneChunk(completionID, model, "stop")
-					if data, err := openai.FormatSSE(doneChunk); err == nil {
-						w.Write(data)
-					}
+		case "done":
+			var complete protocol.CompleteMessage
+			json.Unmarshal(entry.Event.Data, &complete)
+
+			var usage *openai.Usage
+			if complete.InputTokens > 0 || complete.OutputTokens > 0 {
+				usage = &openai.Usage{
+					PromptTokens:     complete.InputTokens,
+					CompletionTokens: complete.OutputTokens,
+					TotalTokens:      complete.InputTokens + complete.OutputTokens,
 				}
-				w.Write(openai.FormatSSEDone())
-				flusher.Flush()
-				return
+			}
+
+			finishReason := "stop"
+			if len(complete.ToolCalls) > 0 {
+				finishReason = "tool_calls"
+			}
+
+			doneChunk := openai.NewStreamingDoneChunk(completionID, model, finishReason, usage)
+			if data, err := openai.FormatSSE(doneChunk); err == nil {
+				w.Write(data)
+			}
+			w.Write(openai.FormatSSEDone())
+			flusher.Flush()
+			return
 
 			case "error":
 				var errData map[string]string

@@ -220,7 +220,7 @@ func TestStreamingRoleChunk(t *testing.T) {
 }
 
 func TestStreamingDoneChunk(t *testing.T) {
-	chunk := NewStreamingDoneChunk("chatcmpl-test", "model", "stop")
+	chunk := NewStreamingDoneChunk("chatcmpl-test", "model", "stop", nil)
 	data, err := json.Marshal(chunk)
 	if err != nil {
 		t.Fatalf("marshaling: %v", err)
