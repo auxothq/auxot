@@ -129,9 +129,11 @@ func NewServer(cfg *Config, logger *slog.Logger) (*Server, error) {
 	})
 
 	// Wrap the mux with v1-tolerance middleware.
-	// Many LLMs reflexively add /v1 to base URLs. This absorbs that:
-	//   /api/openai/v1/chat/completions  → /api/openai/chat/completions
-	//   /api/anthropic/v1/v1/messages    → /api/anthropic/v1/messages
+	// Normalises /v1 regardless of whether clients include 0, 1, or 2 of them:
+	//   /api/openai/v1/v1/chat/completions → /api/openai/chat/completions
+	//   /api/openai/v1/chat/completions    → /api/openai/chat/completions
+	//   /api/anthropic/messages            → /api/anthropic/v1/messages
+	//   /api/anthropic/v1/v1/messages      → /api/anthropic/v1/messages
 	handler := v1Tolerant(mux)
 
 	listenAddr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
@@ -212,33 +214,54 @@ func (s *Server) Shutdown() error {
 	return nil
 }
 
-// v1Tolerant is middleware that absorbs accidental /v1 in base URLs.
+// v1Tolerant is middleware that normalises the /v1 segment in API paths.
 //
-// LLMs and SDK defaults reflexively add /v1 to base URLs, producing paths like:
+// Different clients handle /v1 differently:
+//   - Some omit it entirely (base URL = /api/anthropic, sends /api/anthropic/messages)
+//   - Some include it once (SDK appends /v1/ to base URL)
+//   - Some double it (base URL already has /v1, SDK adds another)
 //
-//	/api/openai/v1/chat/completions   (should be /api/openai/chat/completions)
-//	/api/anthropic/v1/v1/messages     (should be /api/anthropic/v1/messages)
+// Canonical forms:
 //
-// This middleware rewrites the path before it reaches the mux so both forms work.
+//	OpenAI:    /api/openai/chat/completions      (no /v1)
+//	Anthropic: /api/anthropic/v1/messages         (one /v1)
+//
+// This middleware rewrites any variant to the canonical form.
 func v1Tolerant(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
 
-		// /api/openai/v1/... → /api/openai/...
-		// The canonical routes don't have /v1, so strip the extra one.
-		if strings.HasPrefix(p, "/api/openai/v1/") {
+		// --- OpenAI: canonical has NO /v1 ---
+		// Strip any /v1 prefixes that SDKs add.
+		switch {
+		case strings.HasPrefix(p, "/api/openai/v1/v1/"):
+			// Double v1: base URL had /v1 AND SDK added /v1
+			r.URL.Path = "/api/openai/" + strings.TrimPrefix(p, "/api/openai/v1/v1/")
+			if r.URL.RawPath != "" {
+				r.URL.RawPath = "/api/openai/" + strings.TrimPrefix(r.URL.RawPath, "/api/openai/v1/v1/")
+			}
+		case strings.HasPrefix(p, "/api/openai/v1/"):
+			// Single v1: SDK added /v1
 			r.URL.Path = "/api/openai/" + strings.TrimPrefix(p, "/api/openai/v1/")
 			if r.URL.RawPath != "" {
 				r.URL.RawPath = "/api/openai/" + strings.TrimPrefix(r.URL.RawPath, "/api/openai/v1/")
 			}
 		}
 
-		// /api/anthropic/v1/v1/... → /api/anthropic/v1/...
-		// The canonical routes already include one /v1, so strip the doubled one.
-		if strings.HasPrefix(p, "/api/anthropic/v1/v1/") {
+		// --- Anthropic: canonical has ONE /v1 ---
+		// Ensure exactly one /v1 is present.
+		switch {
+		case strings.HasPrefix(p, "/api/anthropic/v1/v1/"):
+			// Double v1: strip the extra one
 			r.URL.Path = "/api/anthropic/v1/" + strings.TrimPrefix(p, "/api/anthropic/v1/v1/")
 			if r.URL.RawPath != "" {
 				r.URL.RawPath = "/api/anthropic/v1/" + strings.TrimPrefix(r.URL.RawPath, "/api/anthropic/v1/v1/")
+			}
+		case strings.HasPrefix(p, "/api/anthropic/") && !strings.HasPrefix(p, "/api/anthropic/v1/"):
+			// No v1: client omitted it, add it back
+			r.URL.Path = "/api/anthropic/v1/" + strings.TrimPrefix(p, "/api/anthropic/")
+			if r.URL.RawPath != "" {
+				r.URL.RawPath = "/api/anthropic/v1/" + strings.TrimPrefix(r.URL.RawPath, "/api/anthropic/")
 			}
 		}
 
