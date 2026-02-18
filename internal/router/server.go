@@ -125,6 +125,11 @@ func NewServer(cfg *Config, logger *slog.Logger) (*Server, error) {
 
 	// Catch-all
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		logger.Info("404 not found",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"remote", r.RemoteAddr,
+		)
 		writeErrorJSON(w, http.StatusNotFound, "not_found", "endpoint not found")
 	})
 

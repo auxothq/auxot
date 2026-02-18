@@ -109,9 +109,19 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// --- Catch-all for /api/openai/* ---
 	case strings.HasPrefix(path, "/api/openai/"):
+		h.logger.Info("501 not implemented",
+			"method", method,
+			"path", path,
+			"remote", r.RemoteAddr,
+		)
 		writeErrorJSON(w, http.StatusNotImplemented, "not_implemented", "endpoint not implemented")
 
 	default:
+		h.logger.Info("404 not found",
+			"method", method,
+			"path", path,
+			"remote", r.RemoteAddr,
+		)
 		writeErrorJSON(w, http.StatusNotFound, "not_found", "endpoint not found")
 	}
 }

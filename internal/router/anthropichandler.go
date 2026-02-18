@@ -110,6 +110,11 @@ func (h *AnthropicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.requireAuth(w, r, h.handleCatchAll)
 
 	default:
+		h.logger.Info("404 not found",
+			"method", method,
+			"path", "/api/anthropic"+path,
+			"remote", r.RemoteAddr,
+		)
 		writeAnthropicError(w, http.StatusNotFound, "not_found_error",
 			"The requested resource could not be found.")
 	}
