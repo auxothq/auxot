@@ -2,7 +2,7 @@
 //
 // Key features:
 // - Routes INFO/DEBUG logs to stdout, WARN/ERROR logs to stderr (Unix convention)
-// - Auto-detects whether stdout is a TTY and switches between pretty-printed
+// - Auto-detects whether output is a TTY and switches between pretty-printed
 //   JSON (human at terminal) and compact JSON (piped to a file, log aggregator, CI, etc.)
 package logutil
 
@@ -13,36 +13,41 @@ import (
 	"os"
 )
 
-// isTTY is set once at init time (checks stdout for piping detection).
-var isTTY bool
+// stdoutIsTTY and stderrIsTTY are set once at init time.
+var (
+	stdoutIsTTY bool
+	stderrIsTTY bool
+)
 
 func init() {
-	stat, err := os.Stdout.Stat()
-	if err == nil {
-		isTTY = (stat.Mode() & os.ModeCharDevice) != 0
+	if stat, err := os.Stdout.Stat(); err == nil {
+		stdoutIsTTY = (stat.Mode() & os.ModeCharDevice) != 0
+	}
+	if stat, err := os.Stderr.Stat(); err == nil {
+		stderrIsTTY = (stat.Mode() & os.ModeCharDevice) != 0
 	}
 }
 
 // IsTTY reports whether stdout appears to be a terminal.
 func IsTTY() bool {
-	return isTTY
+	return stdoutIsTTY
 }
 
 // Output returns a writer that routes logs by severity level:
-// - INFO/DEBUG → stdout (pretty-printed if TTY, compact if piped)
-// - WARN/ERROR → stderr (always compact for tooling)
+// - INFO/DEBUG → stdout (pretty-printed if stdout is a TTY)
+// - WARN/ERROR → stderr (pretty-printed if stderr is a TTY)
 //
 // Pass the return value to slog.NewJSONHandler as the destination writer.
-func Output(w io.Writer) io.Writer {
+func Output(_ io.Writer) io.Writer {
 	return &levelRoutingWriter{
-		stdout: maybeWrapPretty(os.Stdout),
-		stderr: os.Stderr, // Always compact for stderr (errors/warnings)
+		stdout: maybeWrapPretty(os.Stdout, stdoutIsTTY),
+		stderr: maybeWrapPretty(os.Stderr, stderrIsTTY),
 	}
 }
 
-// maybeWrapPretty wraps w in a pretty-printer if stdout is a TTY.
-func maybeWrapPretty(w io.Writer) io.Writer {
-	if !isTTY {
+// maybeWrapPretty wraps w in a pretty-printer if the output is a TTY.
+func maybeWrapPretty(w io.Writer, tty bool) io.Writer {
+	if !tty {
 		return w
 	}
 	return &prettyJSONWriter{w: w}

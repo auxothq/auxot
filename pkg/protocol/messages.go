@@ -14,12 +14,13 @@ type MessageType string
 
 const (
 	// Worker → Server
-	TypeHello     MessageType = "hello"
-	TypeHeartbeat MessageType = "heartbeat"
-	TypeConfig    MessageType = "config"
-	TypeToken     MessageType = "token"
-	TypeComplete  MessageType = "complete"
-	TypeError     MessageType = "error"
+	TypeHello          MessageType = "hello"
+	TypeHeartbeat      MessageType = "heartbeat"
+	TypeConfig         MessageType = "config"
+	TypeToken          MessageType = "token"
+	TypeToolGenerating MessageType = "tool_generating" // Sent once when the model starts writing a tool call
+	TypeComplete       MessageType = "complete"
+	TypeError          MessageType = "error"
 
 	// Server → Worker
 	TypeHelloAck     MessageType = "hello_ack"
@@ -68,10 +69,21 @@ type ConfigMessage struct {
 }
 
 // TokenMessage streams a single token from the worker for a running job.
+// When Reasoning is true, the token is part of the model's internal
+// chain-of-thought (e.g. <think> blocks) and should be displayed separately.
 type TokenMessage struct {
+	Type      MessageType `json:"type"`
+	JobID     string      `json:"job_id"`
+	Token     string      `json:"token"`
+	Reasoning bool        `json:"reasoning,omitempty"`
+}
+
+// ToolGeneratingMessage is sent by the worker when the model starts
+// writing a tool call. It gives the frontend immediate feedback that
+// a tool call is being prepared (before the full call is assembled).
+type ToolGeneratingMessage struct {
 	Type  MessageType `json:"type"`
 	JobID string      `json:"job_id"`
-	Token string      `json:"token"`
 }
 
 // ToolCall represents a function call requested by the model.
@@ -97,14 +109,16 @@ type ToolDefinition struct {
 
 // CompleteMessage is sent by the worker when a job finishes.
 type CompleteMessage struct {
-	Type         MessageType `json:"type"`
-	JobID        string      `json:"job_id"`
-	FullResponse string      `json:"full_response"`
-	DurationMS   int64       `json:"duration_ms,omitempty"`
-	CacheTokens  int         `json:"cache_tokens,omitempty"`
-	InputTokens  int         `json:"input_tokens,omitempty"`
-	OutputTokens int         `json:"output_tokens,omitempty"`
-	ToolCalls    []ToolCall  `json:"tool_calls,omitempty"`
+	Type             MessageType `json:"type"`
+	JobID            string      `json:"job_id"`
+	FullResponse     string      `json:"full_response"`
+	ReasoningContent string      `json:"reasoning_content,omitempty"` // Full chain-of-thought text
+	DurationMS       int64       `json:"duration_ms,omitempty"`
+	CacheTokens      int         `json:"cache_tokens,omitempty"`
+	InputTokens      int         `json:"input_tokens,omitempty"`
+	OutputTokens     int         `json:"output_tokens,omitempty"`
+	ReasoningTokens  int         `json:"reasoning_tokens,omitempty"` // Count of reasoning/thinking tokens
+	ToolCalls        []ToolCall  `json:"tool_calls,omitempty"`
 }
 
 // ErrorMessage is sent by the worker when a job fails.
@@ -168,12 +182,13 @@ type Tool struct {
 
 // JobMessage is sent by the server to assign work to a worker.
 type JobMessage struct {
-	Type        MessageType   `json:"type"`
-	JobID       string        `json:"job_id"`
-	Messages    []ChatMessage `json:"messages"`
-	Tools       []Tool        `json:"tools,omitempty"`
-	Temperature *float64      `json:"temperature,omitempty"`
-	MaxTokens   *int          `json:"max_tokens,omitempty"`
+	Type            MessageType   `json:"type"`
+	JobID           string        `json:"job_id"`
+	Messages        []ChatMessage `json:"messages"`
+	Tools           []Tool        `json:"tools,omitempty"`
+	Temperature     *float64      `json:"temperature,omitempty"`
+	MaxTokens       *int          `json:"max_tokens,omitempty"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"` // "none", "low", "medium", "high"
 }
 
 // CancelMessage tells the worker to stop processing a job.
@@ -214,6 +229,13 @@ func ParseMessage(data []byte) (any, error) {
 		var msg TokenMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
 			return nil, fmt.Errorf("parsing token message: %w", err)
+		}
+		return msg, nil
+
+	case TypeToolGenerating:
+		var msg ToolGeneratingMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing tool_generating message: %w", err)
 		}
 		return msg, nil
 

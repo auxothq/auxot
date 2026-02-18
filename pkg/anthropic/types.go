@@ -50,6 +50,14 @@ type MessagesRequest struct {
 	TopP          *float64        `json:"top_p,omitempty"`
 	Tools         []Tool          `json:"tools,omitempty"`
 	StopSequences []string        `json:"stop_sequences,omitempty"`
+	Thinking      *ThinkingConfig `json:"thinking,omitempty"` // Controls chain-of-thought
+}
+
+// ThinkingConfig controls model thinking/reasoning behavior.
+// Type "enabled" activates thinking; "disabled" turns it off.
+type ThinkingConfig struct {
+	Type         string `json:"type"`                    // "enabled" or "disabled"
+	BudgetTokens int    `json:"budget_tokens,omitempty"` // Max tokens for thinking (when enabled)
 }
 
 // SystemText extracts the system prompt text from the request.
@@ -255,12 +263,14 @@ type MessagesResponse struct {
 }
 
 // ContentBlock is a single content block in the response.
+// Supports "thinking", "text", and "tool_use" block types.
 type ContentBlock struct {
-	Type  string          `json:"type"`            // "text" or "tool_use"
-	Text  string          `json:"text,omitempty"`  // for "text" blocks
-	ID    string          `json:"id,omitempty"`    // for "tool_use" blocks
-	Name  string          `json:"name,omitempty"`  // for "tool_use" blocks
-	Input json.RawMessage `json:"input,omitempty"` // for "tool_use" blocks
+	Type     string          `json:"type"`              // "thinking", "text", or "tool_use"
+	Thinking string          `json:"thinking,omitempty"` // for "thinking" blocks
+	Text     string          `json:"text,omitempty"`    // for "text" blocks
+	ID       string          `json:"id,omitempty"`      // for "tool_use" blocks
+	Name     string          `json:"name,omitempty"`    // for "tool_use" blocks
+	Input    json.RawMessage `json:"input,omitempty"`   // for "tool_use" blocks
 }
 
 // Usage reports token counts.
@@ -295,7 +305,8 @@ type ContentBlockDeltaEvent struct {
 
 // Delta is the inner delta payload in a content_block_delta event.
 type Delta struct {
-	Type        string `json:"type"`                    // "text_delta" or "input_json_delta"
+	Type        string `json:"type"`                    // "thinking_delta", "text_delta", or "input_json_delta"
+	Thinking    string `json:"thinking,omitempty"`      // for thinking_delta
 	Text        string `json:"text,omitempty"`          // for text_delta
 	PartialJSON string `json:"partial_json,omitempty"`  // for input_json_delta
 }
@@ -415,6 +426,25 @@ func NewNonStreamingResponse(model, content string, stopReason string, usage Usa
 		Type:       "message",
 		Role:       "assistant",
 		Content:    []ContentBlock{{Type: "text", Text: content}},
+		Model:      model,
+		StopReason: &sr,
+		Usage:      usage,
+	}
+}
+
+// NewNonStreamingResponseWithThinking builds a non-streaming response that includes a thinking block before the text.
+func NewNonStreamingResponseWithThinking(model, thinking, content string, stopReason string, usage Usage) *MessagesResponse {
+	sr := stopReason
+	var blocks []ContentBlock
+	if thinking != "" {
+		blocks = append(blocks, ContentBlock{Type: "thinking", Thinking: thinking})
+	}
+	blocks = append(blocks, ContentBlock{Type: "text", Text: content})
+	return &MessagesResponse{
+		ID:         NewMessageID(),
+		Type:       "message",
+		Role:       "assistant",
+		Content:    blocks,
 		Model:      model,
 		StopReason: &sr,
 		Usage:      usage,

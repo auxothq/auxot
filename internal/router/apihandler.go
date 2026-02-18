@@ -215,12 +215,13 @@ func (h *APIHandler) handleChatCompletion(w http.ResponseWriter, r *http.Request
 	}
 
 	jobMsg := &protocol.JobMessage{
-		Type:        protocol.TypeJob,
-		JobID:       jobID,
-		Messages:    protoMessages,
-		Tools:       protoTools,
-		Temperature: req.Temperature,
-		MaxTokens:   req.MaxTokens,
+		Type:            protocol.TypeJob,
+		JobID:           jobID,
+		Messages:        protoMessages,
+		Tools:           protoTools,
+		Temperature:     req.Temperature,
+		MaxTokens:       req.MaxTokens,
+		ReasoningEffort: req.ReasoningEffort,
 	}
 
 	if err := enqueueJob(h.jobQueue, jobMsg, h.logger); err != nil {
@@ -472,6 +473,18 @@ func (h *APIHandler) streamChatResponse(w http.ResponseWriter, r *http.Request, 
 					flusher.Flush()
 				}
 
+			case "reasoning_token":
+				var token string
+				if err := json.Unmarshal(entry.Event.Data, &token); err != nil {
+					h.logger.Warn("invalid reasoning token data", "job_id", jobID, "error", err)
+					continue
+				}
+				chunk := openai.NewStreamingReasoningChunk(completionID, model, token)
+				if data, err := openai.FormatSSE(chunk); err == nil {
+					w.Write(data)
+					flusher.Flush()
+				}
+
 		case "done":
 			var complete protocol.CompleteMessage
 			json.Unmarshal(entry.Event.Data, &complete)
@@ -526,6 +539,7 @@ func (h *APIHandler) blockingChatResponse(w http.ResponseWriter, r *http.Request
 	deadline := time.Now().Add(h.config.JobTimeout)
 
 	var fullContent strings.Builder
+	var reasoningContent strings.Builder
 	var toolCalls []openai.ToolCall
 	var inputTokens, outputTokens int
 
@@ -557,6 +571,12 @@ func (h *APIHandler) blockingChatResponse(w http.ResponseWriter, r *http.Request
 					fullContent.WriteString(token)
 				}
 
+			case "reasoning_token":
+				var token string
+				if err := json.Unmarshal(entry.Event.Data, &token); err == nil {
+					reasoningContent.WriteString(token)
+				}
+
 		case "done":
 			var complete protocol.CompleteMessage
 			if err := json.Unmarshal(entry.Event.Data, &complete); err == nil {
@@ -566,6 +586,10 @@ func (h *APIHandler) blockingChatResponse(w http.ResponseWriter, r *http.Request
 				if complete.FullResponse != "" {
 					fullContent.Reset()
 					fullContent.WriteString(complete.FullResponse)
+				}
+				if complete.ReasoningContent != "" {
+					reasoningContent.Reset()
+					reasoningContent.WriteString(complete.ReasoningContent)
 				}
 
 				for _, tc := range complete.ToolCalls {
@@ -590,6 +614,8 @@ func (h *APIHandler) blockingChatResponse(w http.ResponseWriter, r *http.Request
 			var resp *openai.ChatCompletionResponse
 			if len(toolCalls) > 0 {
 				resp = openai.NewToolCallResponse(model, toolCalls, usage)
+			} else if reasoningContent.Len() > 0 {
+				resp = openai.NewNonStreamingResponseWithReasoning(model, fullContent.String(), reasoningContent.String(), "stop", usage)
 			} else {
 				resp = openai.NewNonStreamingResponse(model, fullContent.String(), "stop", usage)
 			}

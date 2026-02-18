@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -295,6 +296,9 @@ func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.workers[workerID] = wc
 	h.workersMu.Unlock()
 
+	// Infer capabilities from model name
+	policyCaps := inferCapabilities(h.config.ModelName)
+
 	// Send hello_ack with policy so worker knows what model to run
 	ack := protocol.HelloAckMessage{
 		Type:    protocol.TypeHelloAck,
@@ -305,6 +309,7 @@ func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Quantization:   h.config.Quantization,
 			ContextSize:    h.config.ContextSize,
 			MaxParallelism: h.config.MaxParallel,
+			Capabilities:   policyCaps,
 		},
 	}
 	if err := wc.sendMessage(ack); err != nil {
@@ -639,6 +644,8 @@ func (h *WSHandler) messageLoop(wc *workerConn) {
 			h.handleConfig(wc, &m)
 		case protocol.TokenMessage:
 			h.handleToken(wc, &m)
+		case protocol.ToolGeneratingMessage:
+			h.handleToolGenerating(wc, &m)
 		case protocol.CompleteMessage:
 			h.handleComplete(wc, &m)
 		case protocol.ErrorMessage:
@@ -696,14 +703,32 @@ func (h *WSHandler) handleHeartbeat(wc *workerConn, _ *protocol.HeartbeatMessage
 	}
 }
 
-func (h *WSHandler) handleToken(wc *workerConn, msg *protocol.TokenMessage) {
+func (h *WSHandler) handleToolGenerating(wc *workerConn, msg *protocol.ToolGeneratingMessage) {
 	ctx := context.Background()
 	event := queue.TokenEvent{
-		Type: "token",
+		Type: "tool_generating",
+		Data: json.RawMessage(`{}`),
+	}
+	if _, err := h.tokenStream.Publish(ctx, msg.JobID, event); err != nil {
+		h.logger.Warn("publish tool_generating failed", "job_id", msg.JobID, "error", err)
+	}
+}
+
+func (h *WSHandler) handleToken(wc *workerConn, msg *protocol.TokenMessage) {
+	ctx := context.Background()
+
+	// Choose event type based on whether this is a reasoning/thinking token
+	eventType := "token"
+	if msg.Reasoning {
+		eventType = "reasoning_token"
+	}
+
+	event := queue.TokenEvent{
+		Type: eventType,
 		Data: json.RawMessage(`"` + escapeJSON(msg.Token) + `"`),
 	}
 	if _, err := h.tokenStream.Publish(ctx, msg.JobID, event); err != nil {
-		h.logger.Error("publishing token", "worker_id", wc.id, "job_id", msg.JobID, "error", err)
+		h.logger.Error("publishing token", "worker_id", wc.id, "job_id", msg.JobID, "error", err, "reasoning", msg.Reasoning)
 	}
 
 	// Keep pushing the TTL forward while the worker is actively streaming.
@@ -834,6 +859,31 @@ func (h *WSHandler) cleanup(wc *workerConn) {
 			"note", "sweeper will re-enqueue pending jobs for other workers",
 		)
 	}
+}
+
+// inferCapabilities derives model capabilities from the model name.
+// This matches the logic in the Node.js websocket server and model registry.
+func inferCapabilities(modelName string) []string {
+	name := strings.ToLower(modelName)
+	var caps []string
+
+	if strings.Contains(name, "vision") || strings.Contains(name, "multimodal") || strings.Contains(name, "vl-") {
+		caps = append(caps, "vision")
+	}
+	if strings.Contains(name, "code") || strings.Contains(name, "coder") || strings.Contains(name, "starcoder") {
+		caps = append(caps, "code")
+	}
+	if strings.Contains(name, "embed") || strings.Contains(name, "embedding") {
+		caps = append(caps, "embedding")
+	}
+	// Reasoning-capable models: DeepSeek-R1, Kimi K2.5, QwQ, etc.
+	if strings.Contains(name, "deepseek-r1") || strings.Contains(name, "kimi") || strings.Contains(name, "qwq") {
+		caps = append(caps, "reasoning")
+	}
+	if len(caps) == 0 {
+		caps = append(caps, "chat")
+	}
+	return caps
 }
 
 // escapeJSON escapes a string for safe embedding in a JSON string value.

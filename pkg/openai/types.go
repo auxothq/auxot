@@ -18,22 +18,27 @@ import (
 
 // ChatCompletionRequest is the OpenAI-compatible /v1/chat/completions request body.
 type ChatCompletionRequest struct {
-	Model       string    `json:"model,omitempty"`
-	Messages    []Message `json:"messages"`
-	Stream      bool      `json:"stream,omitempty"`
-	Temperature *float64  `json:"temperature,omitempty"`
-	MaxTokens   *int      `json:"max_tokens,omitempty"`
-	Tools       []Tool    `json:"tools,omitempty"`
-	TopP        *float64  `json:"top_p,omitempty"`
-	Stop        any       `json:"stop,omitempty"` // string or []string
+	Model              string         `json:"model,omitempty"`
+	Messages           []Message      `json:"messages"`
+	Stream             bool           `json:"stream,omitempty"`
+	Temperature        *float64       `json:"temperature,omitempty"`
+	MaxTokens          *int           `json:"max_tokens,omitempty"`
+	Tools              []Tool         `json:"tools,omitempty"`
+	TopP               *float64       `json:"top_p,omitempty"`
+	Stop               any            `json:"stop,omitempty"`                    // string or []string
+	ReasoningEffort    string         `json:"reasoning_effort,omitempty"`        // "none", "low", "medium", "high" — controls thinking
+	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`   // llama.cpp extension: passed to Jinja template (e.g. enable_thinking)
 }
 
 // Message represents a single message in the conversation.
+// ReasoningContent carries chain-of-thought text (used by DeepSeek, Kimi, etc.)
+// and is included in both streaming deltas and non-streaming messages.
 type Message struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	Role             string     `json:"role"`
+	Content          string     `json:"content"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 }
 
 // Tool defines a function the model can call.
@@ -131,6 +136,29 @@ func NewNonStreamingResponse(model, content string, finishReason string, usage *
 	}
 }
 
+// NewNonStreamingResponseWithReasoning builds a non-streaming response that includes reasoning/thinking content.
+func NewNonStreamingResponseWithReasoning(model, content, reasoningContent string, finishReason string, usage *Usage) *ChatCompletionResponse {
+	fr := finishReason
+	return &ChatCompletionResponse{
+		ID:      NewCompletionID(),
+		Object:  "chat.completion",
+		Created: time.Now().Unix(),
+		Model:   model,
+		Choices: []Choice{
+			{
+				Index: 0,
+				Message: &Message{
+					Role:             "assistant",
+					Content:          content,
+					ReasoningContent: reasoningContent,
+				},
+				FinishReason: &fr,
+			},
+		},
+		Usage: usage,
+	}
+}
+
 // NewToolCallResponse builds a non-streaming response with tool calls.
 func NewToolCallResponse(model string, toolCalls []ToolCall, usage *Usage) *ChatCompletionResponse {
 	fr := "tool_calls"
@@ -164,6 +192,23 @@ func NewStreamingChunk(completionID, model, content string) *ChatCompletionChunk
 			{
 				Index:        0,
 				Delta:        &Message{Content: content},
+				FinishReason: nil,
+			},
+		},
+	}
+}
+
+// NewStreamingReasoningChunk builds a single SSE chunk with a reasoning_content delta.
+func NewStreamingReasoningChunk(completionID, model, reasoningContent string) *ChatCompletionChunk {
+	return &ChatCompletionChunk{
+		ID:      completionID,
+		Object:  "chat.completion.chunk",
+		Created: time.Now().Unix(),
+		Model:   model,
+		Choices: []Choice{
+			{
+				Index:        0,
+				Delta:        &Message{ReasoningContent: reasoningContent},
 				FinishReason: nil,
 			},
 		},

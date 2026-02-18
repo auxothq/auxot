@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +13,11 @@ import (
 	"github.com/auxothq/auxot/pkg/openai"
 	"github.com/auxothq/auxot/pkg/protocol"
 )
+
+// thinkTagRe matches <think> and </think> tags (but NOT the content between them).
+// Used to clean up residual think tags from suppressed-thinking responses without
+// removing any actual content the model generated inside them.
+var thinkTagRe = regexp.MustCompile(`</?think>`)
 
 // Executor handles running jobs on the local llama.cpp server.
 type Executor struct {
@@ -32,17 +38,24 @@ func NewExecutor(llamaURL string, jobTimeout time.Duration, logger *slog.Logger)
 
 // Execute runs a job: converts protocol messages to llama.cpp request,
 // streams tokens via sendToken, and sends completion/error via the callbacks.
+// sendReasoningToken is called for thinking/reasoning tokens (may be nil if not supported).
 func (e *Executor) Execute(
 	ctx context.Context,
 	job protocol.JobMessage,
 	sendToken func(token string) error,
-	sendComplete func(fullResponse string, cacheTokens, inputTokens, outputTokens int, durationMS int64, toolCalls []protocol.ToolCall) error,
+	sendReasoningToken func(token string) error,
+	sendToolGenerating func() error,
+	sendComplete func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error,
 	sendError func(errMsg, details string) error,
 ) {
 	jobCtx, cancel := context.WithTimeout(ctx, e.jobTimeout)
 	defer cancel()
 
 	// No separate "executing job" log - the "received job" log is sufficient
+
+	// Suppress thinking when reasoning_effort is "none".
+	// This is used for title generation and agent jobs that need clean output.
+	suppressThinking := strings.EqualFold(job.ReasoningEffort, "none")
 
 	// Convert protocol → openai request (preserve tool call history)
 	messages := make([]openai.Message, len(job.Messages))
@@ -80,12 +93,29 @@ func (e *Executor) Execute(
 	}
 
 	req := &openai.ChatCompletionRequest{
-		Model:       "local",
-		Messages:    messages,
-		Tools:       tools,
-		Temperature: job.Temperature,
-		MaxTokens:   job.MaxTokens,
-		Stream:      true,
+		Model:           "local",
+		Messages:        messages,
+		Tools:           tools,
+		Temperature:     job.Temperature,
+		MaxTokens:       job.MaxTokens,
+		Stream:          true,
+		ReasoningEffort: job.ReasoningEffort,
+	}
+
+	// When thinking is suppressed, tell llama.cpp to disable thinking at the
+	// template level via chat_template_kwargs. This prevents the Jinja template
+	// from injecting <think> into the generation prompt, so the model never
+	// enters thinking mode.
+	//
+	// Different model families use different variable names:
+	//   - Qwen3: enable_thinking
+	//   - Kimi K2.5: thinking
+	// Passing both is safe — Jinja silently ignores undefined kwargs.
+	if suppressThinking {
+		req.ChatTemplateKwargs = map[string]any{
+			"enable_thinking": false, // Qwen3, DeepSeek-R1
+			"thinking":        false, // Kimi K2.5
+		}
 	}
 
 	// Debug log the request to llama.cpp (level 2)
@@ -100,18 +130,21 @@ func (e *Executor) Execute(
 	}
 
 	var fullResponse strings.Builder
+	var reasoningContent strings.Builder
+	var reasoningTokenCount int
 	// Merge tool call deltas by streaming index — SSE chunks carry incremental
 	// fragments: only the first chunk for a given index has id/type/name,
 	// subsequent chunks only append to arguments.
 	accToolCalls := make(map[int]*openai.ToolCall)
+	toolGeneratingNotified := false // Only send tool_generating once per job
 	var finalTimings *llamacpp.Timings
 	finishReason := ""
 
 	for token := range tokenCh {
 		// Debug log each SSE chunk from llama.cpp (level 2)
-		if DebugLevel() >= 2 && (token.Content != "" || len(token.ToolCalls) > 0 || token.FinishReason != "") {
-			DebugLlamaToWorker(fmt.Sprintf("content=%q finish=%q tool_calls=%d",
-				token.Content, token.FinishReason, len(token.ToolCalls)))
+		if DebugLevel() >= 2 && (token.Content != "" || token.ReasoningContent != "" || len(token.ToolCalls) > 0 || token.FinishReason != "") {
+			DebugLlamaToWorker(fmt.Sprintf("content=%q reasoning=%q finish=%q tool_calls=%d",
+				token.Content, token.ReasoningContent, token.FinishReason, len(token.ToolCalls)))
 		}
 
 		if token.FinishReason == "error" {
@@ -127,8 +160,35 @@ func (e *Executor) Execute(
 			}
 		}
 
+		// Forward reasoning/thinking tokens separately.
+		if token.ReasoningContent != "" {
+			if suppressThinking {
+				// When thinking is suppressed, DON'T discard reasoning tokens
+				// from the full response. The model may generate structural
+				// content (like closing braces) inside <think> blocks, and
+				// discarding them truncates the output. Instead, fold reasoning
+				// tokens back into the content so nothing is lost.
+				fullResponse.WriteString(token.ReasoningContent)
+			} else {
+				reasoningContent.WriteString(token.ReasoningContent)
+				reasoningTokenCount++
+				if sendReasoningToken != nil {
+					if err := sendReasoningToken(token.ReasoningContent); err != nil {
+						e.logger.Warn("failed to send reasoning token", "job_id", job.JobID, "error", err)
+					}
+				}
+			}
+		}
+
 		// Merge tool call deltas by index
 		for _, tc := range token.ToolCalls {
+			// Notify frontend once when the first tool call delta arrives
+			if !toolGeneratingNotified && sendToolGenerating != nil {
+				toolGeneratingNotified = true
+				if err := sendToolGenerating(); err != nil {
+					e.logger.Warn("failed to send tool_generating", "job_id", job.JobID, "error", err)
+				}
+			}
 			existing, ok := accToolCalls[tc.Index]
 			if !ok {
 				copy := tc
@@ -185,19 +245,30 @@ func (e *Executor) Execute(
 		durationMS = int64(finalTimings.PromptMS + finalTimings.PredictedMS)
 	}
 
-	// Log job completion with progressive detail based on debug level
-	logJobCompleted(e.logger, job.JobID, finishReason, cacheTokens, inputTokens, outputTokens, durationMS, fullResponse.String(), protoToolCalls)
+	// When thinking is suppressed, strip residual <think>/<think> tags from the
+	// response but preserve everything between them. Reasoning tokens were folded
+	// into fullResponse above so no content is lost; we just clean up the tags.
+	finalResponse := fullResponse.String()
+	finalReasoning := reasoningContent.String()
+	if suppressThinking {
+		finalResponse = strings.TrimSpace(thinkTagRe.ReplaceAllString(finalResponse, ""))
+		finalReasoning = "" // Discard reasoning text (already folded into response)
+		reasoningTokenCount = 0
+	}
 
-	if err := sendComplete(fullResponse.String(), cacheTokens, inputTokens, outputTokens, durationMS, protoToolCalls); err != nil {
+	// Log job completion with progressive detail based on debug level
+	logJobCompleted(e.logger, job.JobID, finishReason, cacheTokens, inputTokens, outputTokens, reasoningTokenCount, durationMS, finalResponse, finalReasoning, protoToolCalls)
+
+	if err := sendComplete(finalResponse, finalReasoning, cacheTokens, inputTokens, outputTokens, reasoningTokenCount, durationMS, protoToolCalls); err != nil {
 		e.logger.Error("failed to send completion", "job_id", job.JobID, "error", err)
 	}
 }
 
 // logJobCompleted logs a job completion with progressive detail based on debug level.
-// Level 0: Summary stats only (job_id, tokens, duration, finish_reason)
-// Level 1: Level 0 + full response text + tool calls with arguments
+// Level 0: Summary stats only (job_id, tokens, duration, finish_reason, reasoning_tokens)
+// Level 1: Level 0 + full response text + reasoning content + tool calls with arguments
 // Level 2: Level 0 + Level 1 (same as level 1, streaming tokens shown separately via ws_send)
-func logJobCompleted(logger *slog.Logger, jobID, finishReason string, cacheTokens, inputTokens, outputTokens int, durationMS int64, fullResponse string, toolCalls []protocol.ToolCall) {
+func logJobCompleted(logger *slog.Logger, jobID, finishReason string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, fullResponse, reasoningContent string, toolCalls []protocol.ToolCall) {
 	level := DebugLevel()
 
 	// Level 0: Always log summary stats
@@ -210,14 +281,22 @@ func logJobCompleted(logger *slog.Logger, jobID, finishReason string, cacheToken
 		"duration_ms", durationMS,
 	}
 
+	if reasoningTokens > 0 {
+		attrs = append(attrs, "reasoning_tokens", reasoningTokens)
+	}
+
 	if len(toolCalls) > 0 {
 		attrs = append(attrs, "num_tool_calls", len(toolCalls))
 	}
 
-	// Level 1+: Add full response and complete tool calls
+	// Level 1+: Add full response, reasoning, and complete tool calls
 	if level >= 1 {
 		if fullResponse != "" {
 			attrs = append(attrs, "response", fullResponse)
+		}
+
+		if reasoningContent != "" {
+			attrs = append(attrs, "reasoning_content", reasoningContent)
 		}
 
 		if len(toolCalls) > 0 {

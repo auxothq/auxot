@@ -198,7 +198,7 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 		logger.Info("llama.cpp started", "port", llamaPort, "parallelism", parallelism)
 		logger.Info("waiting for llama.cpp")
 
-		if err := llama.WaitForReady(ctx, 120*time.Second); err != nil {
+		if err := llama.WaitForReady(ctx, 10*time.Minute); err != nil {
 			llama.Stop()
 			if parallelism > 1 {
 				logger.Warn("llama.cpp failed to become ready, reducing parallelism",
@@ -228,6 +228,47 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 
 	llama.Warmup()
 	logger.Info("model warmed up")
+
+	// ----------------------------------------------------------------
+	// Phase 4b: Patch template for reasoning support if needed
+	// ----------------------------------------------------------------
+	// Some models (e.g. Kimi K2.5) have templates that don't preserve
+	// reasoning_content in multi-turn history, which prevents llama.cpp
+	// from extracting thinking tokens. We detect this and patch the
+	// template with a no-op shim, then restart llama.cpp.
+	patchedTemplatePath, err := llama.CheckReasoningSupport()
+	if err != nil {
+		logger.Warn("reasoning support check failed", "error", err.Error())
+	}
+	if patchedTemplatePath != "" {
+		defer os.Remove(patchedTemplatePath) // Clean up temp file on exit
+
+		logger.Info("restarting llama.cpp with patched template")
+		llama.Stop()
+
+		// Recreate with the patched template file
+		llama = worker.NewLlamaProcess(worker.LlamaOpts{
+			BinaryPath:       binaryPath,
+			ModelPath:        modelPath,
+			ContextSize:      policy.ContextSize,
+			Parallelism:      parallelism,
+			Port:             llamaPort,
+			Host:             "127.0.0.1",
+			GPULayers:        cfg.GPULayers,
+			Threads:          cfg.Threads,
+			ChatTemplateFile: patchedTemplatePath,
+		}, logger)
+
+		if err := llama.Start(); err != nil {
+			return fmt.Errorf("restarting llama.cpp with patched template: %w", err)
+		}
+		if err := llama.WaitForReady(ctx, 10*time.Minute); err != nil {
+			llama.Stop()
+			return fmt.Errorf("patched llama.cpp not ready: %w", err)
+		}
+		llama.Warmup()
+		logger.Info("llama.cpp restarted with reasoning support")
+	}
 
 	// ----------------------------------------------------------------
 	// Phase 5: Discover capabilities
@@ -283,8 +324,14 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 			func(token string) error {
 				return conn.SendToken(job.JobID, token)
 			},
-			func(fullResponse string, cacheTokens, inputTokens, outputTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
-				return conn.SendComplete(job.JobID, fullResponse, durationMS, cacheTokens, inputTokens, outputTokens, toolCalls)
+			func(token string) error {
+				return conn.SendReasoningToken(job.JobID, token)
+			},
+			func() error {
+				return conn.SendToolGenerating(job.JobID)
+			},
+			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
+				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls)
 			},
 			func(errMsg, details string) error {
 				return conn.SendError(job.JobID, errMsg)
@@ -308,7 +355,7 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 			logger.Error("failed to restart llama.cpp", "error", restartErr)
 			return
 		}
-		if err := llama.WaitForReady(ctx, 120*time.Second); err != nil {
+		if err := llama.WaitForReady(ctx, 10*time.Minute); err != nil {
 			logger.Error("restarted llama.cpp not ready", "error", err)
 			return
 		}

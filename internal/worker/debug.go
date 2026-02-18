@@ -90,6 +90,11 @@ func DebugClientToServer(msg any) {
 		return
 	}
 
+	// Level 1: Skip complete messages — already shown in "job completed" INFO log
+	if _, ok := msg.(protocol.CompleteMessage); ok {
+		return
+	}
+
 	// Level 1: Apply smart filtering for other messages
 	payload := buildSmartWebSocketPayload(msg)
 	writeDebugEntry("ws_send", "worker", "router", payload)
@@ -140,6 +145,9 @@ func buildSmartWebSocketPayload(msg any) any {
 	}
 	if jobMsg.MaxTokens != nil {
 		payload["max_tokens"] = *jobMsg.MaxTokens
+	}
+	if jobMsg.ReasoningEffort != "" {
+		payload["reasoning_effort"] = jobMsg.ReasoningEffort
 	}
 
 	// Collapse tools to just names

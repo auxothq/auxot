@@ -25,20 +25,25 @@ type LlamaProcess struct {
 	opts    LlamaOpts
 	logger  *slog.Logger
 
+	// Stderr capture for crash diagnostics
+	stderrCapture *llamaStderrCapture
+
 	// Crash notification
 	onCrash func(exitCode int, err error)
 }
 
 // LlamaOpts holds the llama.cpp launch parameters.
 type LlamaOpts struct {
-	BinaryPath  string
-	ModelPath   string
-	ContextSize int // Per-slot context size (will be multiplied by Parallelism)
-	Parallelism int
-	Port        int
-	Host        string
-	GPULayers   int
-	Threads     int
+	BinaryPath       string
+	ModelPath        string
+	ContextSize      int // Per-slot context size (will be multiplied by Parallelism)
+	Parallelism      int
+	Port             int
+	Host             string
+	GPULayers        int
+	Threads          int
+	ReasoningFormat  string // "deepseek" to enable thinking token extraction, "" to disable
+	ChatTemplateFile string // Path to a patched Jinja template file (overrides model's built-in template)
 }
 
 // NewLlamaProcess creates a LlamaProcess manager.
@@ -78,7 +83,8 @@ func (lp *LlamaProcess) Start() error {
 		"--port", strconv.Itoa(lp.opts.Port),
 		"--host", lp.opts.Host,
 		"--batch-size", "512",
-		"--jinja", // Enable Jinja templating for tool calling
+		"--jinja",                    // Enable Jinja templating for tool calling
+		"--reasoning-format", "deepseek", // Always extract <think> blocks into reasoning_content (harmless if model doesn't think)
 	}
 
 	if lp.opts.Threads > 0 {
@@ -86,6 +92,9 @@ func (lp *LlamaProcess) Start() error {
 	}
 	if lp.opts.GPULayers > 0 {
 		args = append(args, "--n-gpu-layers", strconv.Itoa(lp.opts.GPULayers))
+	}
+	if lp.opts.ChatTemplateFile != "" {
+		args = append(args, "--chat-template-file", lp.opts.ChatTemplateFile)
 	}
 
 	lp.logger.Info("spawning llama.cpp",
@@ -99,15 +108,15 @@ func (lp *LlamaProcess) Start() error {
 	lp.cmd = exec.Command(lp.opts.BinaryPath, args...)
 	lp.cmd.Env = os.Environ()
 
-	// Suppress llama.cpp output unless --debug 2.
-	// At debug level 2, pipe directly to the terminal.
-	// Otherwise, capture and only log critical errors from stderr.
+	// Capture stderr for crash diagnostics and error logging.
+	// At debug level 2, also tee directly to the terminal.
+	lp.stderrCapture = newLlamaStderrCapture(lp.logger)
 	if DebugLevel() >= 2 {
 		lp.cmd.Stdout = os.Stdout
-		lp.cmd.Stderr = os.Stderr
+		lp.cmd.Stderr = io.MultiWriter(os.Stderr, lp.stderrCapture)
 	} else {
-		lp.cmd.Stdout = &llamaOutputFilter{logger: lp.logger, critical: false}
-		lp.cmd.Stderr = &llamaOutputFilter{logger: lp.logger, critical: true}
+		lp.cmd.Stdout = io.Discard
+		lp.cmd.Stderr = lp.stderrCapture
 	}
 
 	if err := lp.cmd.Start(); err != nil {
@@ -141,10 +150,20 @@ func (lp *LlamaProcess) monitor() {
 		exitCode = lp.cmd.ProcessState.ExitCode()
 	}
 
-	lp.logger.Error("llama.cpp exited unexpectedly",
+	// Include recent stderr output in the crash log so we can see WHY it died
+	recentStderr := ""
+	if lp.stderrCapture != nil {
+		recentStderr = lp.stderrCapture.RecentLines(20)
+	}
+
+	attrs := []any{
 		"exit_code", exitCode,
 		"error", err,
-	)
+	}
+	if recentStderr != "" {
+		attrs = append(attrs, "stderr", recentStderr)
+	}
+	lp.logger.Error("llama.cpp exited unexpectedly", attrs...)
 
 	if lp.onCrash != nil {
 		lp.onCrash(exitCode, err)
@@ -247,6 +266,201 @@ func (lp *LlamaProcess) Warmup() {
 	}
 	defer resp.Body.Close()
 	_, _ = io.ReadAll(resp.Body)
+}
+
+// reasoningShim is a Jinja no-op prepended to chat templates that don't preserve
+// reasoning_content in multi-turn history. It tricks llama.cpp's template capability
+// test into setting supports_preserve_reasoning=true by reading (but not rendering)
+// the reasoning_content field from each assistant message.
+//
+// This is generic — works with any template, produces zero output, and is harmless
+// on templates that already support reasoning.
+const reasoningShim = `{%- for m in messages -%}{%- if m.reasoning_content is defined %}{% set _ = m.reasoning_content %}{% endif -%}{%- endfor -%}
+`
+
+// CheckReasoningSupport queries /props to check if the template supports reasoning
+// extraction natively. If not, it fetches the template, applies fixes, and writes
+// the patched template to a temp file.
+//
+// Two fixes may be applied:
+//  1. Shim: prepends a no-op loop that reads reasoning_content so llama.cpp detects
+//     supports_preserve_reasoning=true.
+//  2. Suffix strip: removes a trailing "<think>" from the generation prompt so the
+//     model generates it as its first token, allowing llama.cpp's --reasoning-format
+//     deepseek parser to detect both opening and closing tags. (Needed for models like
+//     Kimi K2.5 whose llama.cpp handler doesn't set thinking_forced_open.)
+//
+// Returns the path to the patched template file (caller should restart llama.cpp
+// with --chat-template-file), or "" if no patching is needed.
+func (lp *LlamaProcess) CheckReasoningSupport() (string, error) {
+	baseURL := lp.URL()
+
+	resp, err := http.Get(baseURL + "/props")
+	if err != nil {
+		return "", fmt.Errorf("querying /props: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("/props returned status %d", resp.StatusCode)
+	}
+
+	var props struct {
+		ChatTemplate     string `json:"chat_template"`
+		ChatTemplateCaps struct {
+			SupportsPreserveReasoning bool `json:"supports_preserve_reasoning"`
+		} `json:"chat_template_caps"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&props); err != nil {
+		return "", fmt.Errorf("decoding /props: %w", err)
+	}
+
+	if props.ChatTemplate == "" {
+		lp.logger.Info("no chat template found, skipping reasoning check")
+		return "", nil
+	}
+
+	needsShim := !props.ChatTemplateCaps.SupportsPreserveReasoning
+	needsSuffixStrip := templateEndsWithForcedThink(props.ChatTemplate)
+
+	if !needsShim && !needsSuffixStrip {
+		lp.logger.Info("template supports reasoning natively")
+		return "", nil
+	}
+
+	patched := props.ChatTemplate
+
+	if needsShim {
+		lp.logger.Info("template does not preserve reasoning, applying shim")
+		patched = reasoningShim + patched
+	}
+
+	if needsSuffixStrip {
+		lp.logger.Info("template forces <think> in suffix, stripping so model generates it")
+		patched = stripForcedThinkSuffix(patched)
+	}
+
+	tmpFile, err := os.CreateTemp("", "auxot-chat-template-*.jinja")
+	if err != nil {
+		return "", fmt.Errorf("creating temp template file: %w", err)
+	}
+
+	if _, err := tmpFile.WriteString(patched); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("writing patched template: %w", err)
+	}
+	tmpFile.Close()
+
+	lp.logger.Info("patched template saved", "path", tmpFile.Name())
+	return tmpFile.Name(), nil
+}
+
+// templateEndsWithForcedThink checks if a Jinja chat template forces a <think>
+// tag in its generation prompt (the assistant suffix). This is detected by looking
+// for the pattern where the template ends with an unconditional <think> after the
+// add_generation_prompt guard.
+//
+// Templates that do this (like Kimi K2.5) cause issues because llama.cpp's Kimi
+// handler doesn't set thinking_forced_open=true, so the deepseek reasoning parser
+// doesn't know the generation starts inside a think block.
+func templateEndsWithForcedThink(template string) bool {
+	// Look for the common pattern at the end of templates:
+	//   {%- else -%}
+	//   <think>
+	//   {%- endif -%}
+	//   {%- endif -%}
+	// This indicates the template unconditionally forces <think> when thinking is enabled.
+	lines := strings.Split(template, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" {
+			continue
+		}
+		// Check if one of the last meaningful lines is a standalone <think>
+		// between else/endif guards (the generation prompt pattern)
+		if trimmed == "<think>" {
+			// Verify it's in the add_generation_prompt block by checking nearby lines
+			for j := i - 1; j >= 0 && j >= i-5; j-- {
+				prev := strings.TrimSpace(lines[j])
+				if strings.Contains(prev, "else") || strings.Contains(prev, "add_generation_prompt") {
+					return true
+				}
+			}
+		}
+		// Only check the last block of the template
+		if strings.Contains(trimmed, "endif") {
+			continue
+		}
+		if !strings.HasPrefix(trimmed, "{%") && trimmed != "<think>" && trimmed != "<think></think>" {
+			break
+		}
+	}
+	return false
+}
+
+// stripForcedThinkSuffix modifies a Jinja template to remove the unconditional
+// <think> from the generation prompt. The model will then generate <think> as its
+// first token, allowing llama.cpp's reasoning parser to detect it properly.
+//
+// Before:
+//
+//	{%- if thinking is defined and thinking is false -%}
+//	<think></think>
+//	{%- else -%}
+//	<think>
+//	{%- endif -%}
+//
+// After:
+//
+//	{%- if thinking is defined and thinking is false -%}
+//	<think></think>
+//	{%- endif -%}
+func stripForcedThinkSuffix(template string) string {
+	lines := strings.Split(template, "\n")
+	result := make([]string, 0, len(lines))
+
+	// Walk backwards to find the generation prompt block and strip the
+	// {%- else -%}\n  <think> portion, leaving the thinking=false guard intact.
+	skipElseBlock := false
+	for i := len(lines) - 1; i >= 0; i-- {
+		trimmed := strings.TrimSpace(lines[i])
+
+		if !skipElseBlock {
+			// Look for the standalone <think> line near the end
+			if trimmed == "<think>" {
+				// Check if previous line is an else block
+				for j := i - 1; j >= 0; j-- {
+					prevTrimmed := strings.TrimSpace(lines[j])
+					if prevTrimmed == "" {
+						continue
+					}
+					if strings.Contains(prevTrimmed, "else") {
+						// Found the pattern! Skip both the <think> and the else line
+						skipElseBlock = true
+						lines[i] = "" // Remove <think>
+						lines[j] = "" // Remove else
+					}
+					break
+				}
+				if skipElseBlock {
+					continue
+				}
+			}
+		}
+	}
+
+	for _, line := range lines {
+		// Skip blank lines that were cleared
+		if strings.TrimSpace(line) == "" && skipElseBlock {
+			// Keep the line but check if it was one we cleared
+			result = append(result, line)
+		} else {
+			result = append(result, line)
+		}
+	}
+
+	return strings.Join(result, "\n")
 }
 
 // DiscoverCapabilities queries the running llama.cpp for its actual capabilities.
@@ -364,27 +578,32 @@ func FindFreePort() (int, error) {
 	return port, nil
 }
 
-// llamaOutputFilter is an io.Writer that silently discards llama.cpp output
-// unless a line contains a critical keyword (only for stderr when critical=true).
-// Critical lines are logged via slog so they appear as proper JSON.
-type llamaOutputFilter struct {
-	logger   *slog.Logger
-	critical bool // true = stderr (check for error keywords), false = stdout (discard)
-	buf      []byte
+// llamaStderrCapture captures llama.cpp stderr output for diagnostics.
+// It keeps a rolling buffer of recent lines and logs critical ones via slog.
+type llamaStderrCapture struct {
+	logger *slog.Logger
+	mu     sync.Mutex
+	buf    []byte
+	lines  []string // Rolling buffer of recent lines
+	maxLines int
 }
 
-func (f *llamaOutputFilter) Write(p []byte) (int, error) {
-	if !f.critical {
-		// stdout — discard silently
-		return len(p), nil
+func newLlamaStderrCapture(logger *slog.Logger) *llamaStderrCapture {
+	return &llamaStderrCapture{
+		logger:   logger,
+		maxLines: 50, // Keep last 50 lines for crash diagnostics
 	}
+}
 
-	// stderr — scan for critical keywords
-	f.buf = append(f.buf, p...)
+func (c *llamaStderrCapture) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.buf = append(c.buf, p...)
 
 	for {
 		idx := -1
-		for i, b := range f.buf {
+		for i, b := range c.buf {
 			if b == '\n' {
 				idx = i
 				break
@@ -392,23 +611,54 @@ func (f *llamaOutputFilter) Write(p []byte) (int, error) {
 		}
 		if idx < 0 {
 			// Keep buffer bounded even without newlines
-			if len(f.buf) > 4096 {
-				f.buf = f.buf[len(f.buf)-2048:]
+			if len(c.buf) > 4096 {
+				c.buf = c.buf[len(c.buf)-2048:]
 			}
 			break
 		}
 
-		line := string(f.buf[:idx])
-		f.buf = f.buf[idx+1:]
+		line := strings.TrimSpace(string(c.buf[:idx]))
+		c.buf = c.buf[idx+1:]
 
+		if line == "" {
+			continue
+		}
+
+		// Store in rolling buffer
+		c.lines = append(c.lines, line)
+		if len(c.lines) > c.maxLines {
+			c.lines = c.lines[len(c.lines)-c.maxLines:]
+		}
+
+		// Log critical lines immediately
 		lower := strings.ToLower(line)
 		if strings.Contains(lower, "error") ||
 			strings.Contains(lower, "fatal") ||
+			strings.Contains(lower, "abort") ||
 			strings.Contains(lower, "crash") ||
-			strings.Contains(lower, "failed") {
-			f.logger.Warn("llama.cpp", "line", strings.TrimSpace(line))
+			strings.Contains(lower, "failed") ||
+			strings.Contains(lower, "library not loaded") ||
+			strings.Contains(lower, "dyld") {
+			c.logger.Warn("llama.cpp stderr", "line", line)
 		}
 	}
 
 	return len(p), nil
+}
+
+// RecentLines returns the last n lines of captured stderr output,
+// joined with newlines. Useful for crash diagnostics.
+func (c *llamaStderrCapture) RecentLines(n int) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if len(c.lines) == 0 {
+		return ""
+	}
+
+	start := 0
+	if len(c.lines) > n {
+		start = len(c.lines) - n
+	}
+	return strings.Join(c.lines[start:], "\n")
 }

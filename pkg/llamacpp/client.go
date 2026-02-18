@@ -39,10 +39,11 @@ func NewClient(baseURL string) *Client {
 
 // StreamToken is a single token event from the SSE stream.
 type StreamToken struct {
-	Content      string           // Text content (may be empty for tool call chunks)
-	ToolCalls    []openai.ToolCall // Tool calls (streamed incrementally)
-	FinishReason string           // "stop", "tool_calls", or "" if not done
-	Timings      *Timings         // Only present in the final chunk
+	Content          string           // Text content (may be empty for tool call chunks)
+	ReasoningContent string           // Reasoning/thinking content (from <think> blocks)
+	ToolCalls        []openai.ToolCall // Tool calls (streamed incrementally)
+	FinishReason     string           // "stop", "tool_calls", or "" if not done
+	Timings          *Timings         // Only present in the final chunk
 }
 
 // Timings contains llama.cpp performance metrics from the last chunk.
@@ -57,13 +58,15 @@ type Timings struct {
 
 // CompletionResult is the final result after the entire stream is consumed.
 type CompletionResult struct {
-	FullResponse  string
-	ToolCalls     []openai.ToolCall
-	FinishReason  string
-	CacheTokens   int
-	InputTokens   int
-	OutputTokens  int
-	DurationMS    float64
+	FullResponse     string
+	ReasoningContent string // Accumulated reasoning/thinking text
+	ToolCalls        []openai.ToolCall
+	FinishReason     string
+	CacheTokens      int
+	InputTokens      int
+	OutputTokens     int
+	ReasoningTokens  int // Count of reasoning token chunks
+	DurationMS       float64
 }
 
 // StreamCompletion sends a chat completion request to llama.cpp and returns
@@ -187,6 +190,8 @@ func parseSSEStream(ctx context.Context, body io.Reader, tokens chan<- StreamTok
 
 // llamaCppChunk is the raw JSON structure from llama.cpp's SSE stream.
 // Matches the OpenAI streaming format with llama.cpp extensions (timings).
+// When llama-server runs with --reasoning-format deepseek, thinking tokens
+// arrive in delta.reasoning_content instead of delta.content.
 type llamaCppChunk struct {
 	ID      string `json:"id"`
 	Object  string `json:"object"`
@@ -195,9 +200,10 @@ type llamaCppChunk struct {
 	Choices []struct {
 		Index int `json:"index"`
 		Delta struct {
-			Content   string `json:"content,omitempty"`
-			Role      string `json:"role,omitempty"`
-			ToolCalls []struct {
+			Content          string `json:"content,omitempty"`
+			ReasoningContent string `json:"reasoning_content,omitempty"` // Thinking tokens
+			Role             string `json:"role,omitempty"`
+			ToolCalls        []struct {
 				Index    *int   `json:"index,omitempty"`
 				ID       string `json:"id,omitempty"`
 				Type     string `json:"type,omitempty"`
@@ -224,6 +230,7 @@ func chunkToToken(chunk *llamaCppChunk) StreamToken {
 
 	choice := chunk.Choices[0]
 	token.Content = choice.Delta.Content
+	token.ReasoningContent = choice.Delta.ReasoningContent
 
 	if choice.FinishReason != nil {
 		token.FinishReason = *choice.FinishReason
@@ -268,6 +275,11 @@ func CollectStream(tokens <-chan StreamToken) *CompletionResult {
 		}
 
 		result.FullResponse += token.Content
+
+		if token.ReasoningContent != "" {
+			result.ReasoningContent += token.ReasoningContent
+			result.ReasoningTokens++
+		}
 
 		// Merge tool call deltas by index
 		for _, tc := range token.ToolCalls {

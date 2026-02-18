@@ -22,7 +22,7 @@ import (
 )
 
 // Version of llama.cpp to download. Pinned for compatibility.
-const Version = "b7716"
+const Version = "b8072"
 
 const githubRepo = "ggml-org/llama.cpp"
 
@@ -70,7 +70,7 @@ func Ensure(cacheDir string, logger *slog.Logger) (string, error) {
 	archivePath := filepath.Join(platformDir, archiveName)
 
 	// Download
-	if err := downloadFile(url, archivePath); err != nil {
+	if err := downloadFile(url, archivePath, logger); err != nil {
 		return "", fmt.Errorf("downloading binary: %w", err)
 	}
 
@@ -129,8 +129,8 @@ func archiveNameForPlatform() (string, error) {
 	}
 }
 
-// downloadFile downloads a URL to a local file with progress output.
-func downloadFile(url, dest string) error {
+// downloadFile downloads a URL to a local file.
+func downloadFile(url, dest string, logger *slog.Logger) error {
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
@@ -152,7 +152,10 @@ func downloadFile(url, dest string) error {
 		return err
 	}
 
-	fmt.Printf("  Downloaded %s (%d bytes)\n", filepath.Base(dest), written)
+	logger.Info("downloaded",
+		"file", filepath.Base(dest),
+		"bytes", written,
+	)
 	return nil
 }
 
@@ -221,6 +224,20 @@ func extractTarGz(archivePath, destDir string) error {
 				if err := os.Chmod(target, 0o755); err != nil {
 					return err
 				}
+			}
+		case tar.TypeSymlink:
+			// Symlinks are critical — llama.cpp dylibs use them
+			// (e.g. libmtmd.0.dylib -> libmtmd.0.0.8072.dylib)
+			linkTarget := header.Linkname
+			// Security: symlink target must resolve within destDir
+			resolved := filepath.Join(filepath.Dir(target), linkTarget)
+			if !strings.HasPrefix(filepath.Clean(resolved), filepath.Clean(destDir)) {
+				return fmt.Errorf("archive symlink escapes directory: %s -> %s", header.Name, linkTarget)
+			}
+			// Remove existing file/symlink if present
+			_ = os.Remove(target)
+			if err := os.Symlink(linkTarget, target); err != nil {
+				return fmt.Errorf("creating symlink %s -> %s: %w", header.Name, linkTarget, err)
 			}
 		}
 	}

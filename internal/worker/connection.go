@@ -237,6 +237,16 @@ func (c *Connection) RunMessageLoop() error {
 	}
 }
 
+// SendToolGenerating notifies the router that the model has started
+// generating a tool call. This lets the frontend show a spinner before
+// the full call is assembled and dispatched.
+func (c *Connection) SendToolGenerating(jobID string) error {
+	return c.sendJSON(protocol.ToolGeneratingMessage{
+		Type:  protocol.TypeToolGenerating,
+		JobID: jobID,
+	})
+}
+
 // SendToken sends a token back to the router for a running job.
 func (c *Connection) SendToken(jobID, token string) error {
 	return c.sendJSON(protocol.TokenMessage{
@@ -246,17 +256,29 @@ func (c *Connection) SendToken(jobID, token string) error {
 	})
 }
 
+// SendReasoningToken sends a reasoning/thinking token back to the router.
+func (c *Connection) SendReasoningToken(jobID, token string) error {
+	return c.sendJSON(protocol.TokenMessage{
+		Type:      protocol.TypeToken,
+		JobID:     jobID,
+		Token:     token,
+		Reasoning: true,
+	})
+}
+
 // SendComplete sends a completion message to the router.
-func (c *Connection) SendComplete(jobID, fullResponse string, durationMS int64, cacheTokens, inputTokens, outputTokens int, toolCalls []protocol.ToolCall) error {
+func (c *Connection) SendComplete(jobID, fullResponse, reasoningContent string, durationMS int64, cacheTokens, inputTokens, outputTokens, reasoningTokens int, toolCalls []protocol.ToolCall) error {
 	return c.sendJSON(protocol.CompleteMessage{
-		Type:         protocol.TypeComplete,
-		JobID:        jobID,
-		FullResponse: fullResponse,
-		DurationMS:   durationMS,
-		CacheTokens:  cacheTokens,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
-		ToolCalls:    toolCalls,
+		Type:             protocol.TypeComplete,
+		JobID:            jobID,
+		FullResponse:     fullResponse,
+		ReasoningContent: reasoningContent,
+		DurationMS:       durationMS,
+		CacheTokens:      cacheTokens,
+		InputTokens:      inputTokens,
+		OutputTokens:     outputTokens,
+		ReasoningTokens:  reasoningTokens,
+		ToolCalls:        toolCalls,
 	})
 }
 

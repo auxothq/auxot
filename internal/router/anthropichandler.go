@@ -297,13 +297,25 @@ func (h *AnthropicHandler) handleMessages(w http.ResponseWriter, r *http.Request
 	}
 
 	maxTokens := req.MaxTokens
+
+	// Translate Anthropic thinking config to reasoning_effort
+	reasoningEffort := ""
+	if req.Thinking != nil {
+		if req.Thinking.Type == "disabled" {
+			reasoningEffort = "none"
+		} else if req.Thinking.Type == "enabled" {
+			reasoningEffort = "high" // Anthropic "enabled" → full thinking
+		}
+	}
+
 	jobMsg := &protocol.JobMessage{
-		Type:        protocol.TypeJob,
-		JobID:       jobID,
-		Messages:    protoMessages,
-		Tools:       protoTools,
-		Temperature: req.Temperature,
-		MaxTokens:   &maxTokens,
+		Type:            protocol.TypeJob,
+		JobID:           jobID,
+		Messages:        protoMessages,
+		Tools:           protoTools,
+		Temperature:     req.Temperature,
+		MaxTokens:       &maxTokens,
+		ReasoningEffort: reasoningEffort,
 	}
 
 	// --- Enqueue for the dispatcher ---
@@ -524,6 +536,7 @@ func (h *AnthropicHandler) streamResponse(w http.ResponseWriter, r *http.Request
 	outputTokens := 0
 	currentBlockIndex := 0
 	hasStartedTextBlock := false
+	hasStartedThinkingBlock := false
 
 	for {
 		if ctx.Err() != nil {
@@ -540,13 +553,54 @@ func (h *AnthropicHandler) streamResponse(w http.ResponseWriter, r *http.Request
 			lastID = entry.ID
 
 			switch entry.Event.Type {
+			case "reasoning_token":
+				var token string
+				if err := json.Unmarshal(entry.Event.Data, &token); err != nil {
+					continue
+				}
+
+				// Start thinking block on first reasoning token
+				if !hasStartedThinkingBlock {
+					if data, err := anthropic.FormatSSE("content_block_start", anthropic.ContentBlockStartEvent{
+						Type:         "content_block_start",
+						Index:        currentBlockIndex,
+						ContentBlock: anthropic.ContentBlock{Type: "thinking", Thinking: ""},
+					}); err == nil {
+						w.Write(data)
+						flusher.Flush()
+					}
+					hasStartedThinkingBlock = true
+				}
+
+				delta := anthropic.ContentBlockDeltaEvent{
+					Type:  "content_block_delta",
+					Index: currentBlockIndex,
+					Delta: anthropic.Delta{Type: "thinking_delta", Thinking: token},
+				}
+				if data, err := anthropic.FormatSSE("content_block_delta", delta); err == nil {
+					w.Write(data)
+					flusher.Flush()
+				}
+
 			case "token":
 				var token string
 				if err := json.Unmarshal(entry.Event.Data, &token); err != nil {
 					continue
 				}
 
-				// Start text block on first token
+				// Close thinking block before starting text block (if thinking was active)
+				if hasStartedThinkingBlock && !hasStartedTextBlock {
+					if data, err := anthropic.FormatSSE("content_block_stop", anthropic.ContentBlockStopEvent{
+						Type:  "content_block_stop",
+						Index: currentBlockIndex,
+					}); err == nil {
+						w.Write(data)
+					}
+					currentBlockIndex++
+					hasStartedThinkingBlock = false // Prevent double-close
+				}
+
+				// Start text block on first content token
 				if !hasStartedTextBlock {
 					if data, err := anthropic.FormatSSE("content_block_start", anthropic.ContentBlockStartEvent{
 						Type:         "content_block_start",
@@ -577,6 +631,17 @@ func (h *AnthropicHandler) streamResponse(w http.ResponseWriter, r *http.Request
 				json.Unmarshal(entry.Event.Data, &complete)
 				if complete.OutputTokens > 0 {
 					outputTokens = complete.OutputTokens
+				}
+
+				// Close thinking block if still open
+				if hasStartedThinkingBlock && !hasStartedTextBlock {
+					if data, err := anthropic.FormatSSE("content_block_stop", anthropic.ContentBlockStopEvent{
+						Type:  "content_block_stop",
+						Index: currentBlockIndex,
+					}); err == nil {
+						w.Write(data)
+					}
+					currentBlockIndex++
 				}
 
 				// Close the text block if it was started
@@ -691,6 +756,7 @@ func (h *AnthropicHandler) blockingResponse(w http.ResponseWriter, r *http.Reque
 	lastID := "0-0"
 
 	var fullContent strings.Builder
+	var reasoningContent strings.Builder
 	var inputTokens, outputTokens int
 
 	for {
@@ -716,6 +782,12 @@ func (h *AnthropicHandler) blockingResponse(w http.ResponseWriter, r *http.Reque
 					fullContent.WriteString(token)
 				}
 
+			case "reasoning_token":
+				var token string
+				if err := json.Unmarshal(entry.Event.Data, &token); err == nil {
+					reasoningContent.WriteString(token)
+				}
+
 			case "done":
 				var complete protocol.CompleteMessage
 				if err := json.Unmarshal(entry.Event.Data, &complete); err == nil {
@@ -726,6 +798,10 @@ func (h *AnthropicHandler) blockingResponse(w http.ResponseWriter, r *http.Reque
 						fullContent.Reset()
 						fullContent.WriteString(complete.FullResponse)
 					}
+					if complete.ReasoningContent != "" {
+						reasoningContent.Reset()
+						reasoningContent.WriteString(complete.ReasoningContent)
+					}
 				}
 
 				usage := anthropic.Usage{
@@ -735,6 +811,15 @@ func (h *AnthropicHandler) blockingResponse(w http.ResponseWriter, r *http.Reque
 
 				// Build content blocks
 				var contentBlocks []anthropic.ContentBlock
+
+				// Add thinking block if there's reasoning content
+				thinking := reasoningContent.String()
+				if thinking != "" {
+					contentBlocks = append(contentBlocks, anthropic.ContentBlock{
+						Type:     "thinking",
+						Thinking: thinking,
+					})
+				}
 
 				// Add text block if there's content
 				text := fullContent.String()
