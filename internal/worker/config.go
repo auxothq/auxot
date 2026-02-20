@@ -45,7 +45,7 @@ type Config struct {
 	HeartbeatInterval time.Duration // How often to send heartbeats (default: 10s)
 	ReconnectDelay    time.Duration // Initial delay before reconnecting (default: 2s)
 	ReconnectMaxDelay time.Duration // Max reconnect backoff (default: 60s)
-	JobTimeout        time.Duration // Max time for a single job (default: 5m)
+	JobTimeout        time.Duration // Max time for a single job (default: 30m)
 
 	// Threads / GPU
 	Threads   int // llama.cpp --threads (default: auto)
@@ -74,7 +74,7 @@ func LoadConfig(flags CLIFlags) (*Config, error) {
 		HeartbeatInterval: envDuration("AUXOT_HEARTBEAT_INTERVAL", 10*time.Second),
 		ReconnectDelay:    envDuration("AUXOT_RECONNECT_DELAY", 2*time.Second),
 		ReconnectMaxDelay: envDuration("AUXOT_RECONNECT_MAX_DELAY", 60*time.Second),
-		JobTimeout:        envDuration("AUXOT_JOB_TIMEOUT", 5*time.Minute),
+		JobTimeout:        envDuration("AUXOT_JOB_TIMEOUT", 30*time.Minute),
 		Threads:           envInt("AUXOT_THREADS", 0),
 		GPULayers:         envInt("AUXOT_GPU_LAYERS", 9999),
 	}
