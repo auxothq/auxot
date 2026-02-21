@@ -40,10 +40,15 @@ type Envelope struct {
 
 // HelloMessage is sent by the worker on connection to authenticate and
 // announce its capabilities.
+//
+// If WorkerType is empty or "gpu", this is a GPU worker (backward compatible).
+// If WorkerType is "tools", ToolsCapabilities is populated and Capabilities is ignored.
 type HelloMessage struct {
-	Type         MessageType  `json:"type"`
-	GPUKey       string       `json:"gpu_key"`
-	Capabilities Capabilities `json:"capabilities"`
+	Type              MessageType        `json:"type"`
+	GPUKey            string             `json:"gpu_key"`
+	WorkerType        WorkerType         `json:"worker_type,omitempty"`
+	Capabilities      Capabilities       `json:"capabilities"`
+	ToolsCapabilities *ToolsCapabilities `json:"tools_capabilities,omitempty"`
 }
 
 // Capabilities describes what the GPU worker can do.
@@ -144,12 +149,13 @@ type Policy struct {
 
 // HelloAckMessage is the server's response to a HelloMessage.
 type HelloAckMessage struct {
-	Type               MessageType `json:"type"`
-	Success            bool        `json:"success"`
-	GPUID              string      `json:"gpu_id,omitempty"`
-	Policy             *Policy     `json:"policy,omitempty"`
-	Error              string      `json:"error,omitempty"`
-	ReconnectInSeconds int         `json:"reconnectInSeconds,omitempty"`
+	Type               MessageType  `json:"type"`
+	Success            bool         `json:"success"`
+	GPUID              string       `json:"gpu_id,omitempty"`
+	Policy             *Policy      `json:"policy,omitempty"`
+	ToolsPolicy        *ToolsPolicy `json:"tools_policy,omitempty"` // Initial policy for tools workers
+	Error              string       `json:"error,omitempty"`
+	ReconnectInSeconds int          `json:"reconnectInSeconds,omitempty"`
 }
 
 // HeartbeatAckMessage is the server's response to a HeartbeatMessage.
@@ -282,6 +288,35 @@ func ParseMessage(data []byte) (any, error) {
 		var msg CancelMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
 			return nil, fmt.Errorf("parsing cancel message: %w", err)
+		}
+		return msg, nil
+
+	// Tools-worker messages (defined in tools_messages.go)
+	case TypeToolJob:
+		var msg ToolJobMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing tool_job message: %w", err)
+		}
+		return msg, nil
+
+	case TypeToolResult:
+		var msg ToolResultMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing tool_result message: %w", err)
+		}
+		return msg, nil
+
+	case TypeReloadPolicy:
+		var msg ReloadPolicyMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing reload_policy message: %w", err)
+		}
+		return msg, nil
+
+	case TypePolicyReloaded:
+		var msg PolicyReloadedMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing policy_reloaded message: %w", err)
 		}
 		return msg, nil
 

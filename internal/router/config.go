@@ -25,8 +25,15 @@ type Config struct {
 	EmbeddedRedisAddr string // Address of embedded miniredis if started
 
 	// Authentication
-	AdminKeyHash string // Argon2id hash of the admin key (for GPU workers)
-	APIKeyHash   string // Argon2id hash of the API key (for API callers)
+	AdminKeyHash string // Argon2id hash of the admin key (for GPU workers, adm_...)
+	APIKeyHash   string // Argon2id hash of the API key (for API callers, rtr_...)
+	ToolsKeyHash string // Argon2id hash of the tool connector key (for tools workers, tls_...); optional
+
+	// Tools
+	// AllowedTools is the list of built-in tool names the router injects into GPU job
+	// messages when a tools worker is connected. Empty = no tool injection.
+	// Example: AUXOT_ALLOWED_TOOLS=code_executor,web_fetch
+	AllowedTools []string
 
 	// Model policy — resolved from the registry at startup
 	ModelName    string          // Resolved model name (from registry)
@@ -42,6 +49,13 @@ type Config struct {
 
 	// Cache
 	AuthCacheTTL time.Duration // How long to cache key verification results (default: 5m)
+
+	// MCP
+	// MCPExposeLLM controls whether the MCP server exposes a "generate_text" tool
+	// that lets MCP clients invoke the router's LLM directly. Disabled by default
+	// to avoid unintentional LLM access from tool-only clients.
+	// Enable with: AUXOT_MCP_EXPOSE_LLM=true
+	MCPExposeLLM bool
 
 	// Registry
 	RegistryFile string // Optional path to override the embedded model registry
@@ -65,12 +79,15 @@ func LoadConfig() (*Config, error) {
 		RedisURL:          os.Getenv("AUXOT_REDIS_URL"), // Empty string = use embedded miniredis
 		AdminKeyHash:      os.Getenv("AUXOT_ADMIN_KEY_HASH"),
 		APIKeyHash:        os.Getenv("AUXOT_API_KEY_HASH"),
+		ToolsKeyHash:      os.Getenv("AUXOT_TOOLS_KEY_HASH"),     // Optional
+		AllowedTools:      envStringList("AUXOT_ALLOWED_TOOLS"),  // Optional
 		ContextSize:       envInt("AUXOT_CTX_SIZE", 131072), // 128K — good for chat + agentic use
 		MaxParallel:       envInt("AUXOT_MAX_PARALLEL", 2),
 		HeartbeatInterval: envDuration("AUXOT_HEARTBEAT_INTERVAL", 15*time.Second),
 		DeadWorkerTimeout: envDuration("AUXOT_DEAD_WORKER_TIMEOUT", 45*time.Second),
 		JobTimeout:        envDuration("AUXOT_JOB_TIMEOUT", 5*time.Minute),
 		AuthCacheTTL:      envDuration("AUXOT_AUTH_CACHE_TTL", 5*time.Minute),
+		MCPExposeLLM:      os.Getenv("AUXOT_MCP_EXPOSE_LLM") == "true",
 		RegistryFile:      os.Getenv("AUXOT_REGISTRY_FILE"),
 	}
 
@@ -279,4 +296,21 @@ func envDuration(key string, defaultVal time.Duration) time.Duration {
 		return defaultVal
 	}
 	return d
+}
+
+// envStringList reads a comma-separated env var into a string slice.
+// Returns nil if the env var is unset or empty.
+func envStringList(key string) []string {
+	v := os.Getenv(key)
+	if v == "" {
+		return nil
+	}
+	var result []string
+	for _, item := range strings.Split(v, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
 }

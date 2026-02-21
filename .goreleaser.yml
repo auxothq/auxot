@@ -42,14 +42,38 @@ builds:
       - -X main.version={{.Version}}
       - -X main.commit={{.ShortCommit}}
 
+  - id: auxot-tools
+    main: ./cmd/auxot-tools
+    binary: auxot-tools
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+
 archives:
   - id: default
     format: tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    # Package both binaries into one archive per platform
+    # Package router + worker into one archive per platform
     builds:
       - auxot-router
       - auxot-worker
+
+  - id: tools
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_tools_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # Separate archive for auxot-tools (includes Windows)
+    builds:
+      - auxot-tools
 
 checksum:
   name_template: 'checksums.txt'

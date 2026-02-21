@@ -18,8 +18,9 @@ import (
 
 // KeyPrefix identifies the type of API key.
 const (
-	PrefixAdmin = "adm_"
-	PrefixAPI   = "rtr_"
+	PrefixAdmin = "adm_" // GPU worker authentication
+	PrefixAPI   = "rtr_" // API caller authentication
+	PrefixTools = "tls_" // Tools worker authentication (tool connector key)
 )
 
 // GeneratedKey holds a newly generated key and its Argon2id hash.
@@ -37,6 +38,13 @@ func GenerateAdminKey() (*GeneratedKey, error) {
 // GenerateAPIKey creates a new API key for chat request authentication.
 func GenerateAPIKey() (*GeneratedKey, error) {
 	return generateKey(PrefixAPI)
+}
+
+// GenerateToolKey creates a new tool connector key for tools worker authentication.
+// Tools workers use a separate key type from GPU workers so they can be managed
+// independently — different machines, different operators, different lifecycles.
+func GenerateToolKey() (*GeneratedKey, error) {
+	return generateKey(PrefixTools)
 }
 
 // generateKey creates a key with the given prefix and 32 random bytes.
@@ -60,14 +68,16 @@ func generateKey(prefix string) (*GeneratedKey, error) {
 }
 
 // ValidateKeyPrefix checks that a key string starts with a known prefix.
-// Returns the prefix ("adm_" or "rtr_") or an error.
+// Returns the prefix ("adm_", "rtr_", or "tls_") or an error.
 func ValidateKeyPrefix(key string) (string, error) {
 	switch {
 	case strings.HasPrefix(key, PrefixAdmin):
 		return PrefixAdmin, nil
 	case strings.HasPrefix(key, PrefixAPI):
 		return PrefixAPI, nil
+	case strings.HasPrefix(key, PrefixTools):
+		return PrefixTools, nil
 	default:
-		return "", fmt.Errorf("unknown key prefix: key must start with %q or %q", PrefixAdmin, PrefixAPI)
+		return "", fmt.Errorf("unknown key prefix: key must start with %q, %q, or %q", PrefixAdmin, PrefixAPI, PrefixTools)
 	}
 }

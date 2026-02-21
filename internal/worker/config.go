@@ -41,6 +41,11 @@ type Config struct {
 	// Optional: llama.cpp binary path override (skip download)
 	LlamaBinaryPath string
 
+	// Optional: External llama-server URL (skip model download, binary download,
+	// and process spawning entirely). Use this for dev when llama.cpp is already
+	// running. e.g. "http://localhost:9002". Set via AUXOT_LLAMA_URL.
+	LlamaURL string
+
 	// Timing
 	HeartbeatInterval time.Duration // How often to send heartbeats (default: 10s)
 	ReconnectDelay    time.Duration // Initial delay before reconnecting (default: 2s)
@@ -65,12 +70,13 @@ type CLIFlags struct {
 // CLI flag values override env vars when non-empty.
 func LoadConfig(flags CLIFlags) (*Config, error) {
 	cfg := &Config{
-		RouterURL:         envStr("AUXOT_ROUTER_URL", "ws://localhost:8080/ws"),
+		RouterURL:         envStr("AUXOT_ROUTER_URL", "wss://auxot.com/ws"),
 		AdminKey:          os.Getenv("AUXOT_GPU_KEY"),
 		ModelFile:         os.Getenv("AUXOT_MODEL_FILE"),
 		ModelsDir:         os.Getenv("AUXOT_MODELS_DIR"),
 		LlamaCacheDir:     os.Getenv("AUXOT_LLAMA_CACHE_DIR"),
 		LlamaBinaryPath:   os.Getenv("AUXOT_LLAMA_BINARY"),
+		LlamaURL:          os.Getenv("AUXOT_LLAMA_URL"),
 		HeartbeatInterval: envDuration("AUXOT_HEARTBEAT_INTERVAL", 10*time.Second),
 		ReconnectDelay:    envDuration("AUXOT_RECONNECT_DELAY", 2*time.Second),
 		ReconnectMaxDelay: envDuration("AUXOT_RECONNECT_MAX_DELAY", 60*time.Second),

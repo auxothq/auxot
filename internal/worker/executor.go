@@ -143,8 +143,16 @@ func (e *Executor) Execute(
 	for token := range tokenCh {
 		// Debug log each SSE chunk from llama.cpp (level 2)
 		if DebugLevel() >= 2 && (token.Content != "" || token.ReasoningContent != "" || len(token.ToolCalls) > 0 || token.FinishReason != "") {
-			DebugLlamaToWorker(fmt.Sprintf("content=%q reasoning=%q finish=%q tool_calls=%d",
-				token.Content, token.ReasoningContent, token.FinishReason, len(token.ToolCalls)))
+			if len(token.ToolCalls) > 0 {
+				// Show the actual Arguments fragment streaming in from this chunk
+				for _, tc := range token.ToolCalls {
+					DebugLlamaToWorker(fmt.Sprintf("tool_call_delta idx=%d id=%q name=%q args_fragment=%q",
+						tc.Index, tc.ID, tc.Function.Name, tc.Function.Arguments))
+				}
+			} else {
+				DebugLlamaToWorker(fmt.Sprintf("content=%q reasoning=%q finish=%q",
+					token.Content, token.ReasoningContent, token.FinishReason))
+			}
 		}
 
 		if token.FinishReason == "error" {
@@ -254,6 +262,19 @@ func (e *Executor) Execute(
 		finalResponse = strings.TrimSpace(thinkTagRe.ReplaceAllString(finalResponse, ""))
 		finalReasoning = "" // Discard reasoning text (already folded into response)
 		reasoningTokenCount = 0
+	}
+
+	// At level 1+, log the fully assembled tool call arguments before dispatch.
+	// This lets you compare "raw tokens from llama" (tool_call_delta logs above)
+	// vs "resolved tool call" (what actually gets executed).
+	if DebugLevel() >= 1 && len(protoToolCalls) > 0 {
+		for _, tc := range protoToolCalls {
+			e.logger.Info("tool call resolved",
+				"job_id", job.JobID,
+				"tool", tc.Function.Name,
+				"arguments", tc.Function.Arguments,
+			)
+		}
 	}
 
 	// Log job completion with progressive detail based on debug level

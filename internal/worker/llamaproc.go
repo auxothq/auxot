@@ -463,15 +463,27 @@ func stripForcedThinkSuffix(template string) string {
 	return strings.Join(result, "\n")
 }
 
+// DiscoverCapabilitiesFromURL queries a llama.cpp server at an arbitrary URL.
+// Used when AUXOT_LLAMA_URL points to an externally-managed server.
+func (lp *LlamaProcess) DiscoverCapabilitiesFromURL(baseURL string) (*DiscoveredCaps, error) {
+	caps := &DiscoveredCaps{
+		Backend: "llama.cpp",
+		CtxSize: 4096,
+	}
+	return discoverCaps(baseURL, caps)
+}
+
 // DiscoverCapabilities queries the running llama.cpp for its actual capabilities.
 func (lp *LlamaProcess) DiscoverCapabilities() (*DiscoveredCaps, error) {
 	caps := &DiscoveredCaps{
 		Backend: "llama.cpp",
 		CtxSize: 4096, // Fallback
 	}
+	return discoverCaps(lp.URL(), caps)
+}
 
-	baseURL := lp.URL()
-
+// discoverCaps queries a llama.cpp server for its capabilities.
+func discoverCaps(baseURL string, caps *DiscoveredCaps) (*DiscoveredCaps, error) {
 	// 1. Query /v1/models
 	modelsResp, err := http.Get(baseURL + "/v1/models")
 	if err != nil {

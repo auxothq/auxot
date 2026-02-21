@@ -120,11 +120,12 @@ func parsePHC(phc string) (salt []byte, params argon2Params, hash []byte, err er
 // verification pays the cost.
 //
 // The cache maps plaintext keys to cached results. Since the OSS router
-// typically has exactly two keys (admin + API), this cache stays tiny.
+// typically has exactly three keys (admin + API + tools), this cache stays tiny.
 // Entries expire after the configured TTL to limit exposure if a key is revoked.
 type Verifier struct {
 	adminHash string
 	apiHash   string
+	toolsHash string // empty if tools worker support is not configured
 
 	cache   map[string]cacheEntry
 	cacheMu sync.RWMutex
@@ -148,6 +149,18 @@ func NewVerifier(adminHash, apiHash string, cacheTTL time.Duration) *Verifier {
 	}
 }
 
+// NewVerifierWithTools creates a Verifier with hashes for all three key types.
+// toolsHash may be empty if tools worker connections are not configured.
+func NewVerifierWithTools(adminHash, apiHash, toolsHash string, cacheTTL time.Duration) *Verifier {
+	return &Verifier{
+		adminHash: adminHash,
+		apiHash:   apiHash,
+		toolsHash: toolsHash,
+		cache:     make(map[string]cacheEntry),
+		ttl:       cacheTTL,
+	}
+}
+
 // VerifyAdminKey checks if the given key is a valid admin key.
 // Results are cached for the configured TTL.
 func (v *Verifier) VerifyAdminKey(key string) (bool, error) {
@@ -164,6 +177,22 @@ func (v *Verifier) VerifyAPIKey(key string) (bool, error) {
 		return false, fmt.Errorf("API key not configured")
 	}
 	return v.verifyWithCache(key, v.apiHash)
+}
+
+// VerifyToolKey checks if the given key is a valid tool connector key.
+// Returns false (not an error) if tools key is not configured — the caller
+// decides whether to reject or skip tools worker connections.
+// Results are cached for the configured TTL.
+func (v *Verifier) VerifyToolKey(key string) (bool, error) {
+	if v.toolsHash == "" {
+		return false, nil // not configured — caller treats as "not enabled"
+	}
+	return v.verifyWithCache(key, v.toolsHash)
+}
+
+// ToolsKeyConfigured returns true if a tools key hash has been set.
+func (v *Verifier) ToolsKeyConfigured() bool {
+	return v.toolsHash != ""
 }
 
 // verifyWithCache checks the cache first, falls back to Argon2 verification.

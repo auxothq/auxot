@@ -42,16 +42,18 @@ import (
 
 // testEnv holds everything needed for an integration test.
 type testEnv struct {
-	server      *httptest.Server
-	adminKey    string // plaintext admin key for workers
-	apiKey      string // plaintext API key for callers
-	redisClient *redis.Client
-	jobQueue    *queue.JobQueue
-	tokenStream *queue.TokenStream
-	pool        *gpu.Pool
-	wsHandler   *router.WSHandler
-	cancelFunc  context.CancelFunc
-	logger      *slog.Logger
+	server       *httptest.Server
+	adminKey     string // plaintext admin key for GPU workers
+	apiKey       string // plaintext API key for callers
+	toolsKey     string // plaintext tool connector key for tools workers (empty if not set up)
+	redisClient  *redis.Client
+	jobQueue     *queue.JobQueue
+	tokenStream  *queue.TokenStream
+	pool         *gpu.Pool
+	wsHandler    *router.WSHandler
+	toolsHandler *router.ToolsWSHandler
+	cancelFunc   context.CancelFunc
+	logger       *slog.Logger
 }
 
 // baseURL returns the test server's URL.
@@ -120,6 +122,10 @@ func setupTestEnv(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("generating API key: %v", err)
 	}
+	toolsKeyResult, err := auth.GenerateToolKey()
+	if err != nil {
+		t.Fatalf("generating tools key: %v", err)
+	}
 
 	// Build config manually (bypass LoadConfig which reads env vars)
 	cfg := &router.Config{
@@ -128,6 +134,8 @@ func setupTestEnv(t *testing.T) *testEnv {
 		RedisURL:          redisURL,
 		AdminKeyHash:      adminKeyResult.Hash,
 		APIKeyHash:        apiKeyResult.Hash,
+		ToolsKeyHash:      toolsKeyResult.Hash,
+		AllowedTools:      []string{"code_executor", "web_fetch"},
 		ModelName:         "test-model",
 		Quantization:      "Q4_K_S",
 		ContextSize:       4096,
@@ -139,7 +147,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	}
 
 	// Build subsystems
-	verifier := auth.NewVerifier(cfg.AdminKeyHash, cfg.APIKeyHash, cfg.AuthCacheTTL)
+	verifier := auth.NewVerifierWithTools(cfg.AdminKeyHash, cfg.APIKeyHash, cfg.ToolsKeyHash, cfg.AuthCacheTTL)
 	pool := gpu.NewPool(logger.With("component", "pool"))
 	jobQueue := queue.NewJobQueue(redisClient, testPrefix+"jobs", "workers")
 	tokenStream := queue.NewTokenStream(redisClient, testPrefix)
@@ -149,8 +157,9 @@ func setupTestEnv(t *testing.T) *testEnv {
 		t.Fatalf("creating consumer group: %v", err)
 	}
 
-	wsHandler := router.NewWSHandler(verifier, pool, jobQueue, tokenStream, heartbeat, cfg, logger.With("component", "ws"))
-	apiHandler := router.NewAPIHandler(verifier, pool, jobQueue, tokenStream, cfg, logger.With("component", "api"))
+	toolsHandler := router.NewToolsWSHandler(verifier, jobQueue, tokenStream, cfg, logger.With("component", "tools"))
+	wsHandler := router.NewWSHandler(verifier, pool, jobQueue, tokenStream, heartbeat, cfg, logger.With("component", "ws"), toolsHandler)
+	apiHandler := router.NewAPIHandler(verifier, pool, jobQueue, tokenStream, toolsHandler, cfg, logger.With("component", "api"))
 	anthropicHandler := router.NewAnthropicHandler(verifier, jobQueue, tokenStream, cfg, logger.With("component", "anthropic"))
 
 	// Sweeper for dead-worker detection (runs in background)
@@ -162,6 +171,10 @@ func setupTestEnv(t *testing.T) *testEnv {
 	mux.Handle("/api/openai/", apiHandler)
 	mux.Handle("/api/anthropic/", http.StripPrefix("/api/anthropic", anthropicHandler))
 	mux.Handle("/health", apiHandler)
+	toolsAPIHandler := router.NewToolsAPIHandler(verifier, toolsHandler, cfg, logger.With("component", "tools_api"))
+	mux.Handle("/api/tools/", toolsAPIHandler)
+	mcpHandler := router.NewMCPHandler(verifier, toolsHandler, cfg, logger.With("component", "mcp"))
+	mux.Handle("/mcp/", mcpHandler)
 
 	ts := httptest.NewServer(mux)
 
@@ -187,16 +200,18 @@ func setupTestEnv(t *testing.T) *testEnv {
 	}
 
 	env := &testEnv{
-		server:      ts,
-		adminKey:    adminKeyResult.Key,
-		apiKey:      apiKeyResult.Key,
-		redisClient: redisClient,
-		jobQueue:    jobQueue,
-		tokenStream: tokenStream,
-		pool:        pool,
-		wsHandler:   wsHandler,
-		cancelFunc:  sweeperCancel,
-		logger:      logger,
+		server:       ts,
+		adminKey:     adminKeyResult.Key,
+		apiKey:       apiKeyResult.Key,
+		toolsKey:     toolsKeyResult.Key,
+		redisClient:  redisClient,
+		jobQueue:     jobQueue,
+		tokenStream:  tokenStream,
+		pool:         pool,
+		wsHandler:    wsHandler,
+		toolsHandler: toolsHandler,
+		cancelFunc:   sweeperCancel,
+		logger:       logger,
 	}
 
 	t.Cleanup(func() {

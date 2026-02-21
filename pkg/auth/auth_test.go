@@ -38,6 +38,21 @@ func TestGenerateAPIKey(t *testing.T) {
 	}
 }
 
+func TestGenerateToolKey(t *testing.T) {
+	gen, err := GenerateToolKey()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.HasPrefix(gen.Key, PrefixTools) {
+		t.Errorf("tool key should start with %q, got %q", PrefixTools, gen.Key[:10])
+	}
+
+	if !strings.HasPrefix(gen.Hash, "$argon2id$") {
+		t.Errorf("hash should be PHC format, got %q", gen.Hash[:20])
+	}
+}
+
 func TestGenerateKeyUniqueness(t *testing.T) {
 	key1, err := GenerateAdminKey()
 	if err != nil {
@@ -67,6 +82,7 @@ func TestValidateKeyPrefix(t *testing.T) {
 	}{
 		{"admin key", "adm_abc123", PrefixAdmin, false},
 		{"api key", "rtr_xyz789", PrefixAPI, false},
+		{"tools key", "tls_abc123", PrefixTools, false},
 		{"unknown prefix", "gpu_abc123", "", true},
 		{"no prefix", "abc123", "", true},
 		{"empty string", "", "", true},
@@ -313,6 +329,63 @@ func TestVerifier_CacheHit(t *testing.T) {
 	// Argon2 takes ~50-200ms, cache lookup takes microseconds.
 	if secondDuration > firstDuration/5 {
 		t.Errorf("cache hit should be much faster: first=%v, second=%v", firstDuration, secondDuration)
+	}
+}
+
+func TestVerifier_ToolKey(t *testing.T) {
+	toolGen, err := GenerateToolKey()
+	if err != nil {
+		t.Fatalf("generating tool key: %v", err)
+	}
+	adminGen, err := GenerateAdminKey()
+	if err != nil {
+		t.Fatalf("generating admin key: %v", err)
+	}
+
+	v := NewVerifierWithTools(adminGen.Hash, "", toolGen.Hash, 5*time.Minute)
+
+	// Correct tool key
+	valid, err := v.VerifyToolKey(toolGen.Key)
+	if err != nil {
+		t.Fatalf("verifying tool key: %v", err)
+	}
+	if !valid {
+		t.Error("correct tool key should be valid")
+	}
+
+	// Wrong key
+	valid, err = v.VerifyToolKey("tls_wrong_key")
+	if err != nil {
+		t.Fatalf("verifying wrong tool key: %v", err)
+	}
+	if valid {
+		t.Error("wrong tool key should be invalid")
+	}
+
+	// Tool key should NOT verify as admin key
+	valid, err = v.VerifyAdminKey(toolGen.Key)
+	if err != nil {
+		t.Fatalf("should not error checking tool key as admin: %v", err)
+	}
+	if valid {
+		t.Error("tool key should not be valid as admin key")
+	}
+}
+
+func TestVerifier_ToolKeyNotConfigured(t *testing.T) {
+	// When toolsHash is empty, VerifyToolKey returns false (not an error)
+	v := NewVerifier("", "", 5*time.Minute)
+
+	valid, err := v.VerifyToolKey("tls_anything")
+	if err != nil {
+		t.Fatalf("should not error when tool key not configured: %v", err)
+	}
+	if valid {
+		t.Error("tool key should not be valid when not configured")
+	}
+
+	if v.ToolsKeyConfigured() {
+		t.Error("ToolsKeyConfigured() should return false when toolsHash is empty")
 	}
 }
 

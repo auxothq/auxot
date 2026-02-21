@@ -47,6 +47,7 @@ func main() {
 		case "setup":
 			writeEnv := false
 			flySecrets := false
+			newToolsKey := false
 			model := ""
 			for i, arg := range os.Args[2:] {
 				switch arg {
@@ -54,11 +55,17 @@ func main() {
 					writeEnv = true
 				case "--fly":
 					flySecrets = true
+				case "--new-tools-key":
+					newToolsKey = true
 				case "--model":
 					if i+1 < len(os.Args[2:]) {
 						model = os.Args[2+i+1]
 					}
 				}
+			}
+			if newToolsKey {
+				runNewToolsKey()
+				return
 			}
 			runSetup(writeEnv, flySecrets, model)
 			return
@@ -160,14 +167,23 @@ func runSetup(writeEnv, flySecrets bool, model string) {
 		os.Exit(1)
 	}
 
+	toolsKey, err := auth.GenerateToolKey()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating tools key: %v\n", err)
+		os.Exit(1)
+	}
+
 	// --fly: Output a single `fly secrets set` command and key instructions
 	if flySecrets {
 		fmt.Println("# Auxot Router — Fly.io Setup")
 		fmt.Println("#")
 		fmt.Println("# SAVE THESE KEYS NOW — they will NOT be shown again.")
 		fmt.Println("#")
-		fmt.Println("# GPU Key (give to GPU workers):")
+		fmt.Println("# GPU Key (give to GPU workers running auxot-worker):")
 		fmt.Printf("#   %s\n", adminKey.Key)
+		fmt.Println("#")
+		fmt.Println("# Tools Key (give to tools nodes running auxot-tools):")
+		fmt.Printf("#   %s\n", toolsKey.Key)
 		fmt.Println("#")
 		fmt.Println("# API Key (give to API callers):")
 		fmt.Printf("#   %s\n", apiKey.Key)
@@ -177,6 +193,7 @@ func runSetup(writeEnv, flySecrets bool, model string) {
 		fmt.Printf("fly secrets set \\\n")
 		fmt.Printf("  AUXOT_ADMIN_KEY_HASH='%s' \\\n", adminKey.Hash)
 		fmt.Printf("  AUXOT_API_KEY_HASH='%s' \\\n", apiKey.Hash)
+		fmt.Printf("  AUXOT_TOOLS_KEY_HASH='%s' \\\n", toolsKey.Hash)
 		fmt.Printf("  AUXOT_MODEL='%s'\n", model)
 		fmt.Println()
 		fmt.Println("# Then deploy:")
@@ -191,12 +208,27 @@ func runSetup(writeEnv, flySecrets bool, model string) {
 	fmt.Println("Generating keys...")
 	fmt.Println()
 
-	fmt.Println("=== GPU KEY (for workers) ===")
+	fmt.Println("=== GPU KEY (for auxot-worker) ===")
 	fmt.Println("Give this key to GPU operators to connect auxot-worker:")
 	fmt.Printf("  %s\n", adminKey.Key)
 	fmt.Println()
-	fmt.Println("Use it with:  auxot-worker --gpu-key " + adminKey.Key)
+	fmt.Printf("  Use it with:  AUXOT_GPU_KEY=%s auxot-worker\n", adminKey.Key)
 	fmt.Println()
+
+	existingToolsHash := os.Getenv("AUXOT_TOOLS_KEY_HASH")
+	if existingToolsHash != "" {
+		fmt.Println("=== TOOLS KEY (for auxot-tools) ===")
+		fmt.Println("An existing tools key is already configured (AUXOT_TOOLS_KEY_HASH is set).")
+		fmt.Println("To rotate it, run: auxot-router setup --new-tools-key")
+		fmt.Println()
+	} else {
+		fmt.Println("=== TOOLS KEY (for auxot-tools) ===")
+		fmt.Println("Give this key to tools nodes to connect auxot-tools:")
+		fmt.Printf("  %s\n", toolsKey.Key)
+		fmt.Println()
+		fmt.Printf("  Use it with:  AUXOT_TOOLS_KEY=%s auxot-tools\n", toolsKey.Key)
+		fmt.Println()
+	}
 
 	fmt.Println("=== API KEY (for callers) ===")
 	fmt.Println("Give this key to applications calling /v1/chat/completions:")
@@ -207,9 +239,14 @@ func runSetup(writeEnv, flySecrets bool, model string) {
 	fmt.Println("The plaintext keys above will NOT be shown again.")
 	fmt.Println()
 
+	toolsHashLine := fmt.Sprintf("AUXOT_TOOLS_KEY_HASH='%s'", toolsKey.Hash)
+	if existingToolsHash != "" {
+		// Don't overwrite existing tools key hash — user must run --new-tools-key explicitly
+		toolsHashLine = fmt.Sprintf("# AUXOT_TOOLS_KEY_HASH=<existing>  # Run setup --new-tools-key to rotate")
+	}
 	envContent := fmt.Sprintf(
-		"AUXOT_ADMIN_KEY_HASH='%s'\nAUXOT_API_KEY_HASH='%s'\nAUXOT_MODEL=%s\n# AUXOT_REDIS_URL=redis://localhost:6379  # Optional: uses embedded Redis if not set\n",
-		adminKey.Hash, apiKey.Hash, model,
+		"AUXOT_ADMIN_KEY_HASH='%s'\nAUXOT_API_KEY_HASH='%s'\n%s\nAUXOT_MODEL=%s\n# AUXOT_REDIS_URL=redis://localhost:6379  # Optional: uses embedded Redis if not set\n# AUXOT_ALLOWED_TOOLS=code_executor,web_fetch  # Optional: inject built-in tools into every LLM call\n",
+		adminKey.Hash, apiKey.Hash, toolsHashLine, model,
 	)
 
 	if writeEnv {
@@ -226,6 +263,43 @@ func runSetup(writeEnv, flySecrets bool, model string) {
 		fmt.Print(envContent)
 		fmt.Println()
 	}
+}
+
+// runNewToolsKey generates a single new tool connector key and prints what to update.
+// This is useful for key rotation — the existing GPU and API keys are left untouched.
+func runNewToolsKey() {
+	toolsKey, err := auth.GenerateToolKey()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating tools key: %v\n", err)
+		os.Exit(1)
+	}
+
+	existingHash := os.Getenv("AUXOT_TOOLS_KEY_HASH")
+
+	fmt.Println("auxot-router setup --new-tools-key")
+	fmt.Println("====================================")
+	fmt.Println()
+
+	if existingHash != "" {
+		fmt.Println("Current AUXOT_TOOLS_KEY_HASH is set — replacing it with a new key.")
+		fmt.Println("Connected auxot-tools nodes will need to reconnect with the new key.")
+	} else {
+		fmt.Println("No AUXOT_TOOLS_KEY_HASH was set — generating your first tools key.")
+	}
+
+	fmt.Println()
+	fmt.Println("=== NEW TOOLS KEY (for auxot-tools) ===")
+	fmt.Println("Give this key to tools nodes to connect auxot-tools:")
+	fmt.Printf("  %s\n", toolsKey.Key)
+	fmt.Println()
+	fmt.Printf("  Use it with:  AUXOT_TOOLS_KEY=%s auxot-tools\n", toolsKey.Key)
+	fmt.Println()
+	fmt.Println("=== SAVE THIS KEY NOW ===")
+	fmt.Println("The plaintext key above will NOT be shown again.")
+	fmt.Println()
+	fmt.Println("Update your configuration with:")
+	fmt.Printf("  AUXOT_TOOLS_KEY_HASH='%s'\n", toolsKey.Hash)
+	fmt.Println()
 }
 
 // runModels prints all available models from the embedded registry.
@@ -317,6 +391,7 @@ Usage:
   auxot-router setup --write-env     Write keys to .env file
   auxot-router setup --fly           Output "fly secrets set" command for Fly.io
   auxot-router setup --model NAME    Use a specific model (default: Qwen3-Coder-30B-A3B)
+  auxot-router setup --new-tools-key Generate a new tools connector key (for key rotation)
   auxot-router models                List all available models
   auxot-router version               Print version
   auxot-router help                  Print this help
@@ -325,6 +400,8 @@ Environment Variables:
   AUXOT_MODEL                  Model name (default: Qwen3-Coder-30B-A3B)
   AUXOT_ADMIN_KEY_HASH         Argon2id hash of the GPU key (required)
   AUXOT_API_KEY_HASH           Argon2id hash of the API key (required)
+  AUXOT_TOOLS_KEY_HASH         Argon2id hash of the tools connector key (optional)
+  AUXOT_ALLOWED_TOOLS          Comma-separated built-in tools to inject (optional, e.g. code_executor,web_fetch)
   AUXOT_QUANTIZATION           Quantization (default: Q4_K_S — auto-selects if omitted)
   AUXOT_CTX_SIZE               Context window size (default: 131072 / 128K)
   AUXOT_MAX_PARALLEL           Max concurrent jobs per GPU (default: 2)

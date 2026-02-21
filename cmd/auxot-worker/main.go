@@ -125,6 +125,18 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 	)
 
 	// ----------------------------------------------------------------
+	// External llama.cpp shortcut (AUXOT_LLAMA_URL)
+	// ----------------------------------------------------------------
+	// When AUXOT_LLAMA_URL is set the worker skips model download, binary
+	// download, and process spawning — it connects directly to the already-
+	// running llama.cpp server at that URL. Useful for local dev where you
+	// have llama.cpp running separately (e.g. http://localhost:9002).
+	if cfg.LlamaURL != "" {
+		logger.Info("using external llama.cpp", "url", cfg.LlamaURL)
+		return runWithExternalLlama(ctx, cfg, conn, cfg.LlamaURL, logger)
+	}
+
+	// ----------------------------------------------------------------
 	// Phase 2: Download model
 	// ----------------------------------------------------------------
 	modelPath, err := modeldown.Ensure(ctx, policy, cfg.ModelsDir, cfg.ModelFile, logger)
@@ -401,6 +413,72 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 	}
 }
 
+// runWithExternalLlama skips model/binary download and llama.cpp spawning,
+// connecting directly to an already-running llama-server at externalURL.
+// This is the code path when AUXOT_LLAMA_URL is set — used in dev setups
+// where llama.cpp is managed separately (e.g. via Tilt or a local script).
+func runWithExternalLlama(ctx context.Context, cfg *worker.Config, conn *worker.Connection, externalURL string, logger *slog.Logger) error {
+	// Discover capabilities from the running server
+	extLlama := worker.NewLlamaProcess(worker.LlamaOpts{Port: 0}, logger)
+	caps, err := extLlama.DiscoverCapabilitiesFromURL(externalURL)
+	if err != nil {
+		return fmt.Errorf("discovering capabilities from external llama: %w", err)
+	}
+
+	logger.Info("external llama.cpp capabilities",
+		"model", caps.Model,
+		"backend", caps.Backend,
+		"ctx_size", caps.CtxSize,
+		"total_slots", caps.TotalSlots,
+	)
+
+	// Permanent connection with discovered capabilities
+	if err := conn.ConnectPermanent(caps); err != nil {
+		return fmt.Errorf("permanent connection: %w", err)
+	}
+	defer conn.Close()
+
+	go func() {
+		<-ctx.Done()
+		conn.Close()
+	}()
+
+	logger.Info("worker ready (external llama)", "gpu_id", conn.GPUID())
+
+	executor := worker.NewExecutor(externalURL, cfg.JobTimeout, logger)
+	activeJobs := &sync.Map{}
+
+	conn.OnJob(func(job protocol.JobMessage) {
+		abortCtx, cancel := context.WithCancel(ctx)
+		activeJobs.Store(job.JobID, cancel)
+		defer func() {
+			activeJobs.Delete(job.JobID)
+			cancel()
+		}()
+
+		executor.Execute(
+			abortCtx,
+			job,
+			func(token string) error { return conn.SendToken(job.JobID, token) },
+			func(token string) error { return conn.SendReasoningToken(job.JobID, token) },
+			func() error { return conn.SendToolGenerating(job.JobID) },
+			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
+				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls)
+			},
+			func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
+		)
+	})
+
+	conn.OnCancel(func(jobID string) {
+		if cancel, ok := activeJobs.Load(jobID); ok {
+			cancel.(context.CancelFunc)()
+		}
+	})
+
+	<-ctx.Done()
+	return nil
+}
+
 func printHelp() {
 	fmt.Println(`auxot-worker — GPU inference worker
 
@@ -421,10 +499,11 @@ Flags:
                               Level 2: Level 1 + full llama.cpp requests/responses + per-token output
 
 Environment Variables:
-  AUXOT_ROUTER_URL            Router WebSocket URL (default: ws://localhost:8080/ws)
+  AUXOT_ROUTER_URL            Router WebSocket URL (default: wss://auxot.com/ws)
   AUXOT_GPU_KEY               Admin key (required, adm_... from router setup)
   AUXOT_MODEL_FILE            Path to local GGUF file (air-gapped, skip download)
   AUXOT_MODELS_DIR            Model cache dir (default: ~/.auxot/models)
+  AUXOT_LLAMA_URL             External llama-server URL (skip download+spawn, e.g. http://localhost:9002)
   AUXOT_LLAMA_CACHE_DIR       llama.cpp cache dir (default: ~/.auxot/llama-server)
   AUXOT_LLAMA_BINARY          Path to llama-server binary (skip download)
   AUXOT_GPU_LAYERS            GPU layers to offload (default: 9999 = all)

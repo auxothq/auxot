@@ -1,13 +1,16 @@
 .PHONY: build test test-integration test-race vet lint check clean sync-registry tag-release
 
 # Build all binaries to ./bin/
-build: bin/auxot-router bin/auxot-worker
+build: bin/auxot-router bin/auxot-worker bin/auxot-tools
 
 bin/auxot-router: $(shell find cmd/auxot-router internal pkg -name '*.go' 2>/dev/null)
 	go build -o bin/auxot-router ./cmd/auxot-router
 
 bin/auxot-worker: $(shell find cmd/auxot-worker internal pkg -name '*.go' 2>/dev/null)
 	go build -o bin/auxot-worker ./cmd/auxot-worker
+
+bin/auxot-tools: $(shell find cmd/auxot-tools internal/tools pkg/tools pkg/protocol -name '*.go' 2>/dev/null)
+	go build -o bin/auxot-tools ./cmd/auxot-tools
 
 # Run all tests
 test:

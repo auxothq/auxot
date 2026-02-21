@@ -169,14 +169,14 @@ func (wc *workerConn) activeJobIDs() []string {
 	return ids
 }
 
-// WSHandler handles WebSocket connections from GPU workers.
+// WSHandler handles WebSocket connections from both GPU workers and tools workers.
 //
-// For each connected worker, it runs two goroutines:
-//  1. WebSocket read loop — receives messages from the worker (tokens, completions, heartbeats)
-//  2. Job reader loop — XREADGROUP from Redis as this worker's consumer, sends jobs via WebSocket
+// For GPU workers, it runs two goroutines per connection:
+//  1. WebSocket read loop — receives tokens, completions, heartbeats
+//  2. Job reader loop — XREADGROUP from Redis as this worker's consumer
 //
-// This means each worker is a Redis consumer in the "workers" consumer group.
-// Redis handles FIFO distribution across consumers naturally.
+// For tools workers, it delegates to ToolsWSHandler which manages the
+// tool call dispatch and continuation pipeline.
 type WSHandler struct {
 	verifier    *auth.Verifier
 	pool        *gpu.Pool
@@ -185,8 +185,9 @@ type WSHandler struct {
 	heartbeat   *queue.Heartbeat
 	config      *Config
 	logger      *slog.Logger
+	tools       *ToolsWSHandler // nil if tools key not configured
 
-	// Track active worker connections for sending jobs
+	// Track active GPU worker connections for sending jobs
 	workers   map[string]*workerConn
 	workersMu sync.RWMutex
 
@@ -202,6 +203,7 @@ func NewWSHandler(
 	heartbeat *queue.Heartbeat,
 	config *Config,
 	logger *slog.Logger,
+	toolsHandler *ToolsWSHandler,
 ) *WSHandler {
 	return &WSHandler{
 		verifier:    verifier,
@@ -211,6 +213,7 @@ func NewWSHandler(
 		heartbeat:   heartbeat,
 		config:      config,
 		logger:      logger,
+		tools:       toolsHandler,
 		workers:     make(map[string]*workerConn),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
@@ -246,7 +249,23 @@ func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify admin key
+	// Route tools workers to the tools handler.
+	if hello.WorkerType == protocol.WorkerTypeTools {
+		if h.tools == nil {
+			h.logger.Warn("tools worker connection refused — AUXOT_TOOLS_KEY_HASH not configured")
+			errMsg := protocol.ErrorMessage{
+				Type:  protocol.TypeError,
+				Error: "tools workers not enabled on this router (AUXOT_TOOLS_KEY_HASH not set)",
+			}
+			data, _ := json.Marshal(errMsg)
+			conn.WriteMessage(websocket.TextMessage, data) //nolint:errcheck
+			return
+		}
+		h.tools.HandleToolsWorker(conn, hello)
+		return
+	}
+
+	// GPU worker path — verify admin key.
 	valid, err := h.verifier.VerifyAdminKey(hello.GPUKey)
 	if err != nil || !valid {
 		h.logger.Warn("invalid GPU key", "error", err)
@@ -481,6 +500,25 @@ func (h *WSHandler) dispatchToWorker(ctx context.Context, wc *workerConn, entry 
 	jobMsg.Type = protocol.TypeJob
 	if jobMsg.JobID == "" {
 		jobMsg.JobID = entry.Payload.JobID
+	}
+
+	// Inject allowed tool definitions from connected tools workers.
+	// Only inject for jobs that don't already have these tools (avoids duplicates
+	// in continuation rounds where we already included them in the job).
+	if h.tools != nil {
+		if defs := h.tools.AllowedToolDefs(); len(defs) > 0 {
+			existing := make(map[string]bool, len(jobMsg.Tools))
+			for _, t := range jobMsg.Tools {
+				existing[t.Function.Name] = true
+			}
+			for _, def := range defs {
+				if !existing[def.Function.Name] {
+					jobMsg.Tools = append(jobMsg.Tools, def)
+				}
+			}
+		}
+		// Save job context for potential continuation.
+		h.tools.SaveJobContext(jobMsg.JobID, &jobMsg)
 	}
 
 	// Track this job as in-flight
@@ -741,31 +779,60 @@ func (h *WSHandler) handleToken(wc *workerConn, msg *protocol.TokenMessage) {
 }
 
 func (h *WSHandler) handleComplete(wc *workerConn, msg *protocol.CompleteMessage) {
-	// Publish completion event to token stream
+	ctx := context.Background()
+
+	// ACK the job in Redis — this removes it from the PEL regardless of tool calls.
+	// If we're starting a continuation round, the new job gets its own Redis entry.
+	entryID := wc.completeJob(msg.JobID)
+	if entryID != "" {
+		if err := h.jobQueue.Ack(ctx, entryID); err != nil {
+			h.logger.Error("acking completed job", "worker_id", wc.id, "job_id", msg.JobID, "error", err)
+		}
+	}
+
+	// Remove job from pool's tracking (for /health endpoint).
+	h.pool.CompleteJob(wc.id, msg.JobID)
+
+	// If the GPU returned tool calls AND we have a tools worker, start the
+	// continuation pipeline. The API caller keeps reading from the same token
+	// stream — we don't publish "done" yet.
+	if h.tools != nil && len(msg.ToolCalls) > 0 {
+		if h.tools.StartContinuation(ctx, msg) {
+			h.logger.Info("tool call continuation started",
+				"worker_id", wc.id,
+				"job_id", msg.JobID,
+				"tool_calls", len(msg.ToolCalls),
+			)
+			// Don't publish "done" — the continuation will re-enqueue the job
+			// and the token stream will keep flowing for the next round.
+			return
+		}
+		// StartContinuation returned false (no tools worker or no context).
+		// Fall through and publish the completion as-is with finish_reason=tool_calls.
+		h.logger.Info("tool calls not handled by tools worker — passing through to API caller",
+			"job_id", msg.JobID,
+			"tool_calls", len(msg.ToolCalls),
+		)
+	}
+
+	// Final completion — publish "done" to the token stream.
 	data, _ := json.Marshal(msg)
 	event := queue.TokenEvent{
 		Type: "done",
 		Data: data,
 	}
-	if _, err := h.tokenStream.Publish(context.Background(), msg.JobID, event); err != nil {
+	if _, err := h.tokenStream.Publish(ctx, msg.JobID, event); err != nil {
 		h.logger.Error("publishing completion", "worker_id", wc.id, "job_id", msg.JobID, "error", err)
 	}
 
-	// ACK the job in Redis — this removes it from the PEL
-	entryID := wc.completeJob(msg.JobID)
-	if entryID != "" {
-		if err := h.jobQueue.Ack(context.Background(), entryID); err != nil {
-			h.logger.Error("acking completed job", "worker_id", wc.id, "job_id", msg.JobID, "error", err)
-		}
+	// Shorten TTL now that the job is done.
+	if err := h.tokenStream.SetTTL(ctx, msg.JobID, streamTTLDone); err != nil {
+		h.logger.Error("setting token stream TTL", "job_id", msg.JobID, "error", err)
 	}
 
-	// Remove job from pool's tracking (for /health endpoint)
-	h.pool.CompleteJob(wc.id, msg.JobID)
-
-	// Shorten TTL now that the job is done. The API caller has 3 minutes
-	// to finish reading any remaining tokens before Redis reclaims the key.
-	if err := h.tokenStream.SetTTL(context.Background(), msg.JobID, streamTTLDone); err != nil {
-		h.logger.Error("setting token stream TTL", "job_id", msg.JobID, "error", err)
+	// Clean up saved job context.
+	if h.tools != nil {
+		h.tools.DeleteJobContext(msg.JobID)
 	}
 
 	h.logger.Info("job completed",
@@ -773,6 +840,7 @@ func (h *WSHandler) handleComplete(wc *workerConn, msg *protocol.CompleteMessage
 		"job_id", msg.JobID,
 		"input_tokens", msg.InputTokens,
 		"output_tokens", msg.OutputTokens,
+		"tool_calls", len(msg.ToolCalls),
 	)
 }
 

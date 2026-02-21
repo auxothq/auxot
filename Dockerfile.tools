@@ -1,0 +1,55 @@
+# Auxot Tools — runtime image for the auxot-tools binary
+#
+# Unlike the router (FROM scratch, ~10MB), this image needs a full Node.js
+# runtime so auxot-tools can spawn npx MCP servers on demand.
+# Approximate final image size: ~200MB (node:22-slim base + pnpm + bun + binary)
+#
+# Supports multi-arch builds via docker buildx:
+#   docker buildx build -f Dockerfile.tools --platform linux/amd64,linux/arm64 .
+
+# ============================================================================
+# Stage 1: go-builder — cross-compile the auxot-tools binary
+# ============================================================================
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS go-builder
+
+ARG TARGETOS TARGETARCH
+
+RUN apk add --no-cache git
+
+WORKDIR /build
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+    -ldflags="-s -w" \
+    -o /build/auxot-tools \
+    ./cmd/auxot-tools
+
+# ============================================================================
+# Stage 2: bun-source — pull the bun binary from the official image
+# ============================================================================
+FROM oven/bun:1 AS bun-source
+
+# ============================================================================
+# Stage 3: final — node:22-slim with pnpm, bun, and auxot-tools
+# ============================================================================
+FROM node:22-slim
+
+# Install pnpm globally (many MCP servers require it)
+RUN npm install -g pnpm
+
+# Copy bun binary from the official bun image (some MCP servers use bun)
+COPY --from=bun-source /usr/local/bin/bun /usr/local/bin/bun
+
+# Copy the compiled auxot-tools binary
+COPY --from=go-builder /build/auxot-tools /usr/local/bin/auxot-tools
+
+# Create a non-root user for runtime
+RUN useradd --create-home --shell /bin/bash auxot
+
+USER auxot
+
+ENTRYPOINT ["/usr/local/bin/auxot-tools"]

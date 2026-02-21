@@ -16,14 +16,15 @@ import (
 
 // Server is the top-level router server that owns all subsystems.
 type Server struct {
-	config      *Config
-	httpServer  *http.Server
-	sweeper     *queue.Sweeper
-	wsHandler   *WSHandler
-	apiHandler  *APIHandler
-	pool        *gpu.Pool
-	redisClient *redis.Client
-	logger      *slog.Logger
+	config       *Config
+	httpServer   *http.Server
+	sweeper      *queue.Sweeper
+	wsHandler    *WSHandler
+	apiHandler   *APIHandler
+	toolsHandler *ToolsWSHandler
+	pool         *gpu.Pool
+	redisClient  *redis.Client
+	logger       *slog.Logger
 }
 
 // NewServer creates a fully wired router server from configuration.
@@ -49,7 +50,7 @@ func NewServer(cfg *Config, logger *slog.Logger) (*Server, error) {
 	}
 
 	// --- Auth ---
-	verifier := auth.NewVerifier(cfg.AdminKeyHash, cfg.APIKeyHash, 5*time.Minute)
+	verifier := auth.NewVerifierWithTools(cfg.AdminKeyHash, cfg.APIKeyHash, cfg.ToolsKeyHash, cfg.AuthCacheTTL)
 
 	// --- GPU pool (connection tracking + health endpoint) ---
 	pool := gpu.NewPool(logger.With("component", "gpu_pool"))
@@ -69,6 +70,21 @@ func NewServer(cfg *Config, logger *slog.Logger) (*Server, error) {
 	// window, the worker is considered dead by the sweeper.
 	heartbeat := queue.NewHeartbeat(redisClient, "auxot:", cfg.DeadWorkerTimeout)
 
+	// --- Tools handler (optional — only if AUXOT_TOOLS_KEY_HASH is set) ---
+	var toolsHandler *ToolsWSHandler
+	if cfg.ToolsKeyHash != "" {
+		toolsHandler = NewToolsWSHandler(
+			verifier,
+			jobQueue,
+			tokenStream,
+			cfg,
+			logger.With("component", "tools"),
+		)
+		logger.Info("tools worker support enabled",
+			"allowed_tools", cfg.AllowedTools,
+		)
+	}
+
 	// --- Handlers ---
 	wsHandler := NewWSHandler(
 		verifier,
@@ -78,6 +94,7 @@ func NewServer(cfg *Config, logger *slog.Logger) (*Server, error) {
 		heartbeat,
 		cfg,
 		logger.With("component", "ws"),
+		toolsHandler,
 	)
 
 	apiHandler := NewAPIHandler(
@@ -85,6 +102,7 @@ func NewServer(cfg *Config, logger *slog.Logger) (*Server, error) {
 		pool,
 		jobQueue,
 		tokenStream,
+		toolsHandler,
 		cfg,
 		logger.With("component", "api"),
 	)
@@ -110,7 +128,7 @@ func NewServer(cfg *Config, logger *slog.Logger) (*Server, error) {
 	// --- HTTP mux ---
 	mux := http.NewServeMux()
 
-	// WebSocket endpoint for GPU workers
+	// WebSocket endpoint for GPU workers and tools workers
 	mux.Handle("/ws", wsHandler)
 
 	// OpenAI-compatible API — all routes under /api/openai/
@@ -119,6 +137,28 @@ func NewServer(cfg *Config, logger *slog.Logger) (*Server, error) {
 	// Anthropic-compatible API — all routes under /api/anthropic/
 	// StripPrefix removes /api/anthropic so the handler sees /v1/messages, etc.
 	mux.Handle("/api/anthropic/", http.StripPrefix("/api/anthropic", anthropicHandler))
+
+	// Direct tool API — list and execute tools without LLM
+	if toolsHandler != nil {
+		toolsAPIHandler := NewToolsAPIHandler(
+			verifier,
+			toolsHandler,
+			cfg,
+			logger.With("component", "tools_api"),
+		)
+		mux.Handle("/api/tools/", toolsAPIHandler)
+
+		// MCP server — expose router as an MCP server for Claude Desktop, Cursor, etc.
+		mcpHandler := NewMCPHandler(
+			verifier,
+			toolsHandler,
+			jobQueue,
+			tokenStream,
+			cfg,
+			logger.With("component", "mcp"),
+		)
+		mux.Handle("/mcp/", mcpHandler)
+	}
 
 	// Health check (no auth, no prefix — infrastructure endpoint)
 	mux.Handle("/health", apiHandler)
@@ -150,14 +190,15 @@ func NewServer(cfg *Config, logger *slog.Logger) (*Server, error) {
 	}
 
 	return &Server{
-		config:      cfg,
-		httpServer:  httpServer,
-		sweeper:     sweeper,
-		wsHandler:   wsHandler,
-		apiHandler:  apiHandler,
-		pool:        pool,
-		redisClient: redisClient,
-		logger:      logger,
+		config:       cfg,
+		httpServer:   httpServer,
+		sweeper:      sweeper,
+		wsHandler:    wsHandler,
+		apiHandler:   apiHandler,
+		toolsHandler: toolsHandler,
+		pool:         pool,
+		redisClient:  redisClient,
+		logger:       logger,
 	}, nil
 }
 

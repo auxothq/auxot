@@ -22,9 +22,10 @@ import (
 // messages, enqueues them to Redis, and translates the results back.
 type APIHandler struct {
 	verifier    *auth.Verifier
-	pool        *gpu.Pool       // Used by /health to report capacity
+	pool        *gpu.Pool // Used by /health to report capacity
 	jobQueue    *queue.JobQueue
 	tokenStream *queue.TokenStream
+	tools       *ToolsWSHandler // nil if tools not configured
 	config      *Config
 	logger      *slog.Logger
 }
@@ -35,6 +36,7 @@ func NewAPIHandler(
 	pool *gpu.Pool,
 	jobQueue *queue.JobQueue,
 	tokenStream *queue.TokenStream,
+	tools *ToolsWSHandler,
 	config *Config,
 	logger *slog.Logger,
 ) *APIHandler {
@@ -43,6 +45,7 @@ func NewAPIHandler(
 		pool:        pool,
 		jobQueue:    jobQueue,
 		tokenStream: tokenStream,
+		tools:       tools,
 		config:      config,
 		logger:      logger,
 	}
