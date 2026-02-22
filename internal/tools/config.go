@@ -12,6 +12,14 @@ import (
 	"time"
 )
 
+// CLIFlags holds command-line flag values that override environment variables.
+// Empty strings are ignored (the env var value is kept).
+type CLIFlags struct {
+	RouterURL string // --router-url
+	ToolsKey  string // --tools-key
+	LogLevel  string // --log-level
+}
+
 // Config holds all runtime configuration for the tools worker.
 // Values are read from environment variables at startup and never re-read.
 type Config struct {
@@ -40,11 +48,15 @@ type Config struct {
 }
 
 // LoadConfig reads configuration from environment variables.
+// CLI flag values override env vars when non-empty.
 // Returns an error if required values are missing.
-func LoadConfig() (*Config, error) {
+func LoadConfig(flags CLIFlags) (*Config, error) {
 	routerURL := os.Getenv("AUXOT_ROUTER_URL")
 	if routerURL == "" {
 		routerURL = "wss://auxot.com"
+	}
+	if flags.RouterURL != "" {
+		routerURL = flags.RouterURL
 	}
 
 	// Normalise: router may be given as http(s):// — convert to ws(s)://
@@ -57,8 +69,11 @@ func LoadConfig() (*Config, error) {
 	if toolsKey == "" {
 		toolsKey = os.Getenv("AUXOT_GPU_KEY") // legacy fallback
 	}
+	if flags.ToolsKey != "" {
+		toolsKey = flags.ToolsKey
+	}
 	if toolsKey == "" {
-		return nil, fmt.Errorf("AUXOT_TOOLS_KEY is required (tool connector key from auxot-router setup)")
+		return nil, fmt.Errorf("AUXOT_TOOLS_KEY is required (use --tools-key or set AUXOT_TOOLS_KEY)")
 	}
 
 	cfg := &Config{

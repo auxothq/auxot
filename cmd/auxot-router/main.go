@@ -415,6 +415,20 @@ Environment Variables:
   AUXOT_REDIS_URL              Redis URL (optional — uses embedded in-memory Redis if not set)
   AUXOT_REGISTRY_FILE          Path to override embedded model registry
 
+Tool Credentials:
+  AUXOT_TOOLS_{TOOL_NAME}__{VAR_NAME}=value
+    Store per-tool credentials on the router. The router injects the relevant
+    credential map into each tool job message — the tools worker never needs
+    secrets set as local env vars.
+
+    Tool name uses underscores (uppercase); variable name is the bare env var name.
+    A double-underscore (__) separates the tool name from the variable name.
+
+    Examples:
+      AUXOT_TOOLS_WEB_SEARCH__BRAVE_SEARCH_API_KEY=xxx
+      AUXOT_TOOLS_WEB_ANSWERS__BRAVE_ANSWERS_API_KEY=xxx
+      AUXOT_TOOLS_GITHUB__GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx
+
 More information: https://github.com/auxothq/auxot`)
 }
 

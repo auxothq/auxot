@@ -15,7 +15,7 @@ import (
 // BraveWebSearchDefinition is the LLM-facing schema for the web_search tool.
 var BraveWebSearchDefinition = ToolDefinition{
 	Name:        "web_search",
-	Description: "Search the web for current information using Brave Search. Returns top results with titles, URLs, and snippets. Requires BRAVE_API_KEY to be configured.",
+	Description: "Search the web for current information using Brave Search. Returns top results with titles, URLs, and snippets. Requires BRAVE_SEARCH_API_KEY to be configured.",
 	Parameters: json.RawMessage(`{
 		"type": "object",
 		"properties": {
@@ -78,7 +78,7 @@ type braveAPIResponse struct {
 
 // WebSearch is the Executor for the web_search tool.
 // It calls the Brave Search API and returns structured results.
-// If BRAVE_API_KEY is not set, it returns a descriptive error message (not a Go error).
+// If BRAVE_SEARCH_API_KEY is not set, it returns a descriptive error message (not a Go error).
 func WebSearch(ctx context.Context, args json.RawMessage) (Result, error) {
 	var a webSearchArgs
 	if err := json.Unmarshal(args, &a); err != nil {
@@ -89,9 +89,9 @@ func WebSearch(ctx context.Context, args json.RawMessage) (Result, error) {
 	}
 
 	// Check for API key in context (job credentials) or process env.
-	apiKey := Credential(ctx, "BRAVE_API_KEY")
+	apiKey := Credential(ctx, "BRAVE_SEARCH_API_KEY")
 	if apiKey == "" {
-		return webSearchError(a.Query, "web_search is not configured. Set BRAVE_API_KEY to enable it.")
+		return webSearchError(a.Query, "web_search is not configured. Set BRAVE_SEARCH_API_KEY to enable it.")
 	}
 
 	count := a.Count

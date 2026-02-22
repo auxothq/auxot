@@ -1,4 +1,4 @@
-.PHONY: build test test-integration test-race vet lint check clean sync-registry tag-release
+.PHONY: build test test-integration test-race vet lint check clean sync-registry tag-release test-router-url-flag
 
 # Build all binaries to ./bin/
 build: bin/auxot-router bin/auxot-worker bin/auxot-tools
@@ -34,6 +34,15 @@ lint:
 
 # Run ALL checks (this is what CI runs)
 check: vet lint test-race build
+
+# Verify that --router-url flag overrides env (catches line-splitting / config bugs)
+test-router-url-flag: bin/auxot-tools
+	@out=$$(./bin/auxot-tools --tools-key fakekey --router-url ws://localhost:9999/ws 2>&1 | head -1); \
+	if echo "$$out" | grep -q 'router_url":"ws://localhost:9999/ws'; then \
+		echo "✓ --router-url flag override works"; \
+	else \
+		echo "✗ FAIL: expected router_url with 9999, got: $$out"; exit 1; \
+	fi
 
 # Remove build artifacts
 clean:

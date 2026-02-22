@@ -53,12 +53,32 @@ type ReloadPolicyMessage struct {
 	Policy ToolsPolicy `json:"policy"`
 }
 
+// McpAggregateSchema describes a single MCP server exposed to the LLM as one
+// aggregate tool (e.g. tool name "github" for @modelcontextprotocol/server-github).
+// The LLM invokes it with {command: "create_issue", arguments: {...}}.
+type McpAggregateSchema struct {
+	// ToolName is the LLM-visible aggregate tool name (slug derived from package).
+	// Example: "github", "filesystem", "my_custom_server"
+	ToolName string `json:"tool_name"`
+	// Package is the npm package identifier.
+	Package string `json:"package"`
+	// Version is the npm package version.
+	Version string `json:"version"`
+	// Description is a compact listing of available commands and their parameter
+	// names, suitable for embedding directly in the LLM tool description field.
+	Description string `json:"description"`
+	// Commands lists the MCP tool names this server exposes.
+	Commands []string `json:"commands"`
+}
+
 // PolicyReloadedMessage is sent by the worker after applying a new policy.
 // AdvertisedTools lists every tool identifier the worker now handles, including
-// built-ins (e.g. "web_fetch") and MCP packages (e.g. "mcp:@pkg@version").
+// built-ins (e.g. "web_fetch") and MCP aggregate slugs (e.g. "github").
+// McpSchemas carries the introspected schema for each MCP server, keyed by slug.
 type PolicyReloadedMessage struct {
-	Type            MessageType `json:"type"`
-	AdvertisedTools []string    `json:"advertised_tools"`
+	Type            MessageType          `json:"type"`
+	AdvertisedTools []string             `json:"advertised_tools"`
+	McpSchemas      []McpAggregateSchema `json:"mcp_schemas,omitempty"`
 }
 
 // ToolJobMessage is sent by the server to assign a tool call to a tools worker.

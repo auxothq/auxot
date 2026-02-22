@@ -7,8 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 )
 
 // McpInstaller manages per-package bun installation state.
@@ -77,9 +81,10 @@ func (m *McpInstaller) runInstall(state *installState, pkg, version string) {
 	defer close(state.done)
 
 	pkgSpec := pkg + "@" + version
-	slog.Info("installing MCP package", "package", pkgSpec)
+	slog.Info("installing MCP package", "package", pkgSpec, "bun_install", auxotBunDir())
 
 	cmd := exec.Command(bunBinary(), "add", "--global", pkgSpec)
+	cmd.Env = buildBunEnv(nil)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		state.err = fmt.Errorf("bun add --global %s: %w\noutput: %s", pkgSpec, err, string(out))
@@ -90,12 +95,63 @@ func (m *McpInstaller) runInstall(state *installState, pkg, version string) {
 }
 
 // bunBinary returns the path to the bun binary.
-// It prefers the PATH-resolved location and falls back to the Docker-installed path.
+// It checks ~/.bun/bin/bun (installed by the official installer) first,
+// then PATH, then falls back to the Docker-installed path.
 func bunBinary() string {
+	// Check ~/.bun/bin/bun first (standard bun install location outside PATH).
+	if home, err := os.UserHomeDir(); err == nil {
+		candidate := filepath.Join(home, ".bun", "bin", "bun")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
 	if path, err := exec.LookPath("bun"); err == nil {
 		return path
 	}
 	return "/usr/local/bin/bun"
+}
+
+// auxotBunDir returns the directory where bun stores global packages and cache
+// for MCP servers. Defaults to ~/.auxot/bun; can be overridden via BUN_INSTALL.
+func auxotBunDir() string {
+	if d := os.Getenv("BUN_INSTALL"); d != "" {
+		return d
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "/tmp/auxot-bun"
+	}
+	return filepath.Join(home, ".auxot", "bun")
+}
+
+// buildBunEnv returns an environment slice for bun subprocesses that forces
+// BUN_INSTALL to auxotBunDir() (keeping all other process env vars). The
+// optional extra map is merged in last (highest priority), intended for
+// per-job MCP credentials injected by the router.
+func buildBunEnv(extra map[string]string) []string {
+	bunDir := auxotBunDir()
+	base := os.Environ()
+	merged := make(map[string]string, len(base)+len(extra)+1)
+	for _, kv := range base {
+		k, v, _ := strings.Cut(kv, "=")
+		merged[k] = v
+	}
+	// Force bun to store packages/cache under ~/.auxot/bun.
+	merged["BUN_INSTALL"] = bunDir
+	// Add bun's bin dir to PATH so installed packages are discoverable.
+	if existing := merged["PATH"]; existing != "" {
+		merged["PATH"] = filepath.Join(bunDir, "bin") + string(os.PathListSeparator) + existing
+	}
+	for k, v := range extra {
+		if k != "" {
+			merged[k] = v
+		}
+	}
+	result := make([]string, 0, len(merged))
+	for k, v := range merged {
+		result = append(result, k+"="+v)
+	}
+	return result
 }
 
 // --- JSON-RPC types for the MCP stdio protocol ---
@@ -122,6 +178,169 @@ type jsonRPCError struct {
 	Message string `json:"message"`
 }
 
+// McpToolDef is the schema for a single tool exposed by an MCP server.
+// Populated by McpIntrospect via the tools/list JSON-RPC call.
+type McpToolDef struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	ParamNames  []string `json:"param_names,omitempty"` // top-level required+optional param keys
+}
+
+// McpIntrospect starts the MCP server, calls tools/list, and returns the tool definitions.
+// The process is killed immediately after the list is obtained.
+// Returns an empty slice (not an error) if the server starts but advertises no tools.
+func McpIntrospect(ctx context.Context, pkg, version string) ([]McpToolDef, error) {
+	pkgSpec := pkg + "@" + version
+
+	// Give introspection a short deadline — this is a fast metadata call.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, bunBinary(), "x", pkgSpec)
+	cmd.Env = buildBunEnv(nil)
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stdin pipe for MCP introspect %s: %w", pkgSpec, err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stdout pipe for MCP introspect %s: %w", pkgSpec, err)
+	}
+	cmd.Stderr = nil // discard stderr during introspection
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("starting MCP server %s for introspect: %w", pkgSpec, err)
+	}
+	defer cmd.Process.Kill() //nolint:errcheck
+
+	lines := make(chan []byte, 32)
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 256*1024), 256*1024)
+		for scanner.Scan() {
+			b := make([]byte, len(scanner.Bytes()))
+			copy(b, scanner.Bytes())
+			lines <- b
+		}
+		close(lines)
+	}()
+
+	writeReq := func(req jsonRPCRequest) error {
+		data, _ := json.Marshal(req)
+		data = append(data, '\n')
+		_, err := stdin.Write(data)
+		return err
+	}
+
+	readResp := func(expectedID int) (jsonRPCResponse, error) {
+		deadline := time.After(10 * time.Second)
+		for {
+			select {
+			case line, ok := <-lines:
+				if !ok {
+					return jsonRPCResponse{}, fmt.Errorf("MCP server closed stdout")
+				}
+				var resp jsonRPCResponse
+				if err := json.Unmarshal(line, &resp); err != nil {
+					continue // skip non-JSON lines (e.g. startup messages)
+				}
+				if resp.ID != nil && *resp.ID == expectedID {
+					return resp, nil
+				}
+			case <-deadline:
+				return jsonRPCResponse{}, fmt.Errorf("timeout waiting for response id=%d", expectedID)
+			case <-ctx.Done():
+				return jsonRPCResponse{}, ctx.Err()
+			}
+		}
+	}
+
+	// Step 1: initialize.
+	id1 := 1
+	_ = writeReq(jsonRPCRequest{JSONRPC: "2.0", ID: &id1, Method: "initialize",
+		Params: map[string]any{
+			"protocolVersion": "2024-11-05",
+			"capabilities":    map[string]any{},
+			"clientInfo":      map[string]any{"name": "auxot-tools", "version": "1.0"},
+		}})
+	if _, err := readResp(1); err != nil {
+		return nil, fmt.Errorf("MCP introspect initialize: %w", err)
+	}
+
+	// Step 2: initialized notification.
+	_ = writeReq(jsonRPCRequest{JSONRPC: "2.0", Method: "notifications/initialized"})
+
+	// Step 3: list tools.
+	id2 := 2
+	_ = writeReq(jsonRPCRequest{JSONRPC: "2.0", ID: &id2, Method: "tools/list"})
+	resp, err := readResp(2)
+	if err != nil {
+		return nil, fmt.Errorf("MCP introspect tools/list: %w", err)
+	}
+	if resp.Error != nil {
+		return nil, fmt.Errorf("MCP tools/list error %d: %s", resp.Error.Code, resp.Error.Message)
+	}
+
+	// Parse tools/list result: {"tools": [{name, description, inputSchema}]}
+	var result struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			InputSchema struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+				Required   []string                   `json:"required"`
+			} `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		return nil, fmt.Errorf("parsing tools/list result: %w", err)
+	}
+
+	defs := make([]McpToolDef, 0, len(result.Tools))
+	for _, t := range result.Tools {
+		// Collect all parameter names (required first, then optional).
+		seen := make(map[string]bool)
+		params := append([]string{}, t.InputSchema.Required...)
+		for _, p := range params {
+			seen[p] = true
+		}
+		for k := range t.InputSchema.Properties {
+			if !seen[k] {
+				params = append(params, k)
+			}
+		}
+		defs = append(defs, McpToolDef{
+			Name:        t.Name,
+			Description: t.Description,
+			ParamNames:  params,
+		})
+	}
+	return defs, nil
+}
+
+// McpPackageSlug derives a clean tool name from an npm package name.
+// Examples:
+//
+//	@modelcontextprotocol/server-github → github
+//	@company/mcp-weather               → weather
+//	my-custom-server                   → my_custom_server
+func McpPackageSlug(pkg string) string {
+	// Strip @scope/ prefix.
+	if idx := strings.LastIndex(pkg, "/"); idx >= 0 {
+		pkg = pkg[idx+1:]
+	}
+	// Strip leading "server-" or "mcp-" (common MCP package naming conventions).
+	for _, prefix := range []string{"server-", "mcp-"} {
+		if strings.HasPrefix(pkg, prefix) {
+			pkg = pkg[len(prefix):]
+			break
+		}
+	}
+	// Replace hyphens with underscores for a valid identifier.
+	return strings.ReplaceAll(pkg, "-", "_")
+}
+
 // McpExecute executes a single MCP tool call by spawning a fresh "bun x" subprocess.
 // The process is killed after the tool call completes.
 //
@@ -133,8 +352,25 @@ type jsonRPCError struct {
 func McpExecute(ctx context.Context, pkg, version, toolName string, args json.RawMessage, credentials map[string]string) (Result, error) {
 	pkgSpec := pkg + "@" + version
 
+	// Log credential env vars: name, length, and first 3 characters for verification.
+	credLog := make([]any, 0, len(credentials)*2)
+	for k, v := range credentials {
+		preview := v
+		if len(v) > 3 {
+			preview = v[:3] + fmt.Sprintf("...{%d}", len(v))
+		}
+		credLog = append(credLog, k, preview)
+	}
+	slog.Info("MCP execute",
+		"package", pkgSpec,
+		"tool", toolName,
+		"args", string(args),
+		"credential_count", len(credentials),
+		"credentials", credLog,
+	)
+
 	cmd := exec.CommandContext(ctx, bunBinary(), "x", pkgSpec)
-	cmd.Env = BuildToolEnv(credentials)
+	cmd.Env = buildBunEnv(credentials)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

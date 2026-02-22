@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -72,9 +73,9 @@ func (c *Connection) UpdateAdvertisedTools(tools []string) {
 }
 
 // Connect dials the router, authenticates, and enters the message loop.
-// It blocks until the connection is closed. The caller should call this in a
-// retry loop (handled by Worker.Run).
-func (c *Connection) Connect() error {
+// It blocks until the connection is closed or ctx is cancelled. The caller
+// should call this in a retry loop (handled by Worker.Run).
+func (c *Connection) Connect(ctx context.Context) error {
 	c.logger.Info("connecting to router", "url", c.url)
 
 	conn, _, err := websocket.DefaultDialer.Dial(c.url, nil)
@@ -143,6 +144,19 @@ func (c *Connection) Connect() error {
 	go c.heartbeatLoop(done)
 	defer close(done)
 
+	// When the context is cancelled (SIGTERM/SIGINT), close the WebSocket so
+	// that messageLoop's ReadMessage call returns immediately instead of
+	// blocking until the 30-second SIGKILL timeout.
+	go func() {
+		select {
+		case <-done:
+			// messageLoop exited normally — nothing to do.
+		case <-ctx.Done():
+			c.logger.Info("shutting down: closing router connection")
+			c.Close()
+		}
+	}()
+
 	return c.messageLoop()
 }
 
@@ -152,11 +166,12 @@ func (c *Connection) SendResult(result protocol.ToolResultMessage) error {
 }
 
 // SendPolicyReloaded notifies the router that the worker has applied a new policy
-// and lists the tool identifiers it now handles.
-func (c *Connection) SendPolicyReloaded(tools []string) error {
+// and lists the tool identifiers it now handles, including any MCP aggregate schemas.
+func (c *Connection) SendPolicyReloaded(tools []string, mcpSchemas []protocol.McpAggregateSchema) error {
 	msg := protocol.PolicyReloadedMessage{
 		Type:            protocol.TypePolicyReloaded,
 		AdvertisedTools: tools,
+		McpSchemas:      mcpSchemas,
 	}
 	return c.sendJSON(msg)
 }
@@ -176,10 +191,14 @@ func (c *Connection) messageLoop() error {
 	for {
 		_, msgData, err := c.conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+			if websocket.IsUnexpectedCloseError(err,
+				websocket.CloseGoingAway,
+				websocket.CloseNormalClosure,
+				websocket.CloseNoStatusReceived, // server process restart (hot-reload)
+			) {
 				return fmt.Errorf("unexpected disconnect: %w", err)
 			}
-			return nil // Normal close
+			return nil // Normal or server-initiated close — backoff resets
 		}
 
 		msg, err := protocol.ParseMessage(msgData)

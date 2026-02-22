@@ -8,11 +8,11 @@ import (
 	"testing"
 )
 
-// TestWebSearch_NoAPIKey verifies that a missing BRAVE_API_KEY returns a descriptive
+// TestWebSearch_NoAPIKey verifies that a missing BRAVE_SEARCH_API_KEY returns a descriptive
 // error message in the result body (not a Go-level error), so the LLM can surface it.
 func TestWebSearch_NoAPIKey(t *testing.T) {
 	// Use a context with no credentials and ensure env var is unset.
-	t.Setenv("BRAVE_API_KEY", "")
+	t.Setenv("BRAVE_SEARCH_API_KEY", "")
 	ctx := context.Background() // no WithCredentials
 
 	args, _ := json.Marshal(map[string]any{"query": "golang testing"})
@@ -61,7 +61,7 @@ func TestWebSearch_ValidResponse(t *testing.T) {
 	braveSearchBaseURL = server.URL
 	defer func() { braveSearchBaseURL = old }()
 
-	ctx := WithCredentials(context.Background(), map[string]string{"BRAVE_API_KEY": "test-key"})
+	ctx := WithCredentials(context.Background(), map[string]string{"BRAVE_SEARCH_API_KEY": "test-key"})
 	args, _ := json.Marshal(map[string]any{"query": "golang"})
 
 	result, err := WebSearch(ctx, args)
@@ -112,7 +112,7 @@ func TestWebSearch_CountAndFreshness(t *testing.T) {
 	braveSearchBaseURL = server.URL
 	defer func() { braveSearchBaseURL = old }()
 
-	ctx := WithCredentials(context.Background(), map[string]string{"BRAVE_API_KEY": "test-key"})
+	ctx := WithCredentials(context.Background(), map[string]string{"BRAVE_SEARCH_API_KEY": "test-key"})
 	args, _ := json.Marshal(map[string]any{
 		"query":     "open source gpu",
 		"count":     7,
@@ -153,7 +153,7 @@ func TestWebSearch_RateLimit(t *testing.T) {
 	braveSearchBaseURL = server.URL
 	defer func() { braveSearchBaseURL = old }()
 
-	ctx := WithCredentials(context.Background(), map[string]string{"BRAVE_API_KEY": "test-key"})
+	ctx := WithCredentials(context.Background(), map[string]string{"BRAVE_SEARCH_API_KEY": "test-key"})
 	args, _ := json.Marshal(map[string]any{"query": "test"})
 
 	result, err := WebSearch(ctx, args)

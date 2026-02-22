@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/auxothq/auxot/pkg/registry"
+	pkgtools "github.com/auxothq/auxot/pkg/tools"
 )
 
 // Config holds all configuration for the router, loaded from environment variables.
@@ -34,6 +35,11 @@ type Config struct {
 	// messages when a tools worker is connected. Empty = no tool injection.
 	// Example: AUXOT_ALLOWED_TOOLS=code_executor,web_fetch
 	AllowedTools []string
+
+	// ToolCredentials maps tool names to their credential maps.
+	// Populated from AUXOT_TOOLS_{TOOL_NAME}__{VAR_NAME} environment variables.
+	// Example: AUXOT_TOOLS_WEB_SEARCH__BRAVE_SEARCH_API_KEY=xxx → ToolCredentials["web_search"]["BRAVE_SEARCH_API_KEY"] = "xxx"
+	ToolCredentials map[string]map[string]string
 
 	// Model policy — resolved from the registry at startup
 	ModelName    string          // Resolved model name (from registry)
@@ -126,6 +132,8 @@ func LoadConfig() (*Config, error) {
 	if cfg.ContextSize > entry.MaxContextSize {
 		cfg.ContextSize = entry.MaxContextSize
 	}
+
+	cfg.ToolCredentials = pkgtools.ParseToolCredentials()
 
 	return cfg, nil
 }

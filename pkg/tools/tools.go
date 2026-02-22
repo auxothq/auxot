@@ -75,6 +75,7 @@ func DefaultRegistry() *Registry {
 	r.Register("code_executor", CodeExecutor)
 	r.Register("web_fetch", WebFetch)
 	r.Register("web_search", WebSearch)
+	r.Register("web_answers", WebAnswers)
 	return r
 }
 
@@ -85,6 +86,7 @@ func BuiltinDefinitions() []ToolDefinition {
 		CodeExecutorDefinition,
 		WebFetchDefinition,
 		BraveWebSearchDefinition,
+		BraveWebAnswersDefinition,
 	}
 }
 

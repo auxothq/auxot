@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,10 @@ type Worker struct {
 
 	policyMu sync.Mutex
 	policy   protocol.ToolsPolicy
+
+	// runCtx is the context passed to Run; tool job goroutines inherit it so
+	// they are cancelled when the process receives SIGTERM/SIGINT.
+	runCtx context.Context
 }
 
 // NewWorker creates a Worker with the given config and tool registry.
@@ -47,6 +52,7 @@ func NewWorker(cfg *Config, registry *tools.Registry, logger *slog.Logger) *Work
 // Run connects to the router and processes tool jobs until the context is cancelled.
 // On disconnection it retries with exponential backoff.
 func (w *Worker) Run(ctx context.Context) error {
+	w.runCtx = ctx
 	delay := w.cfg.ReconnectDelay
 
 	for {
@@ -54,8 +60,12 @@ func (w *Worker) Run(ctx context.Context) error {
 			return ctx.Err()
 		}
 
-		err := w.conn.Connect()
+		err := w.conn.Connect(ctx)
 		if err != nil {
+			if ctx.Err() != nil {
+				// Context cancelled — this is expected on shutdown, not an error.
+				return ctx.Err()
+			}
 			w.logger.Error("router connection failed", "error", err, "retry_in", delay)
 		} else {
 			w.logger.Info("disconnected from router, retrying", "delay", delay)
@@ -79,7 +89,7 @@ func (w *Worker) Run(ctx context.Context) error {
 
 // handleReloadPolicy is called (in a goroutine) when the router sends a
 // reload_policy message or when the initial policy arrives in hello_ack.
-// It installs any new MCP packages in parallel, then notifies the server.
+// It installs MCP packages, introspects their tool lists, and notifies the server.
 func (w *Worker) handleReloadPolicy(policy protocol.ToolsPolicy) {
 	w.policyMu.Lock()
 	w.policy = policy
@@ -90,40 +100,125 @@ func (w *Worker) handleReloadPolicy(policy protocol.ToolsPolicy) {
 		"mcp_servers", len(policy.McpServers),
 	)
 
-	// Install all MCP packages in parallel.
+	// Install all MCP packages in parallel, then introspect each one.
+	type mcpResult struct {
+		srv    protocol.McpServerConfig
+		schema protocol.McpAggregateSchema
+	}
+	results := make([]mcpResult, len(policy.McpServers))
+
 	var wg sync.WaitGroup
-	for _, srv := range policy.McpServers {
-		srv := srv // capture loop variable
+	for i, srv := range policy.McpServers {
+		i, srv := i, srv
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
+
 			if err := w.installer.EnsureInstalled(ctx, srv.Package, srv.Version); err != nil {
 				w.logger.Error("MCP package install failed",
-					"package", srv.Package,
-					"version", srv.Version,
-					"error", err,
-				)
+					"package", srv.Package, "version", srv.Version, "error", err)
+				return
 			}
+
+			slug := tools.McpPackageSlug(srv.Package)
+
+			// Introspect the MCP server to get its available tools.
+			defs, err := tools.McpIntrospect(ctx, srv.Package, srv.Version)
+			if err != nil {
+				w.logger.Warn("MCP introspect failed — advertising tool without schema",
+					"package", srv.Package, "error", err)
+				results[i] = mcpResult{srv: srv, schema: protocol.McpAggregateSchema{
+					ToolName:    slug,
+					Package:     srv.Package,
+					Version:     srv.Version,
+					Description: "MCP server " + srv.Package + " (schema unavailable)",
+				}}
+				return
+			}
+
+			// Build a compact description listing all commands + parameter names.
+			desc := buildMcpDescription(srv.Package, defs)
+			commands := make([]string, len(defs))
+			for j, d := range defs {
+				commands[j] = d.Name
+			}
+
+			results[i] = mcpResult{srv: srv, schema: protocol.McpAggregateSchema{
+				ToolName:    slug,
+				Package:     srv.Package,
+				Version:     srv.Version,
+				Description: desc,
+				Commands:    commands,
+			}}
+
+			w.logger.Info("MCP server ready",
+				"tool_name", slug,
+				"package", srv.Package,
+				"commands", len(defs),
+			)
 		}()
 	}
 	wg.Wait()
 
-	// Build the updated advertised tools list:
-	// built-in registry names + "mcp:@pkg@version" identifiers for MCP servers.
+	// Build the updated advertised tools list and MCP aggregate schemas.
 	advertised := w.registry.Names()
-	for _, srv := range policy.McpServers {
-		advertised = append(advertised, "mcp:"+srv.Package+"@"+srv.Version)
+	var mcpSchemas []protocol.McpAggregateSchema
+	for _, r := range results {
+		if r.schema.ToolName == "" {
+			continue // install failed
+		}
+		advertised = append(advertised, r.schema.ToolName)
+		mcpSchemas = append(mcpSchemas, r.schema)
 	}
 
 	// Persist the updated list so future reconnects advertise it.
 	w.conn.UpdateAdvertisedTools(advertised)
 
 	// Inform the server of the new capabilities.
-	if err := w.conn.SendPolicyReloaded(advertised); err != nil {
+	if err := w.conn.SendPolicyReloaded(advertised, mcpSchemas); err != nil {
 		w.logger.Error("sending policy_reloaded", "error", err)
 	}
+}
+
+// buildMcpDescription constructs a compact human-readable description of an MCP
+// server's capabilities for embedding in the aggregate LLM tool description.
+func buildMcpDescription(pkg string, defs []tools.McpToolDef) string {
+	if len(defs) == 0 {
+		return "MCP server " + pkg + " (no tools advertised)"
+	}
+	var sb strings.Builder
+	sb.WriteString("MCP integration via ")
+	sb.WriteString(pkg)
+	sb.WriteString(".\n\nAvailable commands:\n")
+	for _, d := range defs {
+		sb.WriteString("  - ")
+		sb.WriteString(d.Name)
+		if len(d.ParamNames) > 0 {
+			sb.WriteString("(")
+			for i, p := range d.ParamNames {
+				if i > 0 {
+					sb.WriteString(", ")
+				}
+				sb.WriteString(p)
+			}
+			sb.WriteString(")")
+		}
+		if d.Description != "" {
+			// Truncate long descriptions to keep the schema compact.
+			desc := d.Description
+			if len(desc) > 80 {
+				desc = desc[:77] + "..."
+			}
+			sb.WriteString(": ")
+			sb.WriteString(desc)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\nCall this tool with {\"command\": \"<command_name>\", \"params\": {\"<param>\": \"<value>\", ...}}.\nExample: {\"command\": \"create_issue\", \"params\": {\"owner\": \"acme\", \"repo\": \"api\", \"title\": \"Bug\"}}")
+	return sb.String()
 }
 
 // handleToolJob is called by Connection when a ToolJobMessage arrives.
@@ -140,14 +235,34 @@ func (w *Worker) handleToolJob(job protocol.ToolJobMessage) {
 	start := time.Now()
 
 	// Give each tool call its own context with a generous timeout.
+	// Inherit from runCtx so tool calls are cancelled on SIGTERM/SIGINT.
 	// Individual tools apply their own tighter deadlines based on their args.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	baseCtx := w.runCtx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(baseCtx, 5*time.Minute)
 	defer cancel()
 
 	// Inject job credentials so tools can access them via tools.Credential(ctx, key).
 	// This allows per-job runtime override of operator-level env vars.
 	if len(job.Credentials) > 0 {
 		ctx = tools.WithCredentials(ctx, job.Credentials)
+	}
+
+	// Log received credentials: name + length + 3-char prefix for verification.
+	if len(job.Credentials) > 0 {
+		credParts := make([]any, 0, len(job.Credentials)*2)
+		for k, v := range job.Credentials {
+			preview := v
+			if len(v) > 3 {
+				preview = v[:3] + fmt.Sprintf("...{%d}", len(v))
+			}
+			credParts = append(credParts, k, preview)
+		}
+		logger.Info("job credentials received", "credentials", credParts)
+	} else {
+		logger.Warn("job has no credentials")
 	}
 
 	var (

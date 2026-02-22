@@ -1,8 +1,10 @@
-# Auxot Tools — runtime image for the auxot-tools binary
+# Auxot Tools — distroless runtime image for the auxot-tools binary
 #
-# Unlike the router (FROM scratch, ~10MB), this image needs a full Node.js
-# runtime so auxot-tools can spawn npx MCP servers on demand.
-# Approximate final image size: ~200MB (node:22-slim base + pnpm + bun + binary)
+# Unlike the router (FROM scratch, ~10MB), this image needs JS/TS runtime
+# support so auxot-tools can spawn MCP servers on demand.
+# Uses distroless base + bun (JS runtime) + pnpm (package manager).
+# No Node.js, no shell, no package manager beyond pnpm.
+# Approximate final image size: ~140MB (distroless base + bun + pnpm + binary)
 #
 # Supports multi-arch builds via docker buildx:
 #   docker buildx build -f Dockerfile.tools --platform linux/amd64,linux/arm64 .
@@ -29,27 +31,34 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     ./cmd/auxot-tools
 
 # ============================================================================
-# Stage 2: bun-source — pull the bun binary from the official image
+# Stage 2: bun-source — pull the bun binary from the official distroless image
 # ============================================================================
-FROM oven/bun:1 AS bun-source
+FROM oven/bun:distroless AS bun-source
 
 # ============================================================================
-# Stage 3: final — node:22-slim with pnpm, bun, and auxot-tools
+# Stage 3: pnpm-source — download the pnpm standalone binary (no Node.js needed)
 # ============================================================================
-FROM node:22-slim
+FROM --platform=$BUILDPLATFORM alpine:3.20 AS pnpm-source
 
-# Install pnpm globally (many MCP servers require it)
-RUN npm install -g pnpm
+ARG TARGETARCH
 
-# Copy bun binary from the official bun image (some MCP servers use bun)
-COPY --from=bun-source /usr/local/bin/bun /usr/local/bin/bun
+RUN apk add --no-cache curl && \
+    if [ "${TARGETARCH}" = "amd64" ]; then PNPM_ARCH="x64"; else PNPM_ARCH="${TARGETARCH}"; fi && \
+    curl -fsSL "https://github.com/pnpm/pnpm/releases/latest/download/pnpm-linux-${PNPM_ARCH}" \
+      -o /usr/local/bin/pnpm && \
+    chmod +x /usr/local/bin/pnpm && \
+    mkdir -p /opt/auxot/mcp-cache && chown 65534:65534 /opt/auxot/mcp-cache
 
-# Copy the compiled auxot-tools binary
+# ============================================================================
+# Stage 4: final — distroless with bun, pnpm, and auxot-tools
+# ============================================================================
+FROM gcr.io/distroless/base-debian12:nonroot
+
 COPY --from=go-builder /build/auxot-tools /usr/local/bin/auxot-tools
+COPY --from=bun-source /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=pnpm-source /usr/local/bin/pnpm /usr/local/bin/pnpm
+COPY --from=pnpm-source /opt/auxot /opt/auxot
 
-# Create a non-root user for runtime
-RUN useradd --create-home --shell /bin/bash auxot
-
-USER auxot
+WORKDIR /opt/auxot/mcp-cache
 
 ENTRYPOINT ["/usr/local/bin/auxot-tools"]

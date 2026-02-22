@@ -464,6 +464,7 @@ func (h *ToolsWSHandler) StartContinuation(ctx context.Context, msg *protocol.Co
 			ToolName:    tc.Function.Name,
 			ToolCallID:  tc.ID,
 			Arguments:   json.RawMessage(tc.Function.Arguments),
+			Credentials: h.config.ToolCredentials[tc.Function.Name],
 		}
 
 		if err := worker.sendMessage(toolJob); err != nil {
@@ -802,6 +803,7 @@ func (h *ToolsWSHandler) DispatchDirectToolCall(ctx context.Context, toolName st
 		ToolName:    toolName,
 		ToolCallID:  callID,
 		Arguments:   args,
+		Credentials: h.config.ToolCredentials[toolName],
 	}
 	if err := worker.sendMessage(toolJob); err != nil {
 		h.pendingContsMu.Lock()
