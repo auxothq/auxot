@@ -146,7 +146,7 @@ curl -s http://localhost:8080/api/openai/v1/chat/completions \
 
 ### Test tools (if AUXOT_ALLOWED_TOOLS is set)
 
-If the router has `AUXOT_ALLOWED_TOOLS=code_executor,web_fetch` (or similar) in `.env`, tool calls will be injected into LLM jobs. A request that triggers a tool call will be routed to auxot-tools.
+If the router has `AUXOT_ALLOWED_TOOLS=code_executor,web_fetch,web_search,web_answers` (or similar) in `.env`, tool calls will be injected into LLM jobs. A request that triggers a tool call will be routed to auxot-tools.
 
 ## Step 7: Cleanup
 
@@ -167,7 +167,9 @@ Or: `pkill -f "auxot-router|auxot-worker|auxot-tools|llama-server"`
 | Router      | `AUXOT_TOOLS_KEY_HASH`| Tools worker auth (optional, needed for tools)|
 | Router      | `AUXOT_MODEL`         | Model name (required)                         |
 | Router      | `AUXOT_REDIS_URL`     | Omit for embedded Redis                      |
-| Router      | `AUXOT_ALLOWED_TOOLS` | e.g. `code_executor,web_fetch` to enable tools|
+| Router      | `AUXOT_ALLOWED_TOOLS` | e.g. `code_executor,web_fetch,web_search,web_answers` to enable tools|
+| Router      | `AUXOT_TOOLS_WEB_SEARCH__BRAVE_SEARCH_API_KEY` | Brave Search API key for web_search (optional) |
+| Router      | `AUXOT_TOOLS_WEB_ANSWERS__BRAVE_ANSWERS_API_KEY` | Brave Answers API key for web_answers (optional) |
 | Worker      | `AUXOT_GPU_KEY`       | Plaintext GPU key (required)                 |
 | Worker      | `AUXOT_ROUTER_URL`    | `ws://localhost:8080/ws` for local           |
 | Tools       | `AUXOT_TOOLS_KEY`     | Plaintext tools key (required)               |
@@ -180,4 +182,5 @@ Or: `pkill -f "auxot-router|auxot-worker|auxot-tools|llama-server"`
 - **Worker won't connect:** Ensure `AUXOT_ROUTER_URL=ws://localhost:8080/ws` and `AUXOT_GPU_KEY` is correct.
 - **Tools refused:** Router needs `AUXOT_TOOLS_KEY_HASH` in `.env`. Run `auxot-router setup --new-tools-key` and add the hash.
 - **Tools connects to auxot.com:** Set `AUXOT_ROUTER_URL=ws://localhost:8080/ws` — tools defaults to `wss://auxot.com`.
+- **web_search / web_answers fail with "API key required":** Set `AUXOT_TOOLS_WEB_SEARCH__BRAVE_SEARCH_API_KEY` and `AUXOT_TOOLS_WEB_ANSWERS__BRAVE_ANSWERS_API_KEY` on the **router** process (not auxot-tools). Get keys at [brave.com/search/api](https://brave.com/search/api).
 - **`--router-url` ignored / still see port 8080:** Keep the full command on ONE line. If you split across lines without a backslash (`\`), the shell runs only the first line (no `--router-url`) and the second line fails with "command not found". Use: `auxot-tools --tools-key KEY --router-url ws://localhost:9001/ws` (all on one line).

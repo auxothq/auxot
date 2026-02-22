@@ -245,7 +245,7 @@ func runSetup(writeEnv, flySecrets bool, model string) {
 		toolsHashLine = fmt.Sprintf("# AUXOT_TOOLS_KEY_HASH=<existing>  # Run setup --new-tools-key to rotate")
 	}
 	envContent := fmt.Sprintf(
-		"AUXOT_ADMIN_KEY_HASH='%s'\nAUXOT_API_KEY_HASH='%s'\n%s\nAUXOT_MODEL=%s\n# AUXOT_REDIS_URL=redis://localhost:6379  # Optional: uses embedded Redis if not set\n# AUXOT_ALLOWED_TOOLS=code_executor,web_fetch  # Optional: inject built-in tools into every LLM call\n",
+		"AUXOT_ADMIN_KEY_HASH='%s'\nAUXOT_API_KEY_HASH='%s'\n%s\nAUXOT_MODEL=%s\n# AUXOT_REDIS_URL=redis://localhost:6379  # Optional: uses embedded Redis if not set\n# AUXOT_ALLOWED_TOOLS=code_executor,web_fetch,web_search,web_answers  # Optional: inject built-in tools\n",
 		adminKey.Hash, apiKey.Hash, toolsHashLine, model,
 	)
 
@@ -401,7 +401,7 @@ Environment Variables:
   AUXOT_ADMIN_KEY_HASH         Argon2id hash of the GPU key (required)
   AUXOT_API_KEY_HASH           Argon2id hash of the API key (required)
   AUXOT_TOOLS_KEY_HASH         Argon2id hash of the tools connector key (optional)
-  AUXOT_ALLOWED_TOOLS          Comma-separated built-in tools to inject (optional, e.g. code_executor,web_fetch)
+  AUXOT_ALLOWED_TOOLS          Comma-separated built-in tools to inject (optional, e.g. code_executor,web_fetch,web_search,web_answers)
   AUXOT_QUANTIZATION           Quantization (default: Q4_K_S — auto-selects if omitted)
   AUXOT_CTX_SIZE               Context window size (default: 131072 / 128K)
   AUXOT_MAX_PARALLEL           Max concurrent jobs per GPU (default: 2)

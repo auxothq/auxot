@@ -15,7 +15,7 @@ import (
 // BraveWebAnswersDefinition is the LLM-facing schema for the web_answers tool.
 var BraveWebAnswersDefinition = ToolDefinition{
 	Name:        "web_answers",
-	Description: "Get an AI-generated answer to a question using Brave Search. Returns a direct answer grounded in current web results. Requires BRAVE_ANSWERS_API_KEY to be configured.",
+	Description: "Get an AI-generated answer to a question using Brave Search. Returns a direct answer grounded in current web results.",
 	Parameters: json.RawMessage(`{
 		"type": "object",
 		"properties": {

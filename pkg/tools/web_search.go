@@ -15,7 +15,7 @@ import (
 // BraveWebSearchDefinition is the LLM-facing schema for the web_search tool.
 var BraveWebSearchDefinition = ToolDefinition{
 	Name:        "web_search",
-	Description: "Search the web for current information using Brave Search. Returns top results with titles, URLs, and snippets. Requires BRAVE_SEARCH_API_KEY to be configured.",
+	Description: "Search the web for current information using Brave Search. Returns top results with titles, URLs, and snippets.",
 	Parameters: json.RawMessage(`{
 		"type": "object",
 		"properties": {
