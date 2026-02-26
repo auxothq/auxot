@@ -373,7 +373,7 @@ func logJobReceived(logger *slog.Logger, job protocol.JobMessage) {
 		if len(job.Messages) > 0 {
 			lastMsg := job.Messages[len(job.Messages)-1]
 			attrs = append(attrs, "latest_message_role", lastMsg.Role)
-			attrs = append(attrs, "latest_message_content", lastMsg.Content)
+			attrs = append(attrs, "latest_message_content", lastMsg.ContentString())
 		}
 
 		if len(job.Tools) > 0 {

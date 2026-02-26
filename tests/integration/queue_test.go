@@ -147,7 +147,7 @@ func TestQueue_NoWorkersAvailable(t *testing.T) {
 	reqBody := openai.ChatCompletionRequest{
 		Model: "test-model",
 		Messages: []openai.Message{
-			{Role: "user", Content: "Hello?"},
+			{Role: "user", Content: openai.MessageContentString("Hello?")},
 		},
 		Stream: false,
 	}
@@ -302,7 +302,7 @@ func sendOpenAIRequest(env *testEnv, content string) (int, string, error) {
 	reqBody := openai.ChatCompletionRequest{
 		Model: "test-model",
 		Messages: []openai.Message{
-			{Role: "user", Content: content},
+			{Role: "user", Content: openai.MessageContentString(content)},
 		},
 		Stream: false,
 	}

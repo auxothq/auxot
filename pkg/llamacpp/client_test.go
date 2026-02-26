@@ -48,7 +48,7 @@ func TestStreamCompletion_BasicTokens(t *testing.T) {
 	client := NewClient(server.URL)
 	req := &openai.ChatCompletionRequest{
 		Messages: []openai.Message{
-			{Role: "user", Content: "Hi"},
+			{Role: "user", Content: openai.MessageContentString("Hi")},
 		},
 	}
 
@@ -97,7 +97,7 @@ func TestStreamCompletion_ToolCalls(t *testing.T) {
 
 	client := NewClient(server.URL)
 	req := &openai.ChatCompletionRequest{
-		Messages: []openai.Message{{Role: "user", Content: "Weather?"}},
+		Messages: []openai.Message{{Role: "user", Content: openai.MessageContentString("Weather?")}},
 	}
 
 	tokens, err := client.StreamCompletion(context.Background(), req)
@@ -127,7 +127,7 @@ func TestStreamCompletion_ServerError(t *testing.T) {
 
 	client := NewClient(server.URL)
 	req := &openai.ChatCompletionRequest{
-		Messages: []openai.Message{{Role: "user", Content: "Hi"}},
+		Messages: []openai.Message{{Role: "user", Content: openai.MessageContentString("Hi")}},
 	}
 
 	_, err := client.StreamCompletion(context.Background(), req)
@@ -161,7 +161,7 @@ func TestStreamCompletion_Cancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	req := &openai.ChatCompletionRequest{
-		Messages: []openai.Message{{Role: "user", Content: "Hi"}},
+		Messages: []openai.Message{{Role: "user", Content: openai.MessageContentString("Hi")}},
 	}
 
 	tokens, err := client.StreamCompletion(ctx, req)
@@ -195,7 +195,7 @@ func TestStreamCompletion_EmptyStream(t *testing.T) {
 
 	client := NewClient(server.URL)
 	req := &openai.ChatCompletionRequest{
-		Messages: []openai.Message{{Role: "user", Content: "Hi"}},
+		Messages: []openai.Message{{Role: "user", Content: openai.MessageContentString("Hi")}},
 	}
 
 	tokens, err := client.StreamCompletion(context.Background(), req)

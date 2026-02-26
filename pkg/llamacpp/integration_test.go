@@ -80,7 +80,7 @@ func TestClientSanitizesToolsBeforeSending(t *testing.T) {
 	req := &openai.ChatCompletionRequest{
 		Model: "test",
 		Messages: []openai.Message{
-			{Role: "user", Content: "test"},
+			{Role: "user", Content: openai.MessageContentString("test")},
 		},
 		Tools: []openai.Tool{
 			{

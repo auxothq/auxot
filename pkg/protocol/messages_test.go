@@ -199,8 +199,8 @@ func TestParseMessage_ServerMessages(t *testing.T) {
 				Type:  TypeJob,
 				JobID: "job-456",
 				Messages: []ChatMessage{
-					{Role: "system", Content: "You are helpful."},
-					{Role: "user", Content: "Hi"},
+					{Role: "system", Content: ChatContentString("You are helpful.")},
+					{Role: "user", Content: ChatContentString("Hi")},
 				},
 				Temperature: ptrFloat64(0.7),
 				MaxTokens:   ptrInt(1024),
@@ -213,7 +213,7 @@ func TestParseMessage_ServerMessages(t *testing.T) {
 				Type:  TypeJob,
 				JobID: "job-789",
 				Messages: []ChatMessage{
-					{Role: "user", Content: "What is the weather?"},
+					{Role: "user", Content: ChatContentString("What is the weather?")},
 				},
 				Tools: []Tool{
 					{
@@ -349,8 +349,8 @@ func TestMarshalMessage_JobRoundTrip(t *testing.T) {
 		Type:  TypeJob,
 		JobID: "job-roundtrip",
 		Messages: []ChatMessage{
-			{Role: "system", Content: "Be helpful."},
-			{Role: "user", Content: "Hello"},
+			{Role: "system", Content: ChatContentString("Be helpful.")},
+			{Role: "user", Content: ChatContentString("Hello")},
 		},
 		Temperature: &temp,
 		MaxTokens:   &maxTok,
@@ -377,8 +377,8 @@ func TestMarshalMessage_JobRoundTrip(t *testing.T) {
 	if len(got.Messages) != len(original.Messages) {
 		t.Fatalf("Messages count: got %d, want %d", len(got.Messages), len(original.Messages))
 	}
-	if got.Messages[1].Content != "Hello" {
-		t.Errorf("Messages[1].Content: got %q, want %q", got.Messages[1].Content, "Hello")
+	if got.Messages[1].ContentString() != "Hello" {
+		t.Errorf("Messages[1].Content: got %q, want %q", got.Messages[1].ContentString(), "Hello")
 	}
 	if got.Temperature == nil || *got.Temperature != 0.7 {
 		t.Errorf("Temperature: got %v, want 0.7", got.Temperature)

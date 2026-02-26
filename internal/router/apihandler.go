@@ -196,7 +196,7 @@ func (h *APIHandler) handleChatCompletion(w http.ResponseWriter, r *http.Request
 	for i, m := range req.Messages {
 		protoMessages[i] = protocol.ChatMessage{
 			Role:       m.Role,
-			Content:    m.Content,
+			Content:    append(json.RawMessage(nil), m.Content...),
 			ToolCallID: m.ToolCallID,
 		}
 		if len(m.ToolCalls) > 0 {
@@ -283,7 +283,7 @@ func (h *APIHandler) handleLegacyCompletion(w http.ResponseWriter, r *http.Reque
 		Type:  protocol.TypeJob,
 		JobID: jobID,
 		Messages: []protocol.ChatMessage{
-			{Role: "user", Content: prompt},
+			{Role: "user", Content: protocol.ChatContentString(prompt)},
 		},
 		Temperature: req.Temperature,
 		MaxTokens:   req.MaxTokens,

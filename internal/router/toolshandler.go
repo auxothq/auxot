@@ -420,7 +420,7 @@ func (h *ToolsWSHandler) StartContinuation(ctx context.Context, msg *protocol.Co
 	// Build the assistant message that contains the tool_calls.
 	assistantMsg := protocol.ChatMessage{
 		Role:      "assistant",
-		Content:   msg.FullResponse,
+		Content:   protocol.ChatContentString(msg.FullResponse),
 		ToolCalls: msg.ToolCalls,
 	}
 
@@ -598,7 +598,7 @@ func (h *ToolsWSHandler) continueLLMRound(cont *pendingContinuation) {
 			// This shouldn't happen but be defensive.
 			messages = append(messages, protocol.ChatMessage{
 				Role:       "tool",
-				Content:    `{"error":"tool result missing"}`,
+				Content:    protocol.ChatContentString(`{"error":"tool result missing"}`),
 				ToolCallID: tc.ID,
 			})
 			continue
@@ -607,7 +607,7 @@ func (h *ToolsWSHandler) continueLLMRound(cont *pendingContinuation) {
 		content := toolResultContent(res)
 		messages = append(messages, protocol.ChatMessage{
 			Role:       "tool",
-			Content:    content,
+			Content:    protocol.ChatContentString(content),
 			ToolCallID: tc.ID,
 		})
 	}

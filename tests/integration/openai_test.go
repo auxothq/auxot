@@ -27,7 +27,7 @@ func TestOpenAI_ChatCompletions_NonStreaming(t *testing.T) {
 	reqBody := openai.ChatCompletionRequest{
 		Model: "test-model",
 		Messages: []openai.Message{
-			{Role: "user", Content: "Say hello in exactly 5 words."},
+			{Role: "user", Content: openai.MessageContentString("Say hello in exactly 5 words.")},
 		},
 		Stream: false,
 	}
@@ -96,7 +96,7 @@ func TestOpenAI_ChatCompletions_Streaming(t *testing.T) {
 	reqBody := openai.ChatCompletionRequest{
 		Model: "test-model",
 		Messages: []openai.Message{
-			{Role: "user", Content: "Count to five."},
+			{Role: "user", Content: openai.MessageContentString("Count to five.")},
 		},
 		Stream: true,
 	}
@@ -176,7 +176,7 @@ func TestOpenAI_ChatCompletions_Unauthorized(t *testing.T) {
 
 	reqBody := openai.ChatCompletionRequest{
 		Model:    "test-model",
-		Messages: []openai.Message{{Role: "user", Content: "hello"}},
+		Messages: []openai.Message{{Role: "user", Content: openai.MessageContentString("hello")}},
 	}
 	body, _ := json.Marshal(reqBody)
 
@@ -200,7 +200,7 @@ func TestOpenAI_ChatCompletions_BadKey(t *testing.T) {
 
 	reqBody := openai.ChatCompletionRequest{
 		Model:    "test-model",
-		Messages: []openai.Message{{Role: "user", Content: "hello"}},
+		Messages: []openai.Message{{Role: "user", Content: openai.MessageContentString("hello")}},
 	}
 	body, _ := json.Marshal(reqBody)
 

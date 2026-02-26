@@ -27,6 +27,12 @@ import (
 // splitPattern matches GGUF split filenames like "Name-00001-of-00006.gguf".
 var splitPattern = regexp.MustCompile(`^(.*)-(\d{5})-of-(\d{5})(\.gguf)$`)
 
+// EnsureResult holds the paths returned by Ensure.
+type EnsureResult struct {
+	ModelPath  string // Path to primary GGUF model file (first shard for split models)
+	MmprojPath string // Path to mmproj (vision encoder), empty if model has no vision
+}
+
 // Ensure returns the path to the primary GGUF model file, downloading it if necessary.
 //
 // For split/sharded models (e.g., 480B), ALL shards are downloaded but only the
@@ -37,28 +43,32 @@ var splitPattern = regexp.MustCompile(`^(.*)-(\d{5})-of-(\d{5})(\.gguf)$`)
 //
 // Otherwise, the model is resolved from the registry using the policy and
 // downloaded from HuggingFace to modelsDir.
-func Ensure(ctx context.Context, policy *protocol.Policy, modelsDir, modelFile string, logger *slog.Logger) (string, error) {
+func Ensure(ctx context.Context, policy *protocol.Policy, modelsDir, modelFile string, logger *slog.Logger) (*EnsureResult, error) {
 	// Air-gapped mode: use local file
 	if modelFile != "" {
-		return ensureLocalModel(modelFile, logger)
+		modelPath, err := ensureLocalModel(modelFile, logger)
+		if err != nil {
+			return nil, err
+		}
+		return &EnsureResult{ModelPath: modelPath}, nil
 	}
 
 	// Resolve from registry
 	reg, err := registry.Load()
 	if err != nil {
-		return "", fmt.Errorf("loading model registry: %w", err)
+		return nil, fmt.Errorf("loading model registry: %w", err)
 	}
 
 	entry := reg.FindByNameAndQuant(policy.ModelName, policy.Quantization)
 	if entry == nil {
-		return "", fmt.Errorf("model not found in registry: %s (%s)", policy.ModelName, policy.Quantization)
+		return nil, fmt.Errorf("model not found in registry: %s (%s)", policy.ModelName, policy.Quantization)
 	}
 
 	// Build cache base path
 	if modelsDir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return "", fmt.Errorf("getting home directory: %w", err)
+			return nil, fmt.Errorf("getting home directory: %w", err)
 		}
 		modelsDir = filepath.Join(home, ".auxot", "models")
 	}
@@ -130,11 +140,28 @@ func Ensure(ctx context.Context, policy *protocol.Policy, modelsDir, modelFile s
 		logger.Info("downloading shard", downloadAttrs...)
 
 		if err := os.MkdirAll(filepath.Dir(shardPath), 0o755); err != nil {
-			return "", fmt.Errorf("creating model directory: %w", err)
+			return nil, fmt.Errorf("creating model directory: %w", err)
 		}
 
 		if err := downloadWithProgress(ctx, downloadURL, shardPath, expectedSize, logger); err != nil {
-			return "", fmt.Errorf("downloading shard %d/%d: %w", i+1, len(shardNames), err)
+			return nil, fmt.Errorf("downloading shard %d/%d: %w", i+1, len(shardNames), err)
+		}
+	}
+
+	// Download mmproj (vision encoder) if the model has one
+	var mmprojPath string
+	if entry.MmprojFileName != "" {
+		mmprojPath = filepath.Join(baseDir, entry.MmprojFileName)
+		if info, err := os.Stat(mmprojPath); err != nil || info.Size() == 0 {
+			downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s",
+				entry.HuggingFaceID, entry.MmprojFileName)
+			logger.Info("downloading mmproj (vision encoder)", "file", entry.MmprojFileName)
+			if err := downloadWithProgress(ctx, downloadURL, mmprojPath, 0, logger); err != nil {
+				return nil, fmt.Errorf("downloading mmproj: %w", err)
+			}
+			logger.Info("mmproj ready", "path", mmprojPath)
+		} else {
+			logger.Info("mmproj already downloaded", "path", mmprojPath)
 		}
 	}
 
@@ -143,8 +170,9 @@ func Ensure(ctx context.Context, policy *protocol.Policy, modelsDir, modelFile s
 	logger.Info("model ready",
 		"path", primaryPath,
 		"shards", len(shardNames),
+		"mmproj", mmprojPath != "",
 	)
-	return primaryPath, nil
+	return &EnsureResult{ModelPath: primaryPath, MmprojPath: mmprojPath}, nil
 }
 
 // ensureLocalModel validates a local model file for air-gapped mode.

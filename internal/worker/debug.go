@@ -175,7 +175,7 @@ func buildSmartWebSocketPayload(msg any) any {
 		if !alreadySeen {
 			msgMap := map[string]any{
 				"role":    msg.Role,
-				"content": msg.Content,
+				"content": msg.ContentString(),
 			}
 			if msg.ToolCallID != "" {
 				msgMap["tool_call_id"] = msg.ToolCallID
@@ -204,7 +204,7 @@ func buildSmartWebSocketPayload(msg any) any {
 func hashProtocolMessage(msg protocol.ChatMessage) string {
 	h := md5.New()
 	h.Write([]byte(msg.Role))
-	h.Write([]byte(msg.Content))
+	h.Write(msg.Content)
 	if msg.ToolCallID != "" {
 		h.Write([]byte(msg.ToolCallID))
 	}

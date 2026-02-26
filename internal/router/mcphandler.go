@@ -503,8 +503,8 @@ func (h *MCPHandler) handleGenerateText(ctx context.Context, id json.RawMessage,
 	}
 
 	messages := []protocol.ChatMessage{
-		{Role: "system", Content: input.System},
-		{Role: "user", Content: input.Prompt},
+		{Role: "system", Content: protocol.ChatContentString(input.System)},
+		{Role: "user", Content: protocol.ChatContentString(input.Prompt)},
 	}
 
 	text, finishReason, err := h.dispatchLLMCall(ctx, messages, input.MaxTokens, input.Temperature)

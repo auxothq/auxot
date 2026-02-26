@@ -139,11 +139,13 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 	// ----------------------------------------------------------------
 	// Phase 2: Download model
 	// ----------------------------------------------------------------
-	modelPath, err := modeldown.Ensure(ctx, policy, cfg.ModelsDir, cfg.ModelFile, logger)
+	modelResult, err := modeldown.Ensure(ctx, policy, cfg.ModelsDir, cfg.ModelFile, logger)
 	if err != nil {
 		return fmt.Errorf("ensuring model: %w", err)
 	}
-	logger.Info("model ready", "path", modelPath)
+	modelPath := modelResult.ModelPath
+	mmprojPath := modelResult.MmprojPath
+	logger.Info("model ready", "path", modelPath, "mmproj", mmprojPath != "")
 
 	// ----------------------------------------------------------------
 	// Phase 3: Download llama.cpp binary + detect GPU
@@ -186,6 +188,7 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 		llama = worker.NewLlamaProcess(worker.LlamaOpts{
 			BinaryPath:  binaryPath,
 			ModelPath:   modelPath,
+			MmprojPath:  mmprojPath,
 			ContextSize: policy.ContextSize,
 			Parallelism: parallelism,
 			Port:        llamaPort,
@@ -262,6 +265,7 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 		llama = worker.NewLlamaProcess(worker.LlamaOpts{
 			BinaryPath:       binaryPath,
 			ModelPath:        modelPath,
+			MmprojPath:       mmprojPath,
 			ContextSize:      policy.ContextSize,
 			Parallelism:      parallelism,
 			Port:             llamaPort,

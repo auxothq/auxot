@@ -217,7 +217,7 @@ func (h *AnthropicHandler) handleMessages(w http.ResponseWriter, r *http.Request
 	if sysText := req.SystemText(); sysText != "" {
 		protoMessages = append(protoMessages, protocol.ChatMessage{
 			Role:    "system",
-			Content: sysText,
+			Content: protocol.ChatContentString(sysText),
 		})
 	}
 
@@ -250,7 +250,7 @@ func (h *AnthropicHandler) handleMessages(w http.ResponseWriter, r *http.Request
 					toolResults = append(toolResults, protocol.ChatMessage{
 						Role:       "tool",
 						ToolCallID: b.ToolUseID,
-						Content:    b.ToolResultText(),
+						Content:    protocol.ChatContentString(b.ToolResultText()),
 					})
 				}
 			}
@@ -261,7 +261,7 @@ func (h *AnthropicHandler) handleMessages(w http.ResponseWriter, r *http.Request
 				if textContent != "" || len(toolCalls) > 0 {
 					pm := protocol.ChatMessage{
 						Role:      "assistant",
-						Content:   textContent,
+						Content:   protocol.ChatContentString(textContent),
 						ToolCalls: toolCalls,
 					}
 					protoMessages = append(protoMessages, pm)
@@ -276,14 +276,14 @@ func (h *AnthropicHandler) handleMessages(w http.ResponseWriter, r *http.Request
 				// Regular user/system message with array content
 				protoMessages = append(protoMessages, protocol.ChatMessage{
 					Role:    m.Role,
-					Content: textContent,
+					Content: protocol.ChatContentString(textContent),
 				})
 			}
 		} else {
 			// Plain string content — simple message
 			protoMessages = append(protoMessages, protocol.ChatMessage{
 				Role:    m.Role,
-				Content: m.TextContent(),
+				Content: protocol.ChatContentString(m.TextContent()),
 			})
 		}
 	}

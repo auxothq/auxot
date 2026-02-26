@@ -31,14 +31,23 @@ type ChatCompletionRequest struct {
 }
 
 // Message represents a single message in the conversation.
+// Content is json.RawMessage to support both string and array (OpenAI multimodal:
+// images use content: [{type:"text",text:"..."},{type:"image_url",image_url:{...}}]).
+// Use MessageContentString for plain text.
 // ReasoningContent carries chain-of-thought text (used by DeepSeek, Kimi, etc.)
 // and is included in both streaming deltas and non-streaming messages.
 type Message struct {
-	Role             string     `json:"role"`
-	Content          string     `json:"content"`
-	ReasoningContent string     `json:"reasoning_content,omitempty"`
-	ToolCallID       string     `json:"tool_call_id,omitempty"`
-	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	Role             string          `json:"role"`
+	Content          json.RawMessage  `json:"content"`
+	ReasoningContent string          `json:"reasoning_content,omitempty"`
+	ToolCallID       string          `json:"tool_call_id,omitempty"`
+	ToolCalls        []ToolCall      `json:"tool_calls,omitempty"`
+}
+
+// MessageContentString returns json.RawMessage for a plain text content string.
+func MessageContentString(s string) json.RawMessage {
+	b, _ := json.Marshal(s)
+	return b
 }
 
 // Tool defines a function the model can call.
@@ -128,7 +137,7 @@ func NewNonStreamingResponse(model, content string, finishReason string, usage *
 		Choices: []Choice{
 			{
 				Index:        0,
-				Message:      &Message{Role: "assistant", Content: content},
+				Message:      &Message{Role: "assistant", Content: MessageContentString(content)},
 				FinishReason: &fr,
 			},
 		},
@@ -149,7 +158,7 @@ func NewNonStreamingResponseWithReasoning(model, content, reasoningContent strin
 				Index: 0,
 				Message: &Message{
 					Role:             "assistant",
-					Content:          content,
+					Content:          MessageContentString(content),
 					ReasoningContent: reasoningContent,
 				},
 				FinishReason: &fr,
@@ -191,7 +200,7 @@ func NewStreamingChunk(completionID, model, content string) *ChatCompletionChunk
 		Choices: []Choice{
 			{
 				Index:        0,
-				Delta:        &Message{Content: content},
+				Delta:        &Message{Content: MessageContentString(content)},
 				FinishReason: nil,
 			},
 		},
@@ -225,7 +234,7 @@ func NewStreamingRoleChunk(completionID, model string) *ChatCompletionChunk {
 		Choices: []Choice{
 			{
 				Index:        0,
-				Delta:        &Message{Role: "assistant", Content: ""},
+				Delta:        &Message{Role: "assistant", Content: MessageContentString("")},
 				FinishReason: nil,
 			},
 		},

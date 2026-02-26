@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -58,11 +59,16 @@ func (e *Executor) Execute(
 	suppressThinking := strings.EqualFold(job.ReasoningEffort, "none")
 
 	// Convert protocol → openai request (preserve tool call history)
+	// Content is RawMessage — pass through as-is (string or array for vision).
 	messages := make([]openai.Message, len(job.Messages))
 	for i, m := range job.Messages {
+		content := m.Content
+		if content == nil {
+			content = json.RawMessage(`""`)
+		}
 		msg := openai.Message{
 			Role:       m.Role,
-			Content:    m.Content,
+			Content:    append(json.RawMessage(nil), content...),
 			ToolCallID: m.ToolCallID,
 		}
 		for _, tc := range m.ToolCalls {

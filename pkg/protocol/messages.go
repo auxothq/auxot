@@ -171,11 +171,52 @@ type ConfigAckMessage struct {
 }
 
 // ChatMessage represents a single message in a chat conversation.
+// Content is json.RawMessage to accept both string and array (OpenAI multimodal:
+// images use content: [{type:"text",text:"..."},{type:"image_url",image_url:{...}}]).
 type ChatMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	Role       string          `json:"role"`
+	Content    json.RawMessage  `json:"content"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall      `json:"tool_calls,omitempty"`
+}
+
+// ContentString returns a string representation of Content for logging.
+// If Content is a JSON string, returns it; if an array of parts, concatenates text parts.
+func (m *ChatMessage) ContentString() string {
+	if len(m.Content) == 0 {
+		return ""
+	}
+	// Try string first
+	var s string
+	if err := json.Unmarshal(m.Content, &s); err == nil {
+		return s
+	}
+	// Try array of content parts (OpenAI multimodal)
+	var parts []struct {
+		Type     string `json:"type"`
+		Text     string `json:"text"`
+		ImageURL *struct {
+			URL string `json:"url"`
+		} `json:"image_url,omitempty"`
+	}
+	if err := json.Unmarshal(m.Content, &parts); err == nil {
+		var b []byte
+		for _, p := range parts {
+			if p.Type == "text" && p.Text != "" {
+				b = append(b, p.Text...)
+			} else if p.Type == "image_url" && p.ImageURL != nil {
+				b = append(b, "[image]"...)
+			}
+		}
+		return string(b)
+	}
+	return string(m.Content)
+}
+
+// ChatContentString returns json.RawMessage for a plain text content string.
+func ChatContentString(s string) json.RawMessage {
+	b, _ := json.Marshal(s)
+	return b
 }
 
 // Tool describes a tool/function the model can call (request side).

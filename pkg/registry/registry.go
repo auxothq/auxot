@@ -49,6 +49,7 @@ type Model struct {
 	Capabilities      []string `json:"capabilities"`
 	FileName          string   `json:"file_name"`
 	FileSizeBytes     *int64   `json:"file_size_bytes,omitempty"`
+	MmprojFileName    string   `json:"mmproj_file_name,omitempty"` // Vision encoder (e.g. mmproj-F16.gguf)
 }
 
 // Load parses the embedded registry data and returns a Registry.

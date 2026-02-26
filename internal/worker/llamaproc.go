@@ -36,7 +36,8 @@ type LlamaProcess struct {
 type LlamaOpts struct {
 	BinaryPath       string
 	ModelPath        string
-	ContextSize      int // Per-slot context size (will be multiplied by Parallelism)
+	MmprojPath       string // Path to mmproj (vision encoder) for vision models
+	ContextSize      int    // Per-slot context size (will be multiplied by Parallelism)
 	Parallelism      int
 	Port             int
 	Host             string
@@ -78,6 +79,11 @@ func (lp *LlamaProcess) Start() error {
 
 	args := []string{
 		"--model", lp.opts.ModelPath,
+	}
+	if lp.opts.MmprojPath != "" {
+		args = append(args, "--mmproj", lp.opts.MmprojPath)
+	}
+	args = append(args,
 		"--ctx-size", strconv.Itoa(totalCtx),
 		"--parallel", strconv.Itoa(lp.opts.Parallelism),
 		"--port", strconv.Itoa(lp.opts.Port),
@@ -85,7 +91,7 @@ func (lp *LlamaProcess) Start() error {
 		"--batch-size", "512",
 		"--jinja",                    // Enable Jinja templating for tool calling
 		"--reasoning-format", "deepseek", // Always extract <think> blocks into reasoning_content (harmless if model doesn't think)
-	}
+	)
 
 	if lp.opts.Threads > 0 {
 		args = append(args, "--threads", strconv.Itoa(lp.opts.Threads))

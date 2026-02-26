@@ -164,7 +164,7 @@ func sendToolsToLlama(t *testing.T, llamaURL string, tools []openai.Tool) error 
 	req := openai.ChatCompletionRequest{
 		Model: "local",
 		Messages: []openai.Message{
-			{Role: "user", Content: "Say hello"},
+			{Role: "user", Content: openai.MessageContentString("Say hello")},
 		},
 		Tools:  tools,
 		Stream: false,

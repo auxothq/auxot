@@ -413,7 +413,7 @@ func TestSecurity_HugePayload(t *testing.T) {
 	reqBody := openai.ChatCompletionRequest{
 		Model: "test-model",
 		Messages: []openai.Message{
-			{Role: "user", Content: longContent},
+			{Role: "user", Content: openai.MessageContentString(longContent)},
 		},
 	}
 	body, _ := json.Marshal(reqBody)

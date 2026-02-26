@@ -6,7 +6,13 @@ build: bin/auxot-router bin/auxot-worker bin/auxot-tools
 bin/auxot-router: $(shell find cmd/auxot-router internal pkg -name '*.go' 2>/dev/null)
 	go build -o bin/auxot-router ./cmd/auxot-router
 
-bin/auxot-worker: $(shell find cmd/auxot-worker internal pkg -name '*.go' 2>/dev/null)
+# ensure-registry is phony so it always runs — keeps mmproj_file_name and vision metadata current.
+# Prefers monorepo (../../auxot) when present; otherwise fetches from npm.
+.PHONY: ensure-registry
+ensure-registry:
+	@$(MAKE) -s sync-registry
+
+bin/auxot-worker: ensure-registry $(shell find cmd/auxot-worker internal pkg -name '*.go' 2>/dev/null)
 	go build -o bin/auxot-worker ./cmd/auxot-worker
 
 bin/auxot-tools: $(shell find cmd/auxot-tools internal/tools pkg/tools pkg/protocol -name '*.go' 2>/dev/null)
@@ -49,17 +55,29 @@ clean:
 	rm -rf bin/
 	go clean ./...
 
-# Fetch latest registry.json from npm (@auxot/model-registry)
-# This downloads the npm tarball and extracts just registry.json — no npm install needed.
+# Fetch latest registry.json. Prefers local monorepo (../../auxot) when present,
+# otherwise fetches from npm (@auxot/model-registry). Ensures mmproj_file_name
+# and vision capabilities are included for vision models.
 # Usage:
-#   make sync-registry              # fetch latest version
-#   make sync-registry VERSION=1.2.0 # fetch specific version
+#   make sync-registry              # fetch latest (monorepo or npm)
+#   make sync-registry VERSION=1.2.0 # fetch specific version from npm (ignores monorepo)
+#   make sync-registry FROM=npm      # force npm even if monorepo exists
+FROM ?= auto
 VERSION ?= latest
 sync-registry:
-	@echo "Fetching @auxot/model-registry@$(VERSION) from npm..."
-	@TARBALL_URL=$$(curl -sL "https://registry.npmjs.org/@auxot/model-registry/$(VERSION)" | \
-		python3 -c "import json,sys; print(json.load(sys.stdin)['dist']['tarball'])") && \
-	curl -sL "$$TARBALL_URL" | tar xzO package/registry.json > pkg/registry/registry.json && \
+	@MONOREPO=../../auxot/packages/model-registry/registry.json; \
+	if [ "$(FROM)" = "auto" ] && [ -f "$$MONOREPO" ]; then \
+		DEST=pkg/registry/registry.json; \
+		if [ ! -f "$$DEST" ] || [ "$$MONOREPO" -nt "$$DEST" ]; then \
+			echo "Copying registry from monorepo ($$MONOREPO)..."; \
+			cp "$$MONOREPO" "$$DEST"; \
+		fi; \
+	else \
+		echo "Fetching @auxot/model-registry@$(VERSION) from npm..."; \
+		TARBALL_URL=$$(curl -sL "https://registry.npmjs.org/@auxot/model-registry/$(VERSION)" | \
+			python3 -c "import json,sys; print(json.load(sys.stdin)['dist']['tarball'])") && \
+		curl -sL "$$TARBALL_URL" | tar xzO package/registry.json > pkg/registry/registry.json; \
+	fi && \
 	MODEL_COUNT=$$(python3 -c "import json; print(len(json.load(open('pkg/registry/registry.json'))['models']))") && \
 	echo "✓ Updated pkg/registry/registry.json ($$MODEL_COUNT models)"
 
