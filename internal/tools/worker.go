@@ -46,6 +46,7 @@ func NewWorker(cfg *Config, registry *tools.Registry, logger *slog.Logger) *Work
 
 	conn.OnToolJob(w.handleToolJob)
 	conn.OnReloadPolicy(w.handleReloadPolicy)
+	conn.OnValidateConfiguration(w.handleValidateConfiguration)
 	return w
 }
 
@@ -89,6 +90,58 @@ func (w *Worker) Run(ctx context.Context) error {
 				delay = w.cfg.ReconnectMaxDelay
 			}
 		}
+	}
+}
+
+// handleValidateConfiguration is called when the router sends a
+// validate_configuration message (e.g. when an admin adds an MCP server).
+// It instantiates the MCP server without env vars, calls tools/list, and
+// returns the tool definitions.
+func (w *Worker) handleValidateConfiguration(req protocol.ValidateConfigurationMessage) {
+	version := req.Version
+	if version == "" {
+		version = "latest"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	defs, err := tools.McpIntrospect(ctx, req.Package, version)
+	if err != nil {
+		w.logger.Warn("validate_configuration failed",
+			"request_id", req.RequestID,
+			"package", req.Package,
+			"error", err,
+		)
+		_ = w.conn.SendValidateConfigurationResult(protocol.ValidateConfigurationResultMessage{
+			Type:      protocol.TypeValidateConfigurationResult,
+			RequestID: req.RequestID,
+			Error:     err.Error(),
+		})
+		return
+	}
+
+	toolList := make([]protocol.ValidateConfigurationTool, 0, len(defs))
+	for _, d := range defs {
+		toolList = append(toolList, protocol.ValidateConfigurationTool{
+			Name:        d.Name,
+			Description: d.Description,
+			InputSchema: d.InputSchema,
+		})
+	}
+
+	w.logger.Info("validate_configuration success",
+		"request_id", req.RequestID,
+		"package", req.Package,
+		"tools", len(toolList),
+	)
+
+	if err := w.conn.SendValidateConfigurationResult(protocol.ValidateConfigurationResultMessage{
+		Type:      protocol.TypeValidateConfigurationResult,
+		RequestID: req.RequestID,
+		Tools:     toolList,
+	}); err != nil {
+		w.logger.Error("sending validate_configuration_result", "error", err)
 	}
 }
 

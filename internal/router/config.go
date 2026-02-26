@@ -108,7 +108,7 @@ func LoadConfig() (*Config, error) {
 	// --- Model validation against registry ---
 	modelInput := os.Getenv("AUXOT_MODEL")
 	if modelInput == "" {
-		modelInput = "Qwen3-Coder-30B-A3B" // Good default: small, fast, capable — chat + agentic
+		modelInput = "Qwen3.5-35B-A3B" // Good default: 35B MoE, capable — chat + agentic
 	}
 
 	explicitQuant := os.Getenv("AUXOT_QUANTIZATION") // Empty string if not set

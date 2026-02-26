@@ -320,6 +320,13 @@ func ParseMessage(data []byte) (any, error) {
 		}
 		return msg, nil
 
+	case TypeValidateConfiguration:
+		var msg ValidateConfigurationMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing validate_configuration message: %w", err)
+		}
+		return msg, nil
+
 	default:
 		return nil, fmt.Errorf("unknown message type: %q", env.Type)
 	}

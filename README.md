@@ -9,10 +9,10 @@
 
 ---
 
-Run any open-source LLM on your own GPU and serve it as an API — OpenAI-compatible and Anthropic-compatible out of the box. Point Claude Code, Cursor, Open WebUI, or any tool at it and start using your own hardware for inference. No vendor lock-in. No tokens burned. Your GPU, your data, your rules. Runs air-gapped if needed.
+Run any open-source LLM on your own GPU and serve it as an API — OpenAI-compatible and Anthropic-compatible out of the box. Point Claude Code, Cursor, Open Claw, or any tool at it and start using your own hardware for inference. No vendor lock-in. No tokens burned. Your GPU, your data, your rules. Runs air-gapped if needed.
 
 - **One command to deploy, one command to connect your GPU** — no cluster, no orchestrator, no YAML
-- **Works with every tool that speaks OpenAI or Anthropic** — Claude Code, Cursor, Open WebUI, LangChain, anything
+- **Works with every tool that speaks OpenAI or Anthropic** — Claude Code, Cursor, Open Claw, LangChain, anything
 - **700+ models** — automatic quantization selection, just pick a name
 - **Streaming tool calls** — full agentic workflow support for coding assistants
 - **Dead simple** — single binary, no dependencies, embedded Redis, `FROM scratch` Docker image (~10MB)
@@ -43,7 +43,7 @@ Point any OpenAI or Anthropic-compatible tool at your router:
 
 **API Key:** the `rtr_...` key from setup.
 
-Works with Claude Code, Cursor, Open WebUI, LangChain, and anything that speaks these protocols.
+Works with Claude Code, Cursor, Open Claw, LangChain, and anything that speaks these protocols.
 
 ### Verify Your Setup
 
@@ -275,7 +275,7 @@ All configuration is via environment variables (or `.env` file).
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `AUXOT_MODEL` | No | `Qwen3-Coder-30B-A3B` | Model to serve (validated against registry) |
+| `AUXOT_MODEL` | No | `Qwen3.5-35B-A3B` | Model to serve (validated against registry) |
 | `AUXOT_ADMIN_KEY_HASH` | Yes | — | Argon2id hash of GPU key |
 | `AUXOT_API_KEY_HASH` | Yes | — | Argon2id hash of API key |
 | `AUXOT_QUANTIZATION` | No | `Q4_K_S` | Quantization (auto-selects if omitted) |

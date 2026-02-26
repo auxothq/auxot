@@ -1,6 +1,6 @@
 {
   "version": "0.1.0",
-  "generated_at": "2026-02-14T15:12:30.182Z",
+  "generated_at": "2026-02-26T13:29:22.366Z",
   "models": [
     {
       "id": "kimi-k2-5-f16",
@@ -13,7 +13,7 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 2052,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "BF16/Kimi-K2.5-BF16-00001-of-00046.gguf"
     },
@@ -28,7 +28,7 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 320.7,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q3_K_S/Kimi-K2.5-Q3_K_S-00001-of-00010.gguf"
     },
@@ -43,7 +43,7 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 513,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q4_K_S/Kimi-K2.5-Q4_K_S-00001-of-00013.gguf"
     },
@@ -58,7 +58,7 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 641.3,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q5_K_S/Kimi-K2.5-Q5_K_S-00001-of-00015.gguf"
     },
@@ -73,7 +73,7 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 769.5,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q6_K/Kimi-K2.5-Q6_K-00001-of-00018.gguf"
     },
@@ -88,7 +88,7 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 1026,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q8_0/Kimi-K2.5-Q8_0-00001-of-00023.gguf"
     },
@@ -103,7 +103,7 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 1026,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "UD-Q8_K_XL/Kimi-K2.5-UD-Q8_K_XL-00001-of-00025.gguf"
     },
@@ -118,7 +118,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 2052,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "BF16/Kimi-K2-Instruct-BF16-00001-of-00045.gguf"
     },
@@ -133,7 +133,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 320.7,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q3_K_S/Kimi-K2-Instruct-Q3_K_S-00001-of-00010.gguf"
     },
@@ -148,7 +148,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 513,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q4_K_S/Kimi-K2-Instruct-Q4_K_S-00001-of-00013.gguf"
     },
@@ -163,7 +163,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 641.3,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q5_K_S/Kimi-K2-Instruct-Q5_K_S-00001-of-00015.gguf"
     },
@@ -178,7 +178,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 769.5,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q6_K/Kimi-K2-Instruct-Q6_K-00001-of-00018.gguf"
     },
@@ -193,7 +193,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 1026,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q8_0/Kimi-K2-Instruct-Q8_0-00001-of-00023.gguf"
     },
@@ -208,7 +208,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 1026,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "UD-Q8_K_XL/Kimi-K2-Instruct-UD-Q8_K_XL-00001-of-00025.gguf"
     },
@@ -433,7 +433,7 @@
       "max_context_size": 163840,
       "vram_requirements_gb": 1342,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "BF16/DeepSeek-R1-0528-BF16-00001-of-00030.gguf"
     },
@@ -448,7 +448,7 @@
       "max_context_size": 163840,
       "vram_requirements_gb": 209.7,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q3_K_S/DeepSeek-R1-0528-Q3_K_S-00001-of-00006.gguf"
     },
@@ -463,7 +463,7 @@
       "max_context_size": 163840,
       "vram_requirements_gb": 335.5,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q4_K_S/DeepSeek-R1-0528-Q4_K_S-00001-of-00008.gguf"
     },
@@ -478,7 +478,7 @@
       "max_context_size": 163840,
       "vram_requirements_gb": 419.4,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q5_K_S/DeepSeek-R1-0528-Q5_K_S-00001-of-00010.gguf"
     },
@@ -493,7 +493,7 @@
       "max_context_size": 163840,
       "vram_requirements_gb": 503.3,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q6_K/DeepSeek-R1-0528-Q6_K-00001-of-00012.gguf"
     },
@@ -508,7 +508,7 @@
       "max_context_size": 163840,
       "vram_requirements_gb": 671,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "Q8_0/DeepSeek-R1-0528-Q8_0-00001-of-00015.gguf"
     },
@@ -523,7 +523,7 @@
       "max_context_size": 163840,
       "vram_requirements_gb": 671,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "UD-Q8_K_XL/DeepSeek-R1-0528-UD-Q8_K_XL-00001-of-00016.gguf"
     },
@@ -538,7 +538,7 @@
       "max_context_size": 163840,
       "vram_requirements_gb": 1342,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-BF16/DeepSeek-R1.BF16-00001-of-00030.gguf"
     },
@@ -553,7 +553,7 @@
       "max_context_size": 163840,
       "vram_requirements_gb": 503.3,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Q6_K/DeepSeek-R1-Q6_K-00001-of-00012.gguf"
     },
@@ -568,7 +568,7 @@
       "max_context_size": 163840,
       "vram_requirements_gb": 671,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Q8_0/DeepSeek-R1.Q8_0-00001-of-00015.gguf"
     },
@@ -583,7 +583,7 @@
       "max_context_size": 163840,
       "vram_requirements_gb": 671,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Zero-Q8_0/DeepSeek-R1-Zero-BF16-256x20B-Q8_0-00001-of-00016.gguf"
     },
@@ -901,6 +901,126 @@
         "chat"
       ],
       "file_name": "UD-Q8_K_XL/Llama-4-Maverick-17B-128E-Instruct-UD-Q8_K_XL-00001-of-00010.gguf"
+    },
+    {
+      "id": "qwen3-5-397b-a17b-f16",
+      "model_name": "Qwen3.5-397B-A17B",
+      "huggingface_id": "unsloth/Qwen3.5-397B-A17B-GGUF",
+      "quantization": "F16",
+      "family": "MoE",
+      "parameters": "396B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 792,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "BF16/Qwen3.5-397B-A17B-BF16-00001-of-00017.gguf"
+    },
+    {
+      "id": "qwen3-5-397b-a17b-q3-k-s",
+      "model_name": "Qwen3.5-397B-A17B",
+      "huggingface_id": "unsloth/Qwen3.5-397B-A17B-GGUF",
+      "quantization": "Q3_K_S",
+      "family": "MoE",
+      "parameters": "396B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 123.8,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Q3_K_S/Qwen3.5-397B-A17B-Q3_K_S-00001-of-00005.gguf"
+    },
+    {
+      "id": "qwen3-5-397b-a17b-q4-k-s",
+      "model_name": "Qwen3.5-397B-A17B",
+      "huggingface_id": "unsloth/Qwen3.5-397B-A17B-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "MoE",
+      "parameters": "396B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 198,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Q4_K_S/Qwen3.5-397B-A17B-Q4_K_S-00001-of-00006.gguf"
+    },
+    {
+      "id": "qwen3-5-397b-a17b-q5-k-s",
+      "model_name": "Qwen3.5-397B-A17B",
+      "huggingface_id": "unsloth/Qwen3.5-397B-A17B-GGUF",
+      "quantization": "Q5_K_S",
+      "family": "MoE",
+      "parameters": "396B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 247.5,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Q5_K_S/Qwen3.5-397B-A17B-Q5_K_S-00001-of-00007.gguf"
+    },
+    {
+      "id": "qwen3-5-397b-a17b-q6-k",
+      "model_name": "Qwen3.5-397B-A17B",
+      "huggingface_id": "unsloth/Qwen3.5-397B-A17B-GGUF",
+      "quantization": "Q6_K",
+      "family": "MoE",
+      "parameters": "396B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 297,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Q6_K/Qwen3.5-397B-A17B-Q6_K-00001-of-00008.gguf"
+    },
+    {
+      "id": "qwen3-5-397b-a17b-q8-0",
+      "model_name": "Qwen3.5-397B-A17B",
+      "huggingface_id": "unsloth/Qwen3.5-397B-A17B-GGUF",
+      "quantization": "Q8_0",
+      "family": "MoE",
+      "parameters": "396B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 396,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Q8_0/Qwen3.5-397B-A17B-Q8_0-00001-of-00010.gguf"
+    },
+    {
+      "id": "qwen3-5-397b-a17b-q8-k",
+      "model_name": "Qwen3.5-397B-A17B",
+      "huggingface_id": "unsloth/Qwen3.5-397B-A17B-GGUF",
+      "quantization": "Q8_K",
+      "family": "MoE",
+      "parameters": "396B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 396,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "UD-Q8_K_XL/Qwen3.5-397B-A17B-UD-Q8_K_XL-00001-of-00011.gguf"
+    },
+    {
+      "id": "qwen3-5-397b-a17b-f32",
+      "model_name": "Qwen3.5-397B-A17B",
+      "huggingface_id": "unsloth/Qwen3.5-397B-A17B-GGUF",
+      "quantization": "F32",
+      "family": "MoE",
+      "parameters": "396B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 1584,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "mmproj-F32.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-f16",
@@ -1908,6 +2028,126 @@
       "file_name": "UD-Q8_K_XL/MiniMax-M2.1-UD-Q8_K_XL-00001-of-00006.gguf"
     },
     {
+      "id": "qwen3-5-122b-a10b-f16",
+      "model_name": "Qwen3.5-122B-A10B",
+      "huggingface_id": "unsloth/Qwen3.5-122B-A10B-GGUF",
+      "quantization": "F16",
+      "family": "MoE",
+      "parameters": "122B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 244,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "BF16/Qwen3.5-122B-A10B-BF16-00001-of-00005.gguf"
+    },
+    {
+      "id": "qwen3-5-122b-a10b-q3-k-s",
+      "model_name": "Qwen3.5-122B-A10B",
+      "huggingface_id": "unsloth/Qwen3.5-122B-A10B-GGUF",
+      "quantization": "Q3_K_S",
+      "family": "MoE",
+      "parameters": "122B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 38.2,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Q3_K_S/Qwen3.5-122B-A10B-Q3_K_S-00001-of-00003.gguf"
+    },
+    {
+      "id": "qwen3-5-122b-a10b-q4-k-s",
+      "model_name": "Qwen3.5-122B-A10B",
+      "huggingface_id": "unsloth/Qwen3.5-122B-A10B-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "MoE",
+      "parameters": "122B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 61,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Q4_K_S/Qwen3.5-122B-A10B-Q4_K_S-00001-of-00003.gguf"
+    },
+    {
+      "id": "qwen3-5-122b-a10b-q5-k-s",
+      "model_name": "Qwen3.5-122B-A10B",
+      "huggingface_id": "unsloth/Qwen3.5-122B-A10B-GGUF",
+      "quantization": "Q5_K_S",
+      "family": "MoE",
+      "parameters": "122B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 76.3,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Q5_K_S/Qwen3.5-122B-A10B-Q5_K_S-00001-of-00003.gguf"
+    },
+    {
+      "id": "qwen3-5-122b-a10b-q6-k",
+      "model_name": "Qwen3.5-122B-A10B",
+      "huggingface_id": "unsloth/Qwen3.5-122B-A10B-GGUF",
+      "quantization": "Q6_K",
+      "family": "MoE",
+      "parameters": "122B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 91.5,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Q6_K/Qwen3.5-122B-A10B-Q6_K-00001-of-00004.gguf"
+    },
+    {
+      "id": "qwen3-5-122b-a10b-q8-0",
+      "model_name": "Qwen3.5-122B-A10B",
+      "huggingface_id": "unsloth/Qwen3.5-122B-A10B-GGUF",
+      "quantization": "Q8_0",
+      "family": "MoE",
+      "parameters": "122B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 122,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Q8_0/Qwen3.5-122B-A10B-Q8_0-00001-of-00004.gguf"
+    },
+    {
+      "id": "qwen3-5-122b-a10b-q8-k",
+      "model_name": "Qwen3.5-122B-A10B",
+      "huggingface_id": "unsloth/Qwen3.5-122B-A10B-GGUF",
+      "quantization": "Q8_K",
+      "family": "MoE",
+      "parameters": "122B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 122,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "UD-Q8_K_XL/Qwen3.5-122B-A10B-UD-Q8_K_XL-00001-of-00004.gguf"
+    },
+    {
+      "id": "qwen3-5-122b-a10b-f32",
+      "model_name": "Qwen3.5-122B-A10B",
+      "huggingface_id": "unsloth/Qwen3.5-122B-A10B-GGUF",
+      "quantization": "F32",
+      "family": "MoE",
+      "parameters": "122B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 488,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "mmproj-F32.gguf"
+    },
+    {
       "id": "gpt-oss-120b-q3-k-s",
       "model_name": "gpt-oss-120b",
       "huggingface_id": "unsloth/gpt-oss-120b-GGUF",
@@ -2313,111 +2553,6 @@
       "file_name": "UD-Q8_K_XL/Qwen3-Coder-Next-UD-Q8_K_XL-00001-of-00003.gguf"
     },
     {
-      "id": "qwen2-5-vl-72b-f16",
-      "model_name": "Qwen2.5-VL-72B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-72B-Instruct-GGUF",
-      "quantization": "F16",
-      "family": "MoE",
-      "parameters": "73B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 146,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "BF16/Qwen2.5-VL-72B-Instruct-BF16-00001-of-00003.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-72b-q5-k-s",
-      "model_name": "Qwen2.5-VL-72B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-72B-Instruct-GGUF",
-      "quantization": "Q5_K_S",
-      "family": "MoE",
-      "parameters": "73B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 45.7,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Q5_K_S/Qwen2.5-VL-72B-Instruct-Q5_K_S-00001-of-00002.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-72b-q6-k",
-      "model_name": "Qwen2.5-VL-72B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-72B-Instruct-GGUF",
-      "quantization": "Q6_K",
-      "family": "MoE",
-      "parameters": "73B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 54.8,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Q6_K/Qwen2.5-VL-72B-Instruct-Q6_K-00001-of-00002.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-72b-q3-k-s",
-      "model_name": "Qwen2.5-VL-72B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-72B-Instruct-GGUF",
-      "quantization": "Q3_K_S",
-      "family": "MoE",
-      "parameters": "73B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 22.9,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-72B-Instruct-Q3_K_S.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-72b-q4-k-s",
-      "model_name": "Qwen2.5-VL-72B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-72B-Instruct-GGUF",
-      "quantization": "Q4_K_S",
-      "family": "MoE",
-      "parameters": "73B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 36.5,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-72B-Instruct-Q4_K_S.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-72b-q8-k",
-      "model_name": "Qwen2.5-VL-72B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-72B-Instruct-GGUF",
-      "quantization": "Q8_K",
-      "family": "MoE",
-      "parameters": "73B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 73,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "UD-Q8_K_XL/Qwen2.5-VL-72B-Instruct-UD-Q8_K_XL-00001-of-00002.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-72b-f32",
-      "model_name": "Qwen2.5-VL-72B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-72B-Instruct-GGUF",
-      "quantization": "F32",
-      "family": "MoE",
-      "parameters": "73B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 292,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
-    },
-    {
       "id": "deepseek-r1-distill-llama-70b-f16",
       "model_name": "DeepSeek-R1-Distill-Llama-70B",
       "huggingface_id": "unsloth/DeepSeek-R1-Distill-Llama-70B-GGUF",
@@ -2428,7 +2563,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 142,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "BF16/DeepSeek-R1-Distill-Llama-70B-BF16-00001-of-00003.gguf"
     },
@@ -2443,7 +2578,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 22.2,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Llama-70B-Q3_K_S.gguf"
     },
@@ -2458,7 +2593,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 35.5,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Llama-70B-Q4_K_S.gguf"
     },
@@ -2473,7 +2608,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 44.4,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Llama-70B-Q5_K_S.gguf"
     },
@@ -2488,7 +2623,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 53.3,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Llama-70B-Q6_K/DeepSeek-R1-Distill-Llama-70B-Q6_K-00001-of-00002.gguf"
     },
@@ -2503,7 +2638,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 71,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Llama-70B-Q8_0/DeepSeek-R1-Distill-Llama-70B-Q8_0-00001-of-00002.gguf"
     },
@@ -2518,7 +2653,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 71,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "UD-Q8_K_XL/DeepSeek-R1-Distill-Llama-70B-UD-Q8_K_XL-00001-of-00002.gguf"
     },
@@ -2626,6 +2761,126 @@
         "chat"
       ],
       "file_name": "UD-Q8_K_XL/Llama-3.3-70B-Instruct-UD-Q8_K_XL-00001-of-00002.gguf"
+    },
+    {
+      "id": "qwen3-5-35b-a3b-f16",
+      "model_name": "Qwen3.5-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.5-35B-A3B-GGUF",
+      "quantization": "F16",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 70,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "BF16/Qwen3.5-35B-A3B-BF16-00001-of-00002.gguf"
+    },
+    {
+      "id": "qwen3-5-35b-a3b-q3-k-s",
+      "model_name": "Qwen3.5-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.5-35B-A3B-GGUF",
+      "quantization": "Q3_K_S",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 11,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Qwen3.5-35B-A3B-Q3_K_S.gguf"
+    },
+    {
+      "id": "qwen3-5-35b-a3b-q4-k-s",
+      "model_name": "Qwen3.5-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.5-35B-A3B-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 17.5,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Qwen3.5-35B-A3B-Q4_K_S.gguf"
+    },
+    {
+      "id": "qwen3-5-35b-a3b-q5-k-s",
+      "model_name": "Qwen3.5-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.5-35B-A3B-GGUF",
+      "quantization": "Q5_K_S",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 21.9,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Qwen3.5-35B-A3B-Q5_K_S.gguf"
+    },
+    {
+      "id": "qwen3-5-35b-a3b-q6-k",
+      "model_name": "Qwen3.5-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.5-35B-A3B-GGUF",
+      "quantization": "Q6_K",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 26.3,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Qwen3.5-35B-A3B-Q6_K.gguf"
+    },
+    {
+      "id": "qwen3-5-35b-a3b-q8-0",
+      "model_name": "Qwen3.5-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.5-35B-A3B-GGUF",
+      "quantization": "Q8_0",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 35,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Qwen3.5-35B-A3B-Q8_0.gguf"
+    },
+    {
+      "id": "qwen3-5-35b-a3b-q8-k",
+      "model_name": "Qwen3.5-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.5-35B-A3B-GGUF",
+      "quantization": "Q8_K",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 35,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Qwen3.5-35B-A3B-UD-Q8_K_XL.gguf"
+    },
+    {
+      "id": "qwen3-5-35b-a3b-f32",
+      "model_name": "Qwen3.5-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.5-35B-A3B-GGUF",
+      "quantization": "F32",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 140,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "mmproj-F32.gguf"
     },
     {
       "id": "qwen3-vl-32b-f16",
@@ -3303,171 +3558,6 @@
       "file_name": "Qwen3-32B-128K-UD-Q8_K_XL.gguf"
     },
     {
-      "id": "qwen2-5-vl-32b-f16",
-      "model_name": "Qwen2.5-VL-32B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-32B-Instruct-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 66,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "BF16/Qwen2.5-VL-32B-Instruct-BF16-00001-of-00002.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-32b-q3-k-s",
-      "model_name": "Qwen2.5-VL-32B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-32B-Instruct-GGUF",
-      "quantization": "Q3_K_S",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 10.4,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-32B-Instruct-Q3_K_S.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-32b-q4-k-s",
-      "model_name": "Qwen2.5-VL-32B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-32B-Instruct-GGUF",
-      "quantization": "Q4_K_S",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 16.5,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-32B-Instruct-Q4_K_S.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-32b-q5-k-s",
-      "model_name": "Qwen2.5-VL-32B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-32B-Instruct-GGUF",
-      "quantization": "Q5_K_S",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 20.7,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-32B-Instruct-Q5_K_S.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-32b-q6-k",
-      "model_name": "Qwen2.5-VL-32B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-32B-Instruct-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 24.8,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-32B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-32b-q8-k",
-      "model_name": "Qwen2.5-VL-32B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-32B-Instruct-GGUF",
-      "quantization": "Q8_K",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 33,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-32B-Instruct-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-32b-f32",
-      "model_name": "Qwen2.5-VL-32B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-32B-Instruct-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 132,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-32b-instruct-128k-q6-k",
-      "model_name": "Qwen2.5-Coder-32B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-32B-Instruct-128K-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 24.8,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-32B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-32b-instruct-128k-q8-0",
-      "model_name": "Qwen2.5-Coder-32B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-32B-Instruct-128K-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 33,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-32B-Instruct-Q8_0.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-32b-q6-k",
-      "model_name": "Qwen2.5-Coder-32B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-32B-Instruct-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 24.8,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-32B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-32b-q8-0",
-      "model_name": "Qwen2.5-Coder-32B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-32B-Instruct-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 33,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-32B-Instruct-Q8_0.gguf"
-    },
-    {
       "id": "deepseek-r1-distill-qwen-32b-f16",
       "model_name": "DeepSeek-R1-Distill-Qwen-32B",
       "huggingface_id": "unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF",
@@ -3478,7 +3568,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 66,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Qwen-32B-F16/DeepSeek-R1-Distill-Qwen-32B-F16-00001-of-00002.gguf"
     },
@@ -3493,7 +3583,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 24.8,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Qwen-32B-Q6_K.gguf"
     },
@@ -3508,7 +3598,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 33,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Qwen-32B-Q8_0.gguf"
     },
@@ -4728,6 +4818,126 @@
       "file_name": "Qwen3-Coder-30B-A3B-Instruct-1M-UD-Q8_K_XL.gguf"
     },
     {
+      "id": "qwen3-5-27b-f16",
+      "model_name": "Qwen3.5-27B",
+      "huggingface_id": "unsloth/Qwen3.5-27B-GGUF",
+      "quantization": "F16",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 54,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "BF16/Qwen3.5-27B-BF16-00001-of-00002.gguf"
+    },
+    {
+      "id": "qwen3-5-27b-q3-k-s",
+      "model_name": "Qwen3.5-27B",
+      "huggingface_id": "unsloth/Qwen3.5-27B-GGUF",
+      "quantization": "Q3_K_S",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 8.5,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Qwen3.5-27B-Q3_K_S.gguf"
+    },
+    {
+      "id": "qwen3-5-27b-q4-k-s",
+      "model_name": "Qwen3.5-27B",
+      "huggingface_id": "unsloth/Qwen3.5-27B-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 13.5,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Qwen3.5-27B-Q4_K_S.gguf"
+    },
+    {
+      "id": "qwen3-5-27b-q5-k-s",
+      "model_name": "Qwen3.5-27B",
+      "huggingface_id": "unsloth/Qwen3.5-27B-GGUF",
+      "quantization": "Q5_K_S",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 16.9,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Qwen3.5-27B-Q5_K_S.gguf"
+    },
+    {
+      "id": "qwen3-5-27b-q6-k",
+      "model_name": "Qwen3.5-27B",
+      "huggingface_id": "unsloth/Qwen3.5-27B-GGUF",
+      "quantization": "Q6_K",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 20.3,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Qwen3.5-27B-Q6_K.gguf"
+    },
+    {
+      "id": "qwen3-5-27b-q8-0",
+      "model_name": "Qwen3.5-27B",
+      "huggingface_id": "unsloth/Qwen3.5-27B-GGUF",
+      "quantization": "Q8_0",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 27,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Qwen3.5-27B-Q8_0.gguf"
+    },
+    {
+      "id": "qwen3-5-27b-q8-k",
+      "model_name": "Qwen3.5-27B",
+      "huggingface_id": "unsloth/Qwen3.5-27B-GGUF",
+      "quantization": "Q8_K",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 27,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "Qwen3.5-27B-UD-Q8_K_XL.gguf"
+    },
+    {
+      "id": "qwen3-5-27b-f32",
+      "model_name": "Qwen3.5-27B",
+      "huggingface_id": "unsloth/Qwen3.5-27B-GGUF",
+      "quantization": "F32",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 108,
+      "capabilities": [
+        "chat"
+      ],
+      "file_name": "mmproj-F32.gguf"
+    },
+    {
       "id": "gemma-3-27b-it-qat-f16",
       "model_name": "gemma-3-27b-it-qat",
       "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
@@ -5373,96 +5583,6 @@
       "file_name": "Qwen3-14B-128K-UD-Q8_K_XL.gguf"
     },
     {
-      "id": "qwen2-5-coder-14b-instruct-128k-f16",
-      "model_name": "Qwen2.5-Coder-14B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-14B-Instruct-128K-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "15B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 30,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-14B-Instruct-F16.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-14b-instruct-128k-q6-k",
-      "model_name": "Qwen2.5-Coder-14B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-14B-Instruct-128K-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "15B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 11.3,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-14B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-14b-instruct-128k-q8-0",
-      "model_name": "Qwen2.5-Coder-14B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-14B-Instruct-128K-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "15B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 15,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-14B-Instruct-Q8_0.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-14b-f16",
-      "model_name": "Qwen2.5-Coder-14B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-14B-Instruct-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "15B",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 30,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-14B-Instruct-F16.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-14b-q6-k",
-      "model_name": "Qwen2.5-Coder-14B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-14B-Instruct-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "15B",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 11.3,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-14B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-14b-q8-0",
-      "model_name": "Qwen2.5-Coder-14B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-14B-Instruct-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "15B",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 15,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-14B-Instruct-Q8_0.gguf"
-    },
-    {
       "id": "deepseek-r1-distill-qwen-14b-f16",
       "model_name": "DeepSeek-R1-Distill-Qwen-14B",
       "huggingface_id": "unsloth/DeepSeek-R1-Distill-Qwen-14B-GGUF",
@@ -5473,7 +5593,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 30,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Qwen-14B-F16.gguf"
     },
@@ -5488,7 +5608,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 11.3,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Qwen-14B-Q6_K.gguf"
     },
@@ -5503,7 +5623,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 15,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Qwen-14B-Q8_0.gguf"
     },
@@ -6738,171 +6858,6 @@
       "file_name": "Qwen3-8B-128K-UD-Q8_K_XL.gguf"
     },
     {
-      "id": "qwen2-5-vl-7b-f16",
-      "model_name": "Qwen2.5-VL-7B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-7B-Instruct-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 16,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-7B-Instruct-BF16.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-7b-q3-k-s",
-      "model_name": "Qwen2.5-VL-7B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-7B-Instruct-GGUF",
-      "quantization": "Q3_K_S",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 2.5,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-7B-Instruct-Q3_K_S.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-7b-q4-k-s",
-      "model_name": "Qwen2.5-VL-7B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-7B-Instruct-GGUF",
-      "quantization": "Q4_K_S",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 4,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-7B-Instruct-Q4_K_S.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-7b-q5-k-s",
-      "model_name": "Qwen2.5-VL-7B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-7B-Instruct-GGUF",
-      "quantization": "Q5_K_S",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 5,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-7B-Instruct-Q5_K_S.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-7b-q6-k",
-      "model_name": "Qwen2.5-VL-7B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-7B-Instruct-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 6,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-7B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-7b-q8-0",
-      "model_name": "Qwen2.5-VL-7B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-7B-Instruct-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 8,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-7B-Instruct-Q8_0.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-7b-q8-k",
-      "model_name": "Qwen2.5-VL-7B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-7B-Instruct-GGUF",
-      "quantization": "Q8_K",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 8,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-7B-Instruct-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-7b-f32",
-      "model_name": "Qwen2.5-VL-7B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-7B-Instruct-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 32,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-7b-instruct-128k-f16",
-      "model_name": "Qwen2.5-Coder-7B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-7B-Instruct-128K-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 16,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-7B-Instruct-F16.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-7b-instruct-128k-q6-k",
-      "model_name": "Qwen2.5-Coder-7B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-7B-Instruct-128K-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 6,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-7B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-7b-instruct-128k-q8-0",
-      "model_name": "Qwen2.5-Coder-7B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-7B-Instruct-128K-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 8,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-7B-Instruct-Q8_0.gguf"
-    },
-    {
       "id": "ministral-3-8b-instruct-2512-f16",
       "model_name": "Ministral-3-8B-Instruct-2512",
       "huggingface_id": "unsloth/Ministral-3-8B-Instruct-2512-GGUF",
@@ -7153,7 +7108,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 16,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-0528-Qwen3-8B-BF16.gguf"
     },
@@ -7168,7 +7123,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 2.5,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-0528-Qwen3-8B-Q3_K_S.gguf"
     },
@@ -7183,7 +7138,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 4,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-0528-Qwen3-8B-Q4_K_S.gguf"
     },
@@ -7198,7 +7153,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 5,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-0528-Qwen3-8B-Q5_K_S.gguf"
     },
@@ -7213,7 +7168,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 6,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-0528-Qwen3-8B-Q6_K.gguf"
     },
@@ -7228,7 +7183,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 8,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-0528-Qwen3-8B-Q8_0.gguf"
     },
@@ -7243,7 +7198,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 8,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-0528-Qwen3-8B-UD-Q8_K_XL.gguf"
     },
@@ -7258,7 +7213,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 16,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Llama-8B-BF16.gguf"
     },
@@ -7273,7 +7228,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 2.5,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Llama-8B-Q3_K_S.gguf"
     },
@@ -7288,7 +7243,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 4,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Llama-8B-Q4_K_S.gguf"
     },
@@ -7303,7 +7258,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 5,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Llama-8B-Q5_K_S.gguf"
     },
@@ -7318,7 +7273,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 6,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Llama-8B-Q6_K.gguf"
     },
@@ -7333,7 +7288,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 8,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Llama-8B-Q8_0.gguf"
     },
@@ -7348,7 +7303,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 8,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Llama-8B-UD-Q8_K_XL.gguf"
     },
@@ -7363,7 +7318,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 16,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Qwen-7B-F16.gguf"
     },
@@ -7378,7 +7333,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 6,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Qwen-7B-Q6_K.gguf"
     },
@@ -7393,7 +7348,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 8,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Qwen-7B-Q8_0.gguf"
     },
@@ -8913,216 +8868,6 @@
       "file_name": "gemma-3n-E2B-it-UD-Q8_K_XL.gguf"
     },
     {
-      "id": "qwen2-5-vl-3b-f16",
-      "model_name": "Qwen2.5-VL-3B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-3B-Instruct-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 6,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-3B-Instruct-BF16.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-3b-q3-k-s",
-      "model_name": "Qwen2.5-VL-3B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-3B-Instruct-GGUF",
-      "quantization": "Q3_K_S",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 1,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-3B-Instruct-Q3_K_S.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-3b-q4-k-s",
-      "model_name": "Qwen2.5-VL-3B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-3B-Instruct-GGUF",
-      "quantization": "Q4_K_S",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 1.5,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-3B-Instruct-Q4_K_S.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-3b-q5-k-s",
-      "model_name": "Qwen2.5-VL-3B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-3B-Instruct-GGUF",
-      "quantization": "Q5_K_S",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 1.9,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-3B-Instruct-Q5_K_S.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-3b-q6-k",
-      "model_name": "Qwen2.5-VL-3B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-3B-Instruct-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 2.3,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-3B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-3b-q8-0",
-      "model_name": "Qwen2.5-VL-3B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-3B-Instruct-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 3,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-3B-Instruct-Q8_0.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-3b-q8-k",
-      "model_name": "Qwen2.5-VL-3B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-3B-Instruct-GGUF",
-      "quantization": "Q8_K",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 3,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "Qwen2.5-VL-3B-Instruct-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen2-5-vl-3b-f32",
-      "model_name": "Qwen2.5-VL-3B",
-      "huggingface_id": "unsloth/Qwen2.5-VL-3B-Instruct-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 128000,
-      "vram_requirements_gb": 12,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-3b-instruct-128k-f16",
-      "model_name": "Qwen2.5-Coder-3B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-3B-Instruct-128K-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 6,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-3B-Instruct-F16.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-3b-instruct-128k-q6-k",
-      "model_name": "Qwen2.5-Coder-3B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-3B-Instruct-128K-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 2.3,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-3B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-3b-instruct-128k-q8-0",
-      "model_name": "Qwen2.5-Coder-3B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-3B-Instruct-128K-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 3,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-3B-Instruct-Q8_0.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-3b-f16",
-      "model_name": "Qwen2.5-Coder-3B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-3B-Instruct-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 6,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-3B-Instruct-F16.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-3b-q6-k",
-      "model_name": "Qwen2.5-Coder-3B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-3B-Instruct-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 2.3,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-3B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-3b-q8-0",
-      "model_name": "Qwen2.5-Coder-3B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-3B-Instruct-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 3,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-3B-Instruct-Q8_0.gguf"
-    },
-    {
       "id": "ministral-3-3b-instruct-2512-f16",
       "model_name": "Ministral-3-3B-Instruct-2512",
       "huggingface_id": "unsloth/Ministral-3-3B-Instruct-2512-GGUF",
@@ -9948,96 +9693,6 @@
       "file_name": "Qwen3-1.7B-UD-Q8_K_XL.gguf"
     },
     {
-      "id": "qwen2-5-coder-1-5b-instruct-128k-f16",
-      "model_name": "Qwen2.5-Coder-1.5B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-1.5B-Instruct-128K-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "2B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 4,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-1.5B-Instruct-F16.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-1-5b-instruct-128k-q6-k",
-      "model_name": "Qwen2.5-Coder-1.5B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-1.5B-Instruct-128K-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "2B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 1.5,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-1.5B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-1-5b-instruct-128k-q8-0",
-      "model_name": "Qwen2.5-Coder-1.5B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-1.5B-Instruct-128K-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "2B",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 2,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-1.5B-Instruct-Q8_0.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-1-5b-f16",
-      "model_name": "Qwen2.5-Coder-1.5B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-1.5B-Instruct-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "2B",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 4,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-1.5B-Instruct-F16.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-1-5b-q6-k",
-      "model_name": "Qwen2.5-Coder-1.5B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-1.5B-Instruct-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "2B",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 1.5,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-1.5B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-1-5b-q8-0",
-      "model_name": "Qwen2.5-Coder-1.5B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-1.5B-Instruct-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "2B",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 2,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-1.5B-Instruct-Q8_0.gguf"
-    },
-    {
       "id": "deepseek-r1-distill-qwen-1-5b-f16",
       "model_name": "DeepSeek-R1-Distill-Qwen-1.5B",
       "huggingface_id": "unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
@@ -10048,7 +9703,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 4,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Qwen-1.5B-BF16.gguf"
     },
@@ -10063,7 +9718,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 1.5,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Qwen-1.5B-Q6_K.gguf"
     },
@@ -10078,7 +9733,7 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 2,
       "capabilities": [
-        "chat"
+        "reasoning"
       ],
       "file_name": "DeepSeek-R1-Distill-Qwen-1.5B-Q8_0.gguf"
     },
@@ -10291,96 +9946,6 @@
         "chat"
       ],
       "file_name": "Qwen3-0.6B-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-0-5b-instruct-128k-f16",
-      "model_name": "Qwen2.5-Coder-0.5B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-0.5B-Instruct-128K-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "494M",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 1,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-0.5B-Instruct-F16.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-0-5b-instruct-128k-q6-k",
-      "model_name": "Qwen2.5-Coder-0.5B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-0.5B-Instruct-128K-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "494M",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 0.4,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-0.5B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-0-5b-instruct-128k-q8-0",
-      "model_name": "Qwen2.5-Coder-0.5B-Instruct-128K",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-0.5B-Instruct-128K-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "494M",
-      "default_context_size": 32768,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 0.5,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-0.5B-Instruct-Q8_0.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-0-5b-f16",
-      "model_name": "Qwen2.5-Coder-0.5B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-0.5B-Instruct-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "494M",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 1,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-0.5B-Instruct-F16.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-0-5b-q6-k",
-      "model_name": "Qwen2.5-Coder-0.5B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-0.5B-Instruct-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "494M",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 0.4,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-0.5B-Instruct-Q6_K.gguf"
-    },
-    {
-      "id": "qwen2-5-coder-0-5b-q8-0",
-      "model_name": "Qwen2.5-Coder-0.5B",
-      "huggingface_id": "unsloth/Qwen2.5-Coder-0.5B-Instruct-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "494M",
-      "default_context_size": 32768,
-      "max_context_size": 32768,
-      "vram_requirements_gb": 0.5,
-      "capabilities": [
-        "code"
-      ],
-      "file_name": "Qwen2.5-Coder-0.5B-Instruct-Q8_0.gguf"
     },
     {
       "id": "granite-4-0-350m-f16",

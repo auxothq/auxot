@@ -33,6 +33,9 @@ type Connection struct {
 	// Callback invoked when the router sends a reload_policy message,
 	// or when the initial policy is received in hello_ack.
 	onReloadPolicy func(policy protocol.ToolsPolicy)
+
+	// Callback invoked when the router sends a validate_configuration message.
+	onValidateConfiguration func(req protocol.ValidateConfigurationMessage)
 }
 
 // NewConnection creates a Connection to the router.
@@ -57,6 +60,13 @@ func (c *Connection) OnToolJob(fn func(job protocol.ToolJobMessage)) {
 // message loop.
 func (c *Connection) OnReloadPolicy(fn func(policy protocol.ToolsPolicy)) {
 	c.onReloadPolicy = fn
+}
+
+// OnValidateConfiguration registers the callback invoked when the router
+// sends a validate_configuration message. The callback is called in a
+// separate goroutine so it does not block the message loop.
+func (c *Connection) OnValidateConfiguration(fn func(req protocol.ValidateConfigurationMessage)) {
+	c.onValidateConfiguration = fn
 }
 
 // ToolID returns the server-assigned tools worker ID (available after Connect).
@@ -176,6 +186,12 @@ func (c *Connection) SendPolicyReloaded(tools []string, mcpSchemas []protocol.Mc
 	return c.sendJSON(msg)
 }
 
+// SendValidateConfigurationResult sends the result of a validate_configuration
+// request back to the router.
+func (c *Connection) SendValidateConfigurationResult(result protocol.ValidateConfigurationResultMessage) error {
+	return c.sendJSON(result)
+}
+
 // Close closes the WebSocket connection.
 func (c *Connection) Close() {
 	c.mu.Lock()
@@ -224,6 +240,12 @@ func (c *Connection) messageLoop() error {
 			c.logger.Info("reload_policy received")
 			if c.onReloadPolicy != nil {
 				go c.onReloadPolicy(m.Policy)
+			}
+
+		case protocol.ValidateConfigurationMessage:
+			c.logger.Info("validate_configuration received", "request_id", m.RequestID, "package", m.Package)
+			if c.onValidateConfiguration != nil {
+				go c.onValidateConfiguration(m)
 			}
 
 		case protocol.HeartbeatAckMessage:

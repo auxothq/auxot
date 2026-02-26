@@ -181,9 +181,10 @@ type jsonRPCError struct {
 // McpToolDef is the schema for a single tool exposed by an MCP server.
 // Populated by McpIntrospect via the tools/list JSON-RPC call.
 type McpToolDef struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	ParamNames  []string `json:"param_names,omitempty"` // top-level required+optional param keys
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	ParamNames  []string        `json:"param_names,omitempty"` // top-level required+optional param keys
+	InputSchema json.RawMessage `json:"input_schema,omitempty"` // full JSON Schema for validate_configuration
 }
 
 // McpIntrospect starts the MCP server, calls tools/list, and returns the tool definitions.
@@ -285,12 +286,9 @@ func McpIntrospect(ctx context.Context, pkg, version string) ([]McpToolDef, erro
 	// Parse tools/list result: {"tools": [{name, description, inputSchema}]}
 	var result struct {
 		Tools []struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-			InputSchema struct {
-				Properties map[string]json.RawMessage `json:"properties"`
-				Required   []string                   `json:"required"`
-			} `json:"inputSchema"`
+			Name        string          `json:"name"`
+			Description string          `json:"description"`
+			InputSchema json.RawMessage `json:"inputSchema"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
@@ -299,13 +297,18 @@ func McpIntrospect(ctx context.Context, pkg, version string) ([]McpToolDef, erro
 
 	defs := make([]McpToolDef, 0, len(result.Tools))
 	for _, t := range result.Tools {
-		// Collect all parameter names (required first, then optional).
+		// Collect param names from inputSchema for backward compat.
+		var schema struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+			Required   []string                   `json:"required"`
+		}
+		_ = json.Unmarshal(t.InputSchema, &schema)
 		seen := make(map[string]bool)
-		params := append([]string{}, t.InputSchema.Required...)
+		params := append([]string{}, schema.Required...)
 		for _, p := range params {
 			seen[p] = true
 		}
-		for k := range t.InputSchema.Properties {
+		for k := range schema.Properties {
 			if !seen[k] {
 				params = append(params, k)
 			}
@@ -314,6 +317,7 @@ func McpIntrospect(ctx context.Context, pkg, version string) ([]McpToolDef, erro
 			Name:        t.Name,
 			Description: t.Description,
 			ParamNames:  params,
+			InputSchema: t.InputSchema,
 		})
 	}
 	return defs, nil

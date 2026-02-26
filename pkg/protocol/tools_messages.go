@@ -17,12 +17,14 @@ const (
 // Tools-specific message types.
 const (
 	// Server → Tools worker
-	TypeToolJob      MessageType = "tool_job"
-	TypeReloadPolicy MessageType = "reload_policy"
+	TypeToolJob              MessageType = "tool_job"
+	TypeReloadPolicy         MessageType = "reload_policy"
+	TypeValidateConfiguration MessageType = "validate_configuration"
 
 	// Tools worker → Server
-	TypeToolResult     MessageType = "tool_result"
-	TypePolicyReloaded MessageType = "policy_reloaded"
+	TypeToolResult               MessageType = "tool_result"
+	TypePolicyReloaded           MessageType = "policy_reloaded"
+	TypeValidateConfigurationResult MessageType = "validate_configuration_result"
 )
 
 // ToolsCapabilities describes what a tools worker can execute.
@@ -95,6 +97,33 @@ type ToolJobMessage struct {
 	// MCP-specific fields (zero value for built-in tools).
 	McpPackage string `json:"mcp_package,omitempty"` // e.g. "@modelcontextprotocol/server-github"
 	McpVersion string `json:"mcp_version,omitempty"` // e.g. "1.2.3"
+}
+
+// ValidateConfigurationMessage is sent by the server when an admin wants to
+// verify an MCP server configuration (e.g. when adding a new MCP server).
+// The worker must respond with ValidateConfigurationResultMessage.
+type ValidateConfigurationMessage struct {
+	Type      MessageType `json:"type"`
+	RequestID string      `json:"request_id"`
+	Package   string      `json:"package"` // pkg in Go; JSON key "package"
+	Version   string      `json:"version"`
+}
+
+// ValidateConfigurationTool is a single tool from MCP tools/list, for the
+// validate_configuration_result response.
+type ValidateConfigurationTool struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	InputSchema json.RawMessage `json:"input_schema,omitempty"`
+}
+
+// ValidateConfigurationResultMessage is sent by the worker in response to
+// validate_configuration. Tools lists the available tools; Error is set on failure.
+type ValidateConfigurationResultMessage struct {
+	Type      MessageType                 `json:"type"`
+	RequestID string                      `json:"request_id"`
+	Tools     []ValidateConfigurationTool `json:"tools,omitempty"`
+	Error     string                      `json:"error,omitempty"`
 }
 
 // ToolResultMessage is sent by a tools worker after completing (or failing) a tool call.
