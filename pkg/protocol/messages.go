@@ -52,13 +52,16 @@ type HelloMessage struct {
 }
 
 // Capabilities describes what the GPU worker can do.
+// ModelCapabilities is the list of model capabilities (e.g. vision when mmproj is loaded).
+// When set, the server uses it for validation instead of inferring from model name only.
 type Capabilities struct {
-	Backend    string  `json:"backend"`
-	Model      string  `json:"model"`
-	CtxSize    int     `json:"ctx_size"`
-	VRAMGB     float64 `json:"vram_gb,omitempty"`
-	Parameters string  `json:"parameters,omitempty"`
-	TotalSlots int     `json:"total_slots,omitempty"`
+	Backend            string   `json:"backend"`
+	Model              string   `json:"model"`
+	CtxSize            int      `json:"ctx_size"`
+	VRAMGB             float64  `json:"vram_gb,omitempty"`
+	Parameters         string   `json:"parameters,omitempty"`
+	TotalSlots         int      `json:"total_slots,omitempty"`
+	ModelCapabilities  []string `json:"model_capabilities,omitempty"`
 }
 
 // HeartbeatMessage is a keepalive from the worker.

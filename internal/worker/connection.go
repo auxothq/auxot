@@ -163,17 +163,23 @@ func (c *Connection) ConnectPermanent(caps *DiscoveredCaps) error {
 
 	c.gpuID = ack.GPUID
 
-	// Send config with full capabilities
+	// Send config with full capabilities. Include policy's required capabilities
+	// (e.g. vision) so the server accepts workers that loaded mmproj when the
+	// model name alone does not imply vision (e.g. Qwen3.5-35B-A3B).
+	configCaps := protocol.Capabilities{
+		Backend:    caps.Backend,
+		Model:      caps.Model,
+		CtxSize:    caps.CtxSize,
+		VRAMGB:     caps.VRAMGB,
+		Parameters: caps.Parameters,
+		TotalSlots: caps.TotalSlots,
+	}
+	if ack.Policy != nil && len(ack.Policy.Capabilities) > 0 {
+		configCaps.ModelCapabilities = ack.Policy.Capabilities
+	}
 	configMsg := protocol.ConfigMessage{
-		Type: protocol.TypeConfig,
-		Capabilities: protocol.Capabilities{
-			Backend:    caps.Backend,
-			Model:      caps.Model,
-			CtxSize:    caps.CtxSize,
-			VRAMGB:     caps.VRAMGB,
-			Parameters: caps.Parameters,
-			TotalSlots: caps.TotalSlots,
-		},
+		Type:         protocol.TypeConfig,
+		Capabilities: configCaps,
 	}
 	if err := c.sendJSON(configMsg); err != nil {
 		return fmt.Errorf("sending config: %w", err)
