@@ -1,6 +1,6 @@
 {
   "version": "0.1.0",
-  "generated_at": "2026-02-26T16:33:53.054Z",
+  "generated_at": "2026-02-26T22:25:14.486Z",
   "models": [
     {
       "id": "kimi-k2-5-f16",
@@ -5864,6 +5864,21 @@
       "file_name": "mmproj-F32.gguf"
     },
     {
+      "id": "flux1-schnell-q4-k-s",
+      "model_name": "FLUX.1-schnell",
+      "huggingface_id": "unsloth/FLUX.1-schnell-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "Dense",
+      "parameters": "12B",
+      "default_context_size": 4096,
+      "max_context_size": 4096,
+      "vram_requirements_gb": 7,
+      "capabilities": [
+        "image_generation"
+      ],
+      "file_name": "flux1-schnell-Q4_K_S.gguf"
+    },
+    {
       "id": "gemma-3-12b-it-qat-f16",
       "model_name": "gemma-3-12b-it-qat",
       "huggingface_id": "unsloth/gemma-3-12b-it-qat-GGUF",
@@ -6162,6 +6177,21 @@
         "chat"
       ],
       "file_name": "mmproj-F32.gguf"
+    },
+    {
+      "id": "flux-2-klein-9b-q4-k-s",
+      "model_name": "FLUX.2-klein-9B",
+      "huggingface_id": "unsloth/FLUX.2-klein-9B-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "Dense",
+      "parameters": "9B",
+      "default_context_size": 4096,
+      "max_context_size": 4096,
+      "vram_requirements_gb": 8,
+      "capabilities": [
+        "image_generation"
+      ],
+      "file_name": "flux-2-klein-9b-Q4_K_S.gguf"
     },
     {
       "id": "qwen3-vl-8b-f16",
@@ -8862,6 +8892,21 @@
         "chat"
       ],
       "file_name": "gemma-3n-E2B-it-UD-Q8_K_XL.gguf"
+    },
+    {
+      "id": "flux-2-klein-4b-q4-k-s",
+      "model_name": "FLUX.2-klein-4B",
+      "huggingface_id": "unsloth/FLUX.2-klein-4B-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "Dense",
+      "parameters": "4B",
+      "default_context_size": 4096,
+      "max_context_size": 4096,
+      "vram_requirements_gb": 6,
+      "capabilities": [
+        "image_generation"
+      ],
+      "file_name": "flux-2-klein-4b-Q4_K_S.gguf"
     },
     {
       "id": "ministral-3-3b-instruct-2512-f16",

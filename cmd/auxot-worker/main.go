@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -29,6 +30,8 @@ import (
 	"github.com/auxothq/auxot/pkg/logutil"
 	"github.com/auxothq/auxot/pkg/modeldown"
 	"github.com/auxothq/auxot/pkg/protocol"
+	"github.com/auxothq/auxot/pkg/registry"
+	"github.com/auxothq/auxot/pkg/sdbin"
 )
 
 func main() {
@@ -146,6 +149,27 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 	modelPath := modelResult.ModelPath
 	mmprojPath := modelResult.MmprojPath
 	logger.Info("model ready", "path", modelPath, "mmproj", mmprojPath != "")
+
+	// Check if this is an image generation model — use stable-diffusion.cpp path
+	reg, err := registry.Load()
+	if err != nil {
+		return fmt.Errorf("loading registry: %w", err)
+	}
+	isImageGen := false
+	var regModel *registry.Model
+	if m := reg.FindByNameAndQuant(policy.ModelName, policy.Quantization); m != nil {
+		for _, cap := range m.Capabilities {
+			if cap == "image_generation" {
+				isImageGen = true
+				regModel = m
+				break
+			}
+		}
+	}
+
+	if isImageGen {
+		return runWithStableDiffusion(ctx, cfg, conn, policy, modelPath, regModel, logger)
+	}
 
 	// ----------------------------------------------------------------
 	// Phase 3: Download llama.cpp binary + detect GPU
@@ -396,6 +420,178 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 				return nil
 			}
 
+			logger.Info("reconnecting", "delay", delay.String())
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(delay):
+			}
+
+			if err := conn.ConnectPermanent(caps); err != nil {
+				logger.Warn("reconnect failed", "error", err.Error())
+				delay *= 2
+				if delay > cfg.ReconnectMaxDelay {
+					delay = cfg.ReconnectMaxDelay
+				}
+				continue
+			}
+			logger.Info("reconnected", "gpu_id", conn.GPUID())
+			break
+		}
+	}
+}
+
+// runWithStableDiffusion runs the image-generation path: downloads sd-server,
+// spawns it with the diffusion model, and connects to the router.
+func runWithStableDiffusion(ctx context.Context, cfg *worker.Config, conn *worker.Connection, policy *protocol.Policy, modelPath string, regModel *registry.Model, logger *slog.Logger) error {
+	// Download stable-diffusion.cpp binary
+	sdCacheDir := ""
+	if home, err := os.UserHomeDir(); err == nil {
+		sdCacheDir = home + "/.auxot/sd-server"
+	}
+	binaryPath, err := sdbin.Ensure(sdCacheDir, logger)
+	if err != nil {
+		return fmt.Errorf("ensuring sd-server binary: %w", err)
+	}
+	logger.Info("sd-server binary", "path", binaryPath)
+
+	sdPort, err := worker.FindFreePort()
+	if err != nil {
+		return fmt.Errorf("finding free port: %w", err)
+	}
+
+	// FLUX models need auxiliary files (VAE + text encoders)
+	var vaePath, llmPath, clipLPath, t5xxlPath string
+	prediction := "flux2_flow"
+	if regModel != nil && strings.Contains(strings.ToLower(regModel.ModelName), "flux.2-klein") {
+		is4B := strings.Contains(strings.ToLower(regModel.ModelName), "4b")
+		aux, err := modeldown.EnsureFlux2KleinAuxiliary(ctx, cfg.ModelsDir, is4B, logger)
+		if err != nil {
+			return fmt.Errorf("downloading FLUX.2-klein VAE/LLM: %w", err)
+		}
+		vaePath = aux.VAEPath
+		llmPath = aux.LLMPath
+	} else if regModel != nil && strings.Contains(strings.ToLower(regModel.ModelName), "flux.1-schnell") {
+		prediction = "flux_flow"
+		aux, err := modeldown.EnsureFlux1SchnellAuxiliary(ctx, cfg.ModelsDir, logger)
+		if err != nil {
+			return fmt.Errorf("downloading FLUX.1-schnell VAE/text encoders: %w", err)
+		}
+		vaePath = aux.VAEPath
+		clipLPath = aux.ClipLPath
+		t5xxlPath = aux.T5xxlPath
+	}
+
+	sdProc := worker.NewSDProcess(worker.SDOpts{
+		BinaryPath:     binaryPath,
+		DiffusionModel: modelPath,
+		VAEPath:        vaePath,
+		LLMPath:        llmPath,
+		ClipLPath:      clipLPath,
+		T5xxlPath:      t5xxlPath,
+		Port:           sdPort,
+		Host:           "127.0.0.1",
+		Prediction:     prediction,
+		OffloadToCPU:   true, // Safer for memory-constrained systems
+		DiffusionFlash: true,
+	}, logger)
+
+	if err := sdProc.Start(); err != nil {
+		return fmt.Errorf("starting sd-server: %w", err)
+	}
+	defer sdProc.Stop()
+
+	logger.Info("sd-server started", "port", sdPort)
+	logger.Info("waiting for sd-server")
+
+	if err := sdProc.WaitForReady(ctx, 10*time.Minute); err != nil {
+		return fmt.Errorf("sd-server not ready: %w", err)
+	}
+
+	params := "4B"
+	if regModel != nil && regModel.Parameters != "" {
+		params = regModel.Parameters
+	}
+	caps := sdProc.DiscoverCapabilities(policy.ModelName, params)
+
+	logger.Info("capabilities",
+		"model", caps.Model,
+		"backend", caps.Backend,
+		"parameters", caps.Parameters,
+	)
+
+	if err := conn.ConnectPermanent(caps); err != nil {
+		return fmt.Errorf("permanent connection: %w", err)
+	}
+	defer conn.Close()
+
+	go func() {
+		<-ctx.Done()
+		conn.Close()
+	}()
+
+	logger.Info("worker ready (image generation)", "gpu_id", conn.GPUID())
+
+	executor := worker.NewImageExecutor(sdProc.URL(), cfg.JobTimeout, logger)
+	activeJobs := &sync.Map{}
+
+	conn.OnJob(func(job protocol.JobMessage) {
+		abortCtx, cancel := context.WithCancel(ctx)
+		activeJobs.Store(job.JobID, cancel)
+		defer func() {
+			activeJobs.Delete(job.JobID)
+			cancel()
+		}()
+
+		executor.Execute(
+			abortCtx,
+			job,
+			func(token string) error { return conn.SendToken(job.JobID, token) },
+			func(token string) error { return conn.SendReasoningToken(job.JobID, token) },
+			func() error { return conn.SendToolGenerating(job.JobID) },
+			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
+				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls)
+			},
+			func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
+		)
+	})
+
+	conn.OnCancel(func(jobID string) {
+		if cancel, ok := activeJobs.Load(jobID); ok {
+			cancel.(context.CancelFunc)()
+		}
+	})
+
+	sdProc.OnCrash(func(exitCode int, err error) {
+		logger.Error("sd-server crashed", "exit_code", exitCode, "error", err)
+		logger.Info("restarting sd-server")
+		time.Sleep(2 * time.Second)
+		if restartErr := sdProc.Start(); restartErr != nil {
+			logger.Error("failed to restart sd-server", "error", restartErr)
+			return
+		}
+		if err := sdProc.WaitForReady(ctx, 10*time.Minute); err != nil {
+			logger.Error("restarted sd-server not ready", "error", err)
+			return
+		}
+		logger.Info("sd-server recovered")
+	})
+
+	for {
+		err := conn.RunMessageLoop()
+		if ctx.Err() != nil {
+			logger.Info("shutting down")
+			return nil
+		}
+		if err != nil {
+			logger.Warn("disconnected", "error", err.Error())
+		}
+
+		delay := cfg.ReconnectDelay
+		for {
+			if ctx.Err() != nil {
+				return nil
+			}
 			logger.Info("reconnecting", "delay", delay.String())
 			select {
 			case <-ctx.Done():

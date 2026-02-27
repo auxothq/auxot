@@ -236,6 +236,7 @@ type JobMessage struct {
 	Temperature     *float64      `json:"temperature,omitempty"`
 	MaxTokens       *int          `json:"max_tokens,omitempty"`
 	ReasoningEffort string        `json:"reasoning_effort,omitempty"` // "none", "low", "medium", "high"
+	Data            map[string]any `json:"data,omitempty"`           // Optional: tool arguments (e.g. size, steps for image_gen)
 }
 
 // CancelMessage tells the worker to stop processing a job.

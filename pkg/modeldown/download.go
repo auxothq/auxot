@@ -355,6 +355,126 @@ func downloadWithProgress(ctx context.Context, url, dest string, expectedSize in
 	return nil
 }
 
+// Flux2AuxiliaryPaths holds paths to VAE and LLM for FLUX.2-klein models.
+type Flux2AuxiliaryPaths struct {
+	VAEPath string
+	LLMPath string
+}
+
+// EnsureFlux2KleinAuxiliary downloads VAE and LLM for FLUX.2-klein models.
+// FLUX.2-klein requires these in addition to the diffusion model.
+// is4B: true for 4B variant (Qwen3-4B), false for 9B (Qwen3-8B).
+func EnsureFlux2KleinAuxiliary(ctx context.Context, modelsDir string, is4B bool, logger *slog.Logger) (*Flux2AuxiliaryPaths, error) {
+	if modelsDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("getting home directory: %w", err)
+		}
+		modelsDir = filepath.Join(home, ".auxot", "models")
+	}
+
+	// VAE: shared by all FLUX.2 models. Use Comfy-Org mirror (ungated) — black-forest-labs/FLUX.2-dev is gated.
+	vaeDir := filepath.Join(modelsDir, "Comfy-Org_flux2-dev")
+	vaePath := filepath.Join(vaeDir, "flux2-vae.safetensors")
+	if info, err := os.Stat(vaePath); err != nil || info.Size() == 0 {
+		os.MkdirAll(vaeDir, 0o755)
+		url := "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors"
+		logger.Info("downloading FLUX.2 VAE", "file", "flux2-vae.safetensors")
+		if err := downloadWithProgress(ctx, url, vaePath, 0, logger); err != nil {
+			return nil, fmt.Errorf("downloading VAE: %w", err)
+		}
+		logger.Info("VAE ready", "path", vaePath)
+	} else {
+		logger.Info("VAE already downloaded", "path", vaePath)
+	}
+
+	// LLM: Qwen3-4B for 4B variant, Qwen3-8B for 9B (filenames are case-sensitive on HuggingFace)
+	var llmRepo, llmFile string
+	if is4B {
+		llmRepo = "unsloth/Qwen3-4B-GGUF"
+		llmFile = "Qwen3-4B-Q4_K_S.gguf"
+	} else {
+		llmRepo = "unsloth/Qwen3-8B-GGUF"
+		llmFile = "Qwen3-8B-Q4_K_S.gguf"
+	}
+	llmDir := filepath.Join(modelsDir, strings.ReplaceAll(llmRepo, "/", "_"))
+	llmPath := filepath.Join(llmDir, llmFile)
+	if info, err := os.Stat(llmPath); err != nil || info.Size() == 0 {
+		os.MkdirAll(llmDir, 0o755)
+		url := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", llmRepo, llmFile)
+		logger.Info("downloading FLUX.2-klein LLM (text encoder)", "file", llmFile)
+		if err := downloadWithProgress(ctx, url, llmPath, 0, logger); err != nil {
+			return nil, fmt.Errorf("downloading LLM: %w", err)
+		}
+		logger.Info("LLM ready", "path", llmPath)
+	} else {
+		logger.Info("LLM already downloaded", "path", llmPath)
+	}
+
+	return &Flux2AuxiliaryPaths{VAEPath: vaePath, LLMPath: llmPath}, nil
+}
+
+// Flux1SchnellAuxiliaryPaths holds paths to VAE, clip_l, and t5xxl for FLUX.1-schnell.
+type Flux1SchnellAuxiliaryPaths struct {
+	VAEPath   string
+	ClipLPath string
+	T5xxlPath string
+}
+
+// EnsureFlux1SchnellAuxiliary downloads VAE, clip_l, and t5xxl for FLUX.1-schnell.
+// FLUX.1-schnell uses the same text encoders as FLUX.1-dev (clip_l + t5xxl).
+func EnsureFlux1SchnellAuxiliary(ctx context.Context, modelsDir string, logger *slog.Logger) (*Flux1SchnellAuxiliaryPaths, error) {
+	if modelsDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("getting home directory: %w", err)
+		}
+		modelsDir = filepath.Join(home, ".auxot", "models")
+	}
+
+	// VAE: shared with FLUX.1-dev (black-forest-labs/FLUX.1-dev)
+	vaeDir := filepath.Join(modelsDir, "black-forest-labs_FLUX.1-dev")
+	vaePath := filepath.Join(vaeDir, "ae.safetensors")
+	if info, err := os.Stat(vaePath); err != nil || info.Size() == 0 {
+		os.MkdirAll(vaeDir, 0o755)
+		url := "https://huggingface.co/black-forest-labs/FLUX.1-dev/resolve/main/ae.safetensors"
+		logger.Info("downloading FLUX.1 VAE", "file", "ae.safetensors")
+		if err := downloadWithProgress(ctx, url, vaePath, 0, logger); err != nil {
+			return nil, fmt.Errorf("downloading VAE: %w", err)
+		}
+		logger.Info("VAE ready", "path", vaePath)
+	} else {
+		logger.Info("VAE already downloaded", "path", vaePath)
+	}
+
+	// clip_l and t5xxl: from comfyanonymous/flux_text_encoders
+	encDir := filepath.Join(modelsDir, "comfyanonymous_flux_text_encoders")
+	clipLPath := filepath.Join(encDir, "clip_l.safetensors")
+	t5xxlPath := filepath.Join(encDir, "t5xxl_fp16.safetensors")
+
+	for _, spec := range []struct {
+		path string
+		url  string
+		name string
+	}{
+		{clipLPath, "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors", "clip_l"},
+		{t5xxlPath, "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors", "t5xxl"},
+	} {
+		if info, err := os.Stat(spec.path); err != nil || info.Size() == 0 {
+			os.MkdirAll(encDir, 0o755)
+			logger.Info("downloading FLUX.1 text encoder", "file", spec.name)
+			if err := downloadWithProgress(ctx, spec.url, spec.path, 0, logger); err != nil {
+				return nil, fmt.Errorf("downloading %s: %w", spec.name, err)
+			}
+			logger.Info("text encoder ready", "path", spec.path)
+		} else {
+			logger.Info("text encoder already downloaded", "path", spec.path)
+		}
+	}
+
+	return &Flux1SchnellAuxiliaryPaths{VAEPath: vaePath, ClipLPath: clipLPath, T5xxlPath: t5xxlPath}, nil
+}
+
 func formatBytes(b int64) string {
 	const kb = 1024
 	const mb = kb * 1024
