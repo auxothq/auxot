@@ -25,7 +25,7 @@ import (
 // model policy from the router on connect (hello_ack).
 type Config struct {
 	// Required: Router connection
-	RouterURL string // WebSocket URL of the router (e.g., "ws://localhost:8080/ws")
+	RouterURL string // WebSocket URL of the router (e.g., "wss://auxot.com/api/gpu/client" or "ws://localhost:8080/ws")
 	AdminKey  string // Plaintext admin key for authentication (adm_...)
 
 	// Optional: Model file override for air-gapped deployments.
@@ -70,7 +70,7 @@ type CLIFlags struct {
 // CLI flag values override env vars when non-empty.
 func LoadConfig(flags CLIFlags) (*Config, error) {
 	cfg := &Config{
-		RouterURL:         envStr("AUXOT_ROUTER_URL", "wss://auxot.com/ws"),
+		RouterURL:         envStr("AUXOT_ROUTER_URL", "wss://auxot.com/api/gpu/client"),
 		AdminKey:          os.Getenv("AUXOT_GPU_KEY"),
 		ModelFile:         os.Getenv("AUXOT_MODEL_FILE"),
 		ModelsDir:         os.Getenv("AUXOT_MODELS_DIR"),

@@ -699,7 +699,7 @@ Flags:
                               Level 2: Level 1 + full llama.cpp requests/responses + per-token output
 
 Environment Variables:
-  AUXOT_ROUTER_URL            Router WebSocket URL (default: wss://auxot.com/ws)
+  AUXOT_ROUTER_URL            Router WebSocket URL (default: wss://auxot.com/api/gpu/client)
   AUXOT_GPU_KEY               Admin key (required, adm_... from router setup)
   AUXOT_MODEL_FILE            Path to local GGUF file (air-gapped, skip download)
   AUXOT_MODELS_DIR            Model cache dir (default: ~/.auxot/models)

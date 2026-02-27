@@ -53,7 +53,7 @@ type Config struct {
 func LoadConfig(flags CLIFlags) (*Config, error) {
 	routerURL := os.Getenv("AUXOT_ROUTER_URL")
 	if routerURL == "" {
-		routerURL = "wss://auxot.com"
+		routerURL = "wss://auxot.com/api/gpu/client"
 	}
 	if flags.RouterURL != "" {
 		routerURL = flags.RouterURL

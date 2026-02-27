@@ -292,7 +292,7 @@ All configuration is via environment variables (or `.env` file).
 | Variable | Default | Description |
 |---|---|---|
 | `AUXOT_GPU_KEY` | — | GPU key from setup (required) |
-| `AUXOT_ROUTER_URL` | ws://localhost:8080/ws | Router WebSocket URL |
+| `AUXOT_ROUTER_URL` | wss://auxot.com/api/gpu/client | Router WebSocket URL (use ws://localhost:8080/ws for local) |
 | `AUXOT_GPU_LAYERS` | 9999 | GPU layers to offload (9999 = all) |
 | `AUXOT_THREADS` | auto | CPU threads for llama.cpp |
 | `AUXOT_MODEL_FILE` | — | Path to local GGUF file (skip download) |
