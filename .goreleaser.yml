@@ -75,6 +75,44 @@ archives:
     builds:
       - auxot-tools
 
+brews:
+  - name: auxot-worker
+    # Use the default archive (contains auxot-router + auxot-worker).
+    # Only auxot-worker is installed; the formula is published to homebrew-tap.
+    ids:
+      - default
+    repository:
+      owner: auxothq
+      name: homebrew-tap
+      branch: main
+      # Set HOMEBREW_TAP_GITHUB_TOKEN in the release CI environment.
+      # A fine-grained PAT with Contents: write on auxothq/homebrew-tap is sufficient.
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "chore: update auxot-worker formula to {{ .Tag }}"
+    directory: Formula
+    homepage: "https://github.com/auxothq/auxot"
+    description: "GPU inference worker for the Auxot platform"
+    license: "MIT"
+    caveats: |
+      To connect immediately (foreground):
+        auxot-worker --gpu-key <key>
+
+      To install as a persistent daemon (starts on boot):
+        auxot-worker install --name default --gpu-key <key>
+        sudo auxot-worker install --name default --gpu-key <key> --always-on
+
+      Manage installed workers:
+        auxot-worker list
+        auxot-worker uninstall <name>
+    install: |
+      bin.install "auxot-worker"
+    test: |
+      output = shell_output("#{bin}/auxot-worker version")
+      assert_match "auxot-worker", output
+
 checksum:
   name_template: 'checksums.txt'
 

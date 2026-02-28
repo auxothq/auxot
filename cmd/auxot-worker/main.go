@@ -42,6 +42,22 @@ func main() {
 	debugLevel := 0
 
 	args := os.Args[1:]
+
+	// Daemon management subcommands — handled before flag parsing.
+	if len(args) > 0 {
+		switch args[0] {
+		case "install":
+			cmdInstall(args[1:])
+			return
+		case "list":
+			cmdList()
+			return
+		case "uninstall":
+			cmdUninstall(args[1:])
+			return
+		}
+	}
+
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "version":
@@ -684,10 +700,30 @@ func printHelp() {
 
 Usage:
   auxot-worker                Connect to router and start processing jobs
+  auxot-worker install        Install as a persistent daemon (runs on boot)
+  auxot-worker list           List installed workers
+  auxot-worker uninstall      Remove an installed worker
   auxot-worker version        Print version
   auxot-worker help           Print this help
 
-Flags:
+Daemon Management:
+  auxot-worker install --name <name> --gpu-key <key> [--router-url <url>] [--always-on]
+      Install worker as a system daemon or user-session agent.
+      Named installs allow multiple workers with different GPU keys/models.
+
+  auxot-worker list
+      Show all installed workers with their status, GPU key (masked), and router URL.
+
+  auxot-worker uninstall <name>
+      Stop and remove a named worker install.
+
+  Examples:
+    auxot-worker install --name qwen   --gpu-key gpu_abc123
+    auxot-worker install --name llama  --gpu-key gpu_xyz789 --always-on
+    auxot-worker list
+    auxot-worker uninstall qwen
+
+Flags (run mode):
   --gpu-key <key>             Admin key for authentication (overrides AUXOT_GPU_KEY)
   --router-url <url>          Router WebSocket URL (overrides AUXOT_ROUTER_URL)
   --model-path <path>         Path to local GGUF model file (overrides AUXOT_MODEL_FILE)
@@ -700,7 +736,7 @@ Flags:
 
 Environment Variables:
   AUXOT_ROUTER_URL            Router WebSocket URL (default: wss://auxot.com/api/gpu/client)
-  AUXOT_GPU_KEY               Admin key (required, adm_... from router setup)
+  AUXOT_GPU_KEY               Admin key (required, gpu_... from Auxot dashboard)
   AUXOT_MODEL_FILE            Path to local GGUF file (air-gapped, skip download)
   AUXOT_MODELS_DIR            Model cache dir (default: ~/.auxot/models)
   AUXOT_LLAMA_URL             External llama-server URL (skip download+spawn, e.g. http://localhost:9002)
@@ -721,7 +757,7 @@ Air-Gapped Deployment:
 
   Example:
     auxot-worker \
-      --gpu-key adm_xxx \
+      --gpu-key gpu_xxx \
       --router-url ws://router.internal:8080/ws \
       --model-path /opt/models/qwen3-8b-Q4_K_M.gguf \
       --llama-server-path /opt/bin/llama-server`)

@@ -38,6 +38,17 @@ jobs:
       - name: Install build deps (for sync-registry)
         run: sudo apt-get update && sudo apt-get install -y curl tar
 
+      # Mint a short-lived token from the org-owned GitHub App.
+      # This is not tied to any individual user account.
+      - name: Generate tap token
+        id: tap-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASEBOT_APP_ID }}
+          private-key: ${{ secrets.RELEASEBOT_PRIVATE_KEY }}
+          owner: auxothq
+          repositories: homebrew-tap
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -45,6 +56,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
 
   # ──────────────────────────────────────────────────────────────────
   # Job 2: Docker — multi-arch router image pushed to GHCR
