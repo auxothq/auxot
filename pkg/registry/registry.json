@@ -1,6 +1,6 @@
 {
   "version": "0.1.0",
-  "generated_at": "2026-02-26T22:25:14.486Z",
+  "generated_at": "2026-02-27T14:26:14.730Z",
   "models": [
     {
       "id": "kimi-k2-5-f16",
@@ -808,9 +808,11 @@
       "max_context_size": 1048576,
       "vram_requirements_gb": 802,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "BF16/Llama-4-Maverick-17B-128E-Instruct-BF16-00001-of-00018.gguf"
+      "file_name": "BF16/Llama-4-Maverick-17B-128E-Instruct-BF16-00001-of-00018.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "llama-4-maverick-17b-128e-q3-k-s",
@@ -823,9 +825,11 @@
       "max_context_size": 1048576,
       "vram_requirements_gb": 125.4,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Q3_K_S/Llama-4-Maverick-17B-128E-Instruct-Q3_K_S-00001-of-00004.gguf"
+      "file_name": "Q3_K_S/Llama-4-Maverick-17B-128E-Instruct-Q3_K_S-00001-of-00004.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "llama-4-maverick-17b-128e-q4-k-s",
@@ -838,9 +842,11 @@
       "max_context_size": 1048576,
       "vram_requirements_gb": 200.5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Q4_K_S/Llama-4-Maverick-17B-128E-Instruct-Q4_K_S-00001-of-00005.gguf"
+      "file_name": "Q4_K_S/Llama-4-Maverick-17B-128E-Instruct-Q4_K_S-00001-of-00005.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "llama-4-maverick-17b-128e-q5-k-s",
@@ -853,9 +859,11 @@
       "max_context_size": 1048576,
       "vram_requirements_gb": 250.7,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Q5_K_S/Llama-4-Maverick-17B-128E-Instruct-Q5_K_S-00001-of-00006.gguf"
+      "file_name": "Q5_K_S/Llama-4-Maverick-17B-128E-Instruct-Q5_K_S-00001-of-00006.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "llama-4-maverick-17b-128e-q6-k",
@@ -868,9 +876,11 @@
       "max_context_size": 1048576,
       "vram_requirements_gb": 300.8,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Q6_K/Llama-4-Maverick-17B-128E-Instruct-Q6_K-00001-of-00007.gguf"
+      "file_name": "Q6_K/Llama-4-Maverick-17B-128E-Instruct-Q6_K-00001-of-00007.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "llama-4-maverick-17b-128e-q8-0",
@@ -883,9 +893,11 @@
       "max_context_size": 1048576,
       "vram_requirements_gb": 401,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Q8_0/Llama-4-Maverick-17B-128E-Instruct-Q8_0-00001-of-00009.gguf"
+      "file_name": "Q8_0/Llama-4-Maverick-17B-128E-Instruct-Q8_0-00001-of-00009.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "llama-4-maverick-17b-128e-q8-k",
@@ -898,9 +910,11 @@
       "max_context_size": 1048576,
       "vram_requirements_gb": 401,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "UD-Q8_K_XL/Llama-4-Maverick-17B-128E-Instruct-UD-Q8_K_XL-00001-of-00010.gguf"
+      "file_name": "UD-Q8_K_XL/Llama-4-Maverick-17B-128E-Instruct-UD-Q8_K_XL-00001-of-00010.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-5-397b-a17b-f16",
@@ -1034,7 +1048,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "BF16/Qwen3-VL-235B-A22B-Thinking-BF16-00001-of-00010.gguf"
+      "file_name": "BF16/Qwen3-VL-235B-A22B-Thinking-BF16-00001-of-00010.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-q3-k-s",
@@ -1049,7 +1064,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q3_K_S/Qwen3-VL-235B-A22B-Thinking-Q3_K_S-00001-of-00003.gguf"
+      "file_name": "Q3_K_S/Qwen3-VL-235B-A22B-Thinking-Q3_K_S-00001-of-00003.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-q4-k-s",
@@ -1064,7 +1080,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q4_K_S/Qwen3-VL-235B-A22B-Thinking-Q4_K_S-00001-of-00003.gguf"
+      "file_name": "Q4_K_S/Qwen3-VL-235B-A22B-Thinking-Q4_K_S-00001-of-00003.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-q5-k-s",
@@ -1079,7 +1096,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q5_K_S/Qwen3-VL-235B-A22B-Thinking-Q5_K_S-00001-of-00004.gguf"
+      "file_name": "Q5_K_S/Qwen3-VL-235B-A22B-Thinking-Q5_K_S-00001-of-00004.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-q6-k",
@@ -1094,7 +1112,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q6_K/Qwen3-VL-235B-A22B-Thinking-Q6_K-00001-of-00004.gguf"
+      "file_name": "Q6_K/Qwen3-VL-235B-A22B-Thinking-Q6_K-00001-of-00004.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-q8-0",
@@ -1109,7 +1128,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q8_0/Qwen3-VL-235B-A22B-Thinking-Q8_0-00001-of-00006.gguf"
+      "file_name": "Q8_0/Qwen3-VL-235B-A22B-Thinking-Q8_0-00001-of-00006.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-q8-k",
@@ -1124,22 +1144,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "UD-Q8_K_XL/Qwen3-VL-235B-A22B-Thinking-UD-Q8_K_XL-00001-of-00006.gguf"
-    },
-    {
-      "id": "qwen3-vl-235b-a22b-thinking-f32",
-      "model_name": "Qwen3-VL-235B-A22B-Thinking",
-      "huggingface_id": "unsloth/Qwen3-VL-235B-A22B-Thinking-GGUF",
-      "quantization": "F32",
-      "family": "MoE",
-      "parameters": "235B",
-      "default_context_size": 32768,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 940,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "UD-Q8_K_XL/Qwen3-VL-235B-A22B-Thinking-UD-Q8_K_XL-00001-of-00006.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-f16",
@@ -1154,7 +1160,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "BF16/Qwen3-VL-235B-A22B-Instruct-BF16-00001-of-00010.gguf"
+      "file_name": "BF16/Qwen3-VL-235B-A22B-Instruct-BF16-00001-of-00010.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-q3-k-s",
@@ -1169,7 +1176,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q3_K_S/Qwen3-VL-235B-A22B-Instruct-Q3_K_S-00001-of-00003.gguf"
+      "file_name": "Q3_K_S/Qwen3-VL-235B-A22B-Instruct-Q3_K_S-00001-of-00003.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-q4-k-s",
@@ -1184,7 +1192,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q4_K_S/Qwen3-VL-235B-A22B-Instruct-Q4_K_S-00001-of-00003.gguf"
+      "file_name": "Q4_K_S/Qwen3-VL-235B-A22B-Instruct-Q4_K_S-00001-of-00003.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-q5-k-s",
@@ -1199,7 +1208,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q5_K_S/Qwen3-VL-235B-A22B-Instruct-Q5_K_S-00001-of-00004.gguf"
+      "file_name": "Q5_K_S/Qwen3-VL-235B-A22B-Instruct-Q5_K_S-00001-of-00004.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-q6-k",
@@ -1214,7 +1224,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q6_K/Qwen3-VL-235B-A22B-Instruct-Q6_K-00001-of-00004.gguf"
+      "file_name": "Q6_K/Qwen3-VL-235B-A22B-Instruct-Q6_K-00001-of-00004.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-q8-0",
@@ -1229,7 +1240,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q8_0/Qwen3-VL-235B-A22B-Instruct-Q8_0-00001-of-00006.gguf"
+      "file_name": "Q8_0/Qwen3-VL-235B-A22B-Instruct-Q8_0-00001-of-00006.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-q8-k",
@@ -1244,22 +1256,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "UD-Q8_K_XL/Qwen3-VL-235B-A22B-Instruct-UD-Q8_K_XL-00001-of-00006.gguf"
-    },
-    {
-      "id": "qwen3-vl-235b-a22b-f32",
-      "model_name": "Qwen3-VL-235B-A22B",
-      "huggingface_id": "unsloth/Qwen3-VL-235B-A22B-Instruct-GGUF",
-      "quantization": "F32",
-      "family": "MoE",
-      "parameters": "235B",
-      "default_context_size": 32768,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 940,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "UD-Q8_K_XL/Qwen3-VL-235B-A22B-Instruct-UD-Q8_K_XL-00001-of-00006.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-instruct-1m-f16",
@@ -1274,7 +1272,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "BF16/Qwen3-VL-235B-A22B-Instruct-1M-BF16-00001-of-00010.gguf"
+      "file_name": "BF16/Qwen3-VL-235B-A22B-Instruct-1M-BF16-00001-of-00010.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-instruct-1m-q3-k-s",
@@ -1289,7 +1288,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q3_K_S/Qwen3-VL-235B-A22B-Instruct-1M-Q3_K_S-00001-of-00003.gguf"
+      "file_name": "Q3_K_S/Qwen3-VL-235B-A22B-Instruct-1M-Q3_K_S-00001-of-00003.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-instruct-1m-q4-k-s",
@@ -1304,7 +1304,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q4_K_S/Qwen3-VL-235B-A22B-Instruct-1M-Q4_K_S-00001-of-00003.gguf"
+      "file_name": "Q4_K_S/Qwen3-VL-235B-A22B-Instruct-1M-Q4_K_S-00001-of-00003.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-instruct-1m-q5-k-s",
@@ -1319,7 +1320,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q5_K_S/Qwen3-VL-235B-A22B-Instruct-1M-Q5_K_S-00001-of-00004.gguf"
+      "file_name": "Q5_K_S/Qwen3-VL-235B-A22B-Instruct-1M-Q5_K_S-00001-of-00004.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-instruct-1m-q6-k",
@@ -1334,7 +1336,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q6_K/Qwen3-VL-235B-A22B-Instruct-1M-Q6_K-00001-of-00004.gguf"
+      "file_name": "Q6_K/Qwen3-VL-235B-A22B-Instruct-1M-Q6_K-00001-of-00004.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-instruct-1m-q8-0",
@@ -1349,7 +1352,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q8_0/Qwen3-VL-235B-A22B-Instruct-1M-Q8_0-00001-of-00006.gguf"
+      "file_name": "Q8_0/Qwen3-VL-235B-A22B-Instruct-1M-Q8_0-00001-of-00006.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-instruct-1m-q8-k",
@@ -1364,22 +1368,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "UD-Q8_K_XL/Qwen3-VL-235B-A22B-Instruct-1M-UD-Q8_K_XL-00001-of-00006.gguf"
-    },
-    {
-      "id": "qwen3-vl-235b-a22b-instruct-1m-f32",
-      "model_name": "Qwen3-VL-235B-A22B-Instruct-1M",
-      "huggingface_id": "unsloth/Qwen3-VL-235B-A22B-Instruct-1M-GGUF",
-      "quantization": "F32",
-      "family": "MoE",
-      "parameters": "235B",
-      "default_context_size": 32768,
-      "max_context_size": 1000000,
-      "vram_requirements_gb": 940,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "UD-Q8_K_XL/Qwen3-VL-235B-A22B-Instruct-1M-UD-Q8_K_XL-00001-of-00006.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-1m-f16",
@@ -1394,7 +1384,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "BF16/Qwen3-VL-235B-A22B-Thinking-1M-BF16-00001-of-00010.gguf"
+      "file_name": "BF16/Qwen3-VL-235B-A22B-Thinking-1M-BF16-00001-of-00010.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-1m-q3-k-s",
@@ -1409,7 +1400,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q3_K_S/Qwen3-VL-235B-A22B-Thinking-1M-Q3_K_S-00001-of-00003.gguf"
+      "file_name": "Q3_K_S/Qwen3-VL-235B-A22B-Thinking-1M-Q3_K_S-00001-of-00003.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-1m-q4-k-s",
@@ -1424,7 +1416,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q4_K_S/Qwen3-VL-235B-A22B-Thinking-1M-Q4_K_S-00001-of-00003.gguf"
+      "file_name": "Q4_K_S/Qwen3-VL-235B-A22B-Thinking-1M-Q4_K_S-00001-of-00003.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-1m-q5-k-s",
@@ -1439,7 +1432,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q5_K_S/Qwen3-VL-235B-A22B-Thinking-1M-Q5_K_S-00001-of-00004.gguf"
+      "file_name": "Q5_K_S/Qwen3-VL-235B-A22B-Thinking-1M-Q5_K_S-00001-of-00004.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-1m-q6-k",
@@ -1454,7 +1448,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q6_K/Qwen3-VL-235B-A22B-Thinking-1M-Q6_K-00001-of-00004.gguf"
+      "file_name": "Q6_K/Qwen3-VL-235B-A22B-Thinking-1M-Q6_K-00001-of-00004.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-1m-q8-0",
@@ -1469,7 +1464,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Q8_0/Qwen3-VL-235B-A22B-Thinking-1M-Q8_0-00001-of-00006.gguf"
+      "file_name": "Q8_0/Qwen3-VL-235B-A22B-Thinking-1M-Q8_0-00001-of-00006.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-235b-a22b-thinking-1m-q8-k",
@@ -1484,22 +1480,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "UD-Q8_K_XL/Qwen3-VL-235B-A22B-Thinking-1M-UD-Q8_K_XL-00001-of-00006.gguf"
-    },
-    {
-      "id": "qwen3-vl-235b-a22b-thinking-1m-f32",
-      "model_name": "Qwen3-VL-235B-A22B-Thinking-1M",
-      "huggingface_id": "unsloth/Qwen3-VL-235B-A22B-Thinking-1M-GGUF",
-      "quantization": "F32",
-      "family": "MoE",
-      "parameters": "235B",
-      "default_context_size": 32768,
-      "max_context_size": 1000000,
-      "vram_requirements_gb": 940,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "UD-Q8_K_XL/Qwen3-VL-235B-A22B-Thinking-1M-UD-Q8_K_XL-00001-of-00006.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-235b-a22b-thinking-2507-f16",
@@ -2351,9 +2333,11 @@
       "max_context_size": 10485760,
       "vram_requirements_gb": 216,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "BF16/Llama-4-Scout-17B-16E-Instruct-BF16-00001-of-00005.gguf"
+      "file_name": "BF16/Llama-4-Scout-17B-16E-Instruct-BF16-00001-of-00005.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "llama-4-scout-17b-16e-q3-k-s",
@@ -2366,9 +2350,11 @@
       "max_context_size": 10485760,
       "vram_requirements_gb": 33.8,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Llama-4-Scout-17B-16E-Instruct-Q3_K_S.gguf"
+      "file_name": "Llama-4-Scout-17B-16E-Instruct-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "llama-4-scout-17b-16e-q4-k-s",
@@ -2381,9 +2367,11 @@
       "max_context_size": 10485760,
       "vram_requirements_gb": 54,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Q4_K_S/Llama-4-Scout-17B-16E-Instruct-Q4_K_S-00001-of-00002.gguf"
+      "file_name": "Q4_K_S/Llama-4-Scout-17B-16E-Instruct-Q4_K_S-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "llama-4-scout-17b-16e-q5-k-s",
@@ -2396,9 +2384,11 @@
       "max_context_size": 10485760,
       "vram_requirements_gb": 67.5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Q5_K_S/Llama-4-Scout-17B-16E-Instruct-Q5_K_S-00001-of-00002.gguf"
+      "file_name": "Q5_K_S/Llama-4-Scout-17B-16E-Instruct-Q5_K_S-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "llama-4-scout-17b-16e-q6-k",
@@ -2411,9 +2401,11 @@
       "max_context_size": 10485760,
       "vram_requirements_gb": 81,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Q6_K/Llama-4-Scout-17B-16E-Instruct-Q6_K-00001-of-00002.gguf"
+      "file_name": "Q6_K/Llama-4-Scout-17B-16E-Instruct-Q6_K-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "llama-4-scout-17b-16e-q8-0",
@@ -2426,9 +2418,11 @@
       "max_context_size": 10485760,
       "vram_requirements_gb": 108,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Q8_0/Llama-4-Scout-17B-16E-Instruct-Q8_0-00001-of-00003.gguf"
+      "file_name": "Q8_0/Llama-4-Scout-17B-16E-Instruct-Q8_0-00001-of-00003.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "llama-4-scout-17b-16e-q8-k",
@@ -2441,9 +2435,11 @@
       "max_context_size": 10485760,
       "vram_requirements_gb": 108,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "UD-Q8_K_XL/Llama-4-Scout-17B-16E-Instruct-UD-Q8_K_XL-00001-of-00003.gguf"
+      "file_name": "UD-Q8_K_XL/Llama-4-Scout-17B-16E-Instruct-UD-Q8_K_XL-00001-of-00003.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-coder-next-f16",
@@ -2892,7 +2888,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "BF16/Qwen3-VL-32B-Instruct-BF16-00001-of-00002.gguf"
+      "file_name": "BF16/Qwen3-VL-32B-Instruct-BF16-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-q3-k-s",
@@ -2907,7 +2904,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Instruct-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-32B-Instruct-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-q4-k-s",
@@ -2922,7 +2920,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Instruct-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-32B-Instruct-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-q5-k-s",
@@ -2937,7 +2936,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Instruct-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-32B-Instruct-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-q6-k",
@@ -2952,7 +2952,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Instruct-Q6_K.gguf"
+      "file_name": "Qwen3-VL-32B-Instruct-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-q8-0",
@@ -2967,7 +2968,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Instruct-Q8_0.gguf"
+      "file_name": "Qwen3-VL-32B-Instruct-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-q8-k",
@@ -2982,22 +2984,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Instruct-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-32b-f32",
-      "model_name": "Qwen3-VL-32B",
-      "huggingface_id": "unsloth/Qwen3-VL-32B-Instruct-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 132,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-32B-Instruct-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-thinking-f16",
@@ -3012,7 +3000,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "BF16/Qwen3-VL-32B-Thinking-BF16-00001-of-00002.gguf"
+      "file_name": "BF16/Qwen3-VL-32B-Thinking-BF16-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-thinking-q3-k-s",
@@ -3027,7 +3016,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Thinking-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-32B-Thinking-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-thinking-q4-k-s",
@@ -3042,7 +3032,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Thinking-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-32B-Thinking-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-thinking-q5-k-s",
@@ -3057,7 +3048,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Thinking-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-32B-Thinking-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-thinking-q6-k",
@@ -3072,7 +3064,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Thinking-Q6_K.gguf"
+      "file_name": "Qwen3-VL-32B-Thinking-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-thinking-q8-0",
@@ -3087,7 +3080,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Thinking-Q8_0.gguf"
+      "file_name": "Qwen3-VL-32B-Thinking-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-thinking-q8-k",
@@ -3102,22 +3096,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Thinking-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-32b-thinking-f32",
-      "model_name": "Qwen3-VL-32B-Thinking",
-      "huggingface_id": "unsloth/Qwen3-VL-32B-Thinking-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 132,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-32B-Thinking-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-instruct-1m-f16",
@@ -3132,7 +3112,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "BF16/Qwen3-VL-32B-Instruct-1M-BF16-00001-of-00002.gguf"
+      "file_name": "BF16/Qwen3-VL-32B-Instruct-1M-BF16-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-instruct-1m-q3-k-s",
@@ -3147,7 +3128,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Instruct-1M-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-32B-Instruct-1M-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-instruct-1m-q4-k-s",
@@ -3162,7 +3144,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Instruct-1M-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-32B-Instruct-1M-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-instruct-1m-q5-k-s",
@@ -3177,7 +3160,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Instruct-1M-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-32B-Instruct-1M-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-instruct-1m-q6-k",
@@ -3192,7 +3176,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Instruct-1M-Q6_K.gguf"
+      "file_name": "Qwen3-VL-32B-Instruct-1M-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-instruct-1m-q8-0",
@@ -3207,7 +3192,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Instruct-1M-Q8_0.gguf"
+      "file_name": "Qwen3-VL-32B-Instruct-1M-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-instruct-1m-q8-k",
@@ -3222,22 +3208,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Instruct-1M-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-32b-instruct-1m-f32",
-      "model_name": "Qwen3-VL-32B-Instruct-1M",
-      "huggingface_id": "unsloth/Qwen3-VL-32B-Instruct-1M-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 1000000,
-      "vram_requirements_gb": 132,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-32B-Instruct-1M-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-thinking-1m-f16",
@@ -3252,7 +3224,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "BF16/Qwen3-VL-32B-Thinking-1M-BF16-00001-of-00002.gguf"
+      "file_name": "BF16/Qwen3-VL-32B-Thinking-1M-BF16-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-thinking-1m-q4-k-s",
@@ -3267,7 +3240,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Thinking-1M-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-32B-Thinking-1M-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-thinking-1m-q5-k-s",
@@ -3282,7 +3256,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Thinking-1M-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-32B-Thinking-1M-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-thinking-1m-q6-k",
@@ -3297,7 +3272,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Thinking-1M-Q6_K.gguf"
+      "file_name": "Qwen3-VL-32B-Thinking-1M-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-thinking-1m-q8-0",
@@ -3312,7 +3288,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Thinking-1M-Q8_0.gguf"
+      "file_name": "Qwen3-VL-32B-Thinking-1M-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-32b-thinking-1m-q8-k",
@@ -3327,22 +3304,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-32B-Thinking-1M-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-32b-thinking-1m-f32",
-      "model_name": "Qwen3-VL-32B-Thinking-1M",
-      "huggingface_id": "unsloth/Qwen3-VL-32B-Thinking-1M-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "33B",
-      "default_context_size": 32768,
-      "max_context_size": 1000000,
-      "vram_requirements_gb": 132,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-32B-Thinking-1M-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-32b-f16",
@@ -3717,7 +3680,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "BF16/Qwen3-VL-30B-A3B-Instruct-BF16-00001-of-00002.gguf"
+      "file_name": "BF16/Qwen3-VL-30B-A3B-Instruct-BF16-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-q3-k-s",
@@ -3732,7 +3696,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Instruct-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Instruct-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-q4-k-s",
@@ -3747,7 +3712,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Instruct-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Instruct-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-q5-k-s",
@@ -3762,7 +3728,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Instruct-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Instruct-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-q6-k",
@@ -3777,7 +3744,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Instruct-Q6_K.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Instruct-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-q8-0",
@@ -3792,7 +3760,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Instruct-Q8_0.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Instruct-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-q8-k",
@@ -3807,22 +3776,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Instruct-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-30b-a3b-f32",
-      "model_name": "Qwen3-VL-30B-A3B",
-      "huggingface_id": "unsloth/Qwen3-VL-30B-A3B-Instruct-GGUF",
-      "quantization": "F32",
-      "family": "MoE",
-      "parameters": "31B",
-      "default_context_size": 32768,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 124,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Instruct-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-f16",
@@ -3837,7 +3792,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "BF16/Qwen3-VL-30B-A3B-Thinking-BF16-00001-of-00002.gguf"
+      "file_name": "BF16/Qwen3-VL-30B-A3B-Thinking-BF16-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-q3-k-s",
@@ -3852,7 +3808,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Thinking-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Thinking-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-q4-k-s",
@@ -3867,7 +3824,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Thinking-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Thinking-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-q5-k-s",
@@ -3882,7 +3840,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Thinking-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Thinking-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-q6-k",
@@ -3897,7 +3856,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Thinking-Q6_K.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Thinking-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-q8-0",
@@ -3912,7 +3872,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Thinking-Q8_0.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Thinking-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-q8-k",
@@ -3927,22 +3888,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Thinking-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-30b-a3b-thinking-f32",
-      "model_name": "Qwen3-VL-30B-A3B-Thinking",
-      "huggingface_id": "unsloth/Qwen3-VL-30B-A3B-Thinking-GGUF",
-      "quantization": "F32",
-      "family": "MoE",
-      "parameters": "31B",
-      "default_context_size": 32768,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 124,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Thinking-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-instruct-1m-f16",
@@ -3957,7 +3904,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "BF16/Qwen3-VL-30B-A3B-Instruct-1M-BF16-00001-of-00002.gguf"
+      "file_name": "BF16/Qwen3-VL-30B-A3B-Instruct-1M-BF16-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-instruct-1m-q3-k-s",
@@ -3972,7 +3920,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Instruct-1M-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Instruct-1M-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-instruct-1m-q4-k-s",
@@ -3987,7 +3936,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Instruct-1M-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Instruct-1M-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-instruct-1m-q5-k-s",
@@ -4002,7 +3952,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Instruct-1M-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Instruct-1M-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-instruct-1m-q6-k",
@@ -4017,7 +3968,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Instruct-1M-Q6_K.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Instruct-1M-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-instruct-1m-q8-0",
@@ -4032,7 +3984,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Instruct-1M-Q8_0.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Instruct-1M-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-instruct-1m-q8-k",
@@ -4047,22 +4000,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Instruct-1M-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-30b-a3b-instruct-1m-f32",
-      "model_name": "Qwen3-VL-30B-A3B-Instruct-1M",
-      "huggingface_id": "unsloth/Qwen3-VL-30B-A3B-Instruct-1M-GGUF",
-      "quantization": "F32",
-      "family": "MoE",
-      "parameters": "31B",
-      "default_context_size": 32768,
-      "max_context_size": 1000000,
-      "vram_requirements_gb": 124,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Instruct-1M-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-1m-f16",
@@ -4077,7 +4016,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "BF16/Qwen3-VL-30B-A3B-Thinking-1M-BF16-00001-of-00002.gguf"
+      "file_name": "BF16/Qwen3-VL-30B-A3B-Thinking-1M-BF16-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-1m-q3-k-s",
@@ -4092,7 +4032,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Thinking-1M-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Thinking-1M-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-1m-q4-k-s",
@@ -4107,7 +4048,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Thinking-1M-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Thinking-1M-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-1m-q5-k-s",
@@ -4122,7 +4064,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Thinking-1M-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Thinking-1M-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-1m-q6-k",
@@ -4137,7 +4080,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Thinking-1M-Q6_K.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Thinking-1M-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-1m-q8-0",
@@ -4152,7 +4096,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Thinking-1M-Q8_0.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Thinking-1M-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-30b-a3b-thinking-1m-q8-k",
@@ -4167,22 +4112,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-30B-A3B-Thinking-1M-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-30b-a3b-thinking-1m-f32",
-      "model_name": "Qwen3-VL-30B-A3B-Thinking-1M",
-      "huggingface_id": "unsloth/Qwen3-VL-30B-A3B-Thinking-1M-GGUF",
-      "quantization": "F32",
-      "family": "MoE",
-      "parameters": "31B",
-      "default_context_size": 32768,
-      "max_context_size": 1000000,
-      "vram_requirements_gb": 124,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-30B-A3B-Thinking-1M-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-30b-a3b-instruct-2507-f16",
@@ -4815,231 +4746,6 @@
       "file_name": "Qwen3-Coder-30B-A3B-Instruct-1M-UD-Q8_K_XL.gguf"
     },
     {
-      "id": "gemma-3-27b-it-qat-f16",
-      "model_name": "gemma-3-27b-it-qat",
-      "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 54,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "BF16/gemma-3-27b-it-qat-BF16-00001-of-00002.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-qat-q3-k-s",
-      "model_name": "gemma-3-27b-it-qat",
-      "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
-      "quantization": "Q3_K_S",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 8.5,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "gemma-3-27b-it-qat-Q3_K_S.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-qat-q4-k-s",
-      "model_name": "gemma-3-27b-it-qat",
-      "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
-      "quantization": "Q4_K_S",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 13.5,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "gemma-3-27b-it-qat-Q4_K_S.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-qat-q5-k-s",
-      "model_name": "gemma-3-27b-it-qat",
-      "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
-      "quantization": "Q5_K_S",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 16.9,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "gemma-3-27b-it-qat-Q5_K_S.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-qat-q6-k",
-      "model_name": "gemma-3-27b-it-qat",
-      "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 20.3,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "gemma-3-27b-it-qat-Q6_K.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-qat-q8-k",
-      "model_name": "gemma-3-27b-it-qat",
-      "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
-      "quantization": "Q8_K",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 27,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "gemma-3-27b-it-qat-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-qat-f32",
-      "model_name": "gemma-3-27b-it-qat",
-      "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 108,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "mmproj-F32.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-f16",
-      "model_name": "gemma-3-27b-it",
-      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
-      "quantization": "F16",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 54,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "BF16/gemma-3-27b-it-BF16-00001-of-00002.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-q3-k-s",
-      "model_name": "gemma-3-27b-it",
-      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
-      "quantization": "Q3_K_S",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 8.5,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "gemma-3-27b-it-Q3_K_S.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-q4-k-s",
-      "model_name": "gemma-3-27b-it",
-      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
-      "quantization": "Q4_K_S",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 13.5,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "gemma-3-27b-it-Q4_K_S.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-q5-k-s",
-      "model_name": "gemma-3-27b-it",
-      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
-      "quantization": "Q5_K_S",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 16.9,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "gemma-3-27b-it-Q5_K_S.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-q6-k",
-      "model_name": "gemma-3-27b-it",
-      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
-      "quantization": "Q6_K",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 20.3,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "gemma-3-27b-it-Q6_K.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-q8-0",
-      "model_name": "gemma-3-27b-it",
-      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
-      "quantization": "Q8_0",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 27,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "gemma-3-27b-it-Q8_0.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-q8-k",
-      "model_name": "gemma-3-27b-it",
-      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
-      "quantization": "Q8_K",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 27,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "gemma-3-27b-it-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "gemma-3-27b-it-f32",
-      "model_name": "gemma-3-27b-it",
-      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "27B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 108,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "mmproj-F32.gguf"
-    },
-    {
       "id": "qwen3-5-27b-f16",
       "model_name": "Qwen3.5-27B",
       "huggingface_id": "unsloth/Qwen3.5-27B-GGUF",
@@ -5156,6 +4862,227 @@
         "vision"
       ],
       "file_name": "Qwen3.5-27B-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-3-27b-it-qat-f16",
+      "model_name": "gemma-3-27b-it-qat",
+      "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
+      "quantization": "F16",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 8192,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 54,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "BF16/gemma-3-27b-it-qat-BF16-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-3-27b-it-qat-q3-k-s",
+      "model_name": "gemma-3-27b-it-qat",
+      "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
+      "quantization": "Q3_K_S",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 8192,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 8.5,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-3-27b-it-qat-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-3-27b-it-qat-q4-k-s",
+      "model_name": "gemma-3-27b-it-qat",
+      "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 8192,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 13.5,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-3-27b-it-qat-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-3-27b-it-qat-q5-k-s",
+      "model_name": "gemma-3-27b-it-qat",
+      "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
+      "quantization": "Q5_K_S",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 8192,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 16.9,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-3-27b-it-qat-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-3-27b-it-qat-q6-k",
+      "model_name": "gemma-3-27b-it-qat",
+      "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
+      "quantization": "Q6_K",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 8192,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 20.3,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-3-27b-it-qat-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-3-27b-it-qat-q8-k",
+      "model_name": "gemma-3-27b-it-qat",
+      "huggingface_id": "unsloth/gemma-3-27b-it-qat-GGUF",
+      "quantization": "Q8_K",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 8192,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 27,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-3-27b-it-qat-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-3-27b-it-f16",
+      "model_name": "gemma-3-27b-it",
+      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
+      "quantization": "F16",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 8192,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 54,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "BF16/gemma-3-27b-it-BF16-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-3-27b-it-q3-k-s",
+      "model_name": "gemma-3-27b-it",
+      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
+      "quantization": "Q3_K_S",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 8192,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 8.5,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-3-27b-it-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-3-27b-it-q4-k-s",
+      "model_name": "gemma-3-27b-it",
+      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 8192,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 13.5,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-3-27b-it-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-3-27b-it-q5-k-s",
+      "model_name": "gemma-3-27b-it",
+      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
+      "quantization": "Q5_K_S",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 8192,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 16.9,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-3-27b-it-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-3-27b-it-q6-k",
+      "model_name": "gemma-3-27b-it",
+      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
+      "quantization": "Q6_K",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 8192,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 20.3,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-3-27b-it-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-3-27b-it-q8-0",
+      "model_name": "gemma-3-27b-it",
+      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
+      "quantization": "Q8_0",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 8192,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 27,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-3-27b-it-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-3-27b-it-q8-k",
+      "model_name": "gemma-3-27b-it",
+      "huggingface_id": "unsloth/gemma-3-27b-it-GGUF",
+      "quantization": "Q8_K",
+      "family": "Dense",
+      "parameters": "27B",
+      "default_context_size": 8192,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 27,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-3-27b-it-UD-Q8_K_XL.gguf",
       "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
@@ -5634,9 +5561,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 28,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Instruct-2512-BF16.gguf"
+      "file_name": "Ministral-3-14B-Instruct-2512-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-14b-instruct-2512-q3-k-s",
@@ -5649,9 +5578,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 4.4,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Instruct-2512-Q3_K_S.gguf"
+      "file_name": "Ministral-3-14B-Instruct-2512-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-14b-instruct-2512-q4-k-s",
@@ -5664,9 +5595,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 7,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Instruct-2512-Q4_K_S.gguf"
+      "file_name": "Ministral-3-14B-Instruct-2512-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-14b-instruct-2512-q5-k-s",
@@ -5679,9 +5612,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 8.8,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Instruct-2512-Q5_K_S.gguf"
+      "file_name": "Ministral-3-14B-Instruct-2512-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-14b-instruct-2512-q6-k",
@@ -5694,9 +5629,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 10.5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Instruct-2512-Q6_K.gguf"
+      "file_name": "Ministral-3-14B-Instruct-2512-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-14b-instruct-2512-q8-0",
@@ -5709,9 +5646,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 14,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Instruct-2512-Q8_0.gguf"
+      "file_name": "Ministral-3-14B-Instruct-2512-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-14b-instruct-2512-q8-k",
@@ -5724,24 +5663,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 14,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Instruct-2512-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "ministral-3-14b-instruct-2512-f32",
-      "model_name": "Ministral-3-14B-Instruct-2512",
-      "huggingface_id": "unsloth/Ministral-3-14B-Instruct-2512-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "14B",
-      "default_context_size": 8192,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 56,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Ministral-3-14B-Instruct-2512-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-14b-reasoning-2512-f16",
@@ -5754,9 +5680,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 28,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Reasoning-2512-BF16.gguf"
+      "file_name": "Ministral-3-14B-Reasoning-2512-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-14b-reasoning-2512-q3-k-s",
@@ -5769,9 +5697,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 4.4,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Reasoning-2512-Q3_K_S.gguf"
+      "file_name": "Ministral-3-14B-Reasoning-2512-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-14b-reasoning-2512-q4-k-s",
@@ -5784,9 +5714,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 7,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Reasoning-2512-Q4_K_S.gguf"
+      "file_name": "Ministral-3-14B-Reasoning-2512-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-14b-reasoning-2512-q5-k-s",
@@ -5799,9 +5731,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 8.8,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Reasoning-2512-Q5_K_S.gguf"
+      "file_name": "Ministral-3-14B-Reasoning-2512-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-14b-reasoning-2512-q6-k",
@@ -5814,9 +5748,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 10.5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Reasoning-2512-Q6_K.gguf"
+      "file_name": "Ministral-3-14B-Reasoning-2512-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-14b-reasoning-2512-q8-0",
@@ -5829,9 +5765,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 14,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Reasoning-2512-Q8_0.gguf"
+      "file_name": "Ministral-3-14B-Reasoning-2512-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-14b-reasoning-2512-q8-k",
@@ -5844,39 +5782,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 14,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-14B-Reasoning-2512-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "ministral-3-14b-reasoning-2512-f32",
-      "model_name": "Ministral-3-14B-Reasoning-2512",
-      "huggingface_id": "unsloth/Ministral-3-14B-Reasoning-2512-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "14B",
-      "default_context_size": 8192,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 56,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "mmproj-F32.gguf"
-    },
-    {
-      "id": "flux1-schnell-q4-k-s",
-      "model_name": "FLUX.1-schnell",
-      "huggingface_id": "unsloth/FLUX.1-schnell-GGUF",
-      "quantization": "Q4_K_S",
-      "family": "Dense",
-      "parameters": "12B",
-      "default_context_size": 4096,
-      "max_context_size": 4096,
-      "vram_requirements_gb": 7,
-      "capabilities": [
-        "image_generation"
-      ],
-      "file_name": "flux1-schnell-Q4_K_S.gguf"
+      "file_name": "Ministral-3-14B-Reasoning-2512-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-qat-f16",
@@ -5889,9 +5799,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 24,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-qat-BF16.gguf"
+      "file_name": "gemma-3-12b-it-qat-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-qat-q3-k-s",
@@ -5904,9 +5816,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 3.8,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-qat-Q3_K_S.gguf"
+      "file_name": "gemma-3-12b-it-qat-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-qat-q4-k-s",
@@ -5919,9 +5833,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 6,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-qat-Q4_K_S.gguf"
+      "file_name": "gemma-3-12b-it-qat-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-qat-q5-k-s",
@@ -5934,9 +5850,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 7.5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-qat-Q5_K_S.gguf"
+      "file_name": "gemma-3-12b-it-qat-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-qat-q6-k",
@@ -5949,9 +5867,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 9,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-qat-Q6_K.gguf"
+      "file_name": "gemma-3-12b-it-qat-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-qat-q8-0",
@@ -5964,9 +5884,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 12,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-qat-Q8_0.gguf"
+      "file_name": "gemma-3-12b-it-qat-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-qat-q8-k",
@@ -5979,24 +5901,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 12,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-qat-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "gemma-3-12b-it-qat-f32",
-      "model_name": "gemma-3-12b-it-qat",
-      "huggingface_id": "unsloth/gemma-3-12b-it-qat-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "12B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 48,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "gemma-3-12b-it-qat-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-qat-int4-f16",
@@ -6009,9 +5918,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 24,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-qat-int4-BF16.gguf"
+      "file_name": "gemma-3-12b-it-qat-int4-BF16.gguf",
+      "mmproj_file_name": "mmproj-BF16.gguf"
     },
     {
       "id": "gemma-3-12b-it-qat-int4-q6-k",
@@ -6024,9 +5935,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 9,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-qat-int4-Q6_K.gguf"
+      "file_name": "gemma-3-12b-it-qat-int4-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-BF16.gguf"
     },
     {
       "id": "gemma-3-12b-it-qat-int4-q8-0",
@@ -6039,24 +5952,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 12,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-qat-int4-Q8_0.gguf"
-    },
-    {
-      "id": "gemma-3-12b-it-qat-int4-f32",
-      "model_name": "gemma-3-12b-it-qat-int4",
-      "huggingface_id": "unsloth/gemma-3-12b-it-qat-int4-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "12B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 48,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "gemma-3-12b-it-qat-int4-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-BF16.gguf"
     },
     {
       "id": "gemma-3-12b-it-f16",
@@ -6069,9 +5969,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 24,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-BF16.gguf"
+      "file_name": "gemma-3-12b-it-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-q3-k-s",
@@ -6084,9 +5986,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 3.8,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-Q3_K_S.gguf"
+      "file_name": "gemma-3-12b-it-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-q4-k-s",
@@ -6099,9 +6003,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 6,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-Q4_K_S.gguf"
+      "file_name": "gemma-3-12b-it-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-q5-k-s",
@@ -6114,9 +6020,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 7.5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-Q5_K_S.gguf"
+      "file_name": "gemma-3-12b-it-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-q6-k",
@@ -6129,9 +6037,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 9,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-Q6_K.gguf"
+      "file_name": "gemma-3-12b-it-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-q8-0",
@@ -6144,9 +6054,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 12,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-Q8_0.gguf"
+      "file_name": "gemma-3-12b-it-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-12b-it-q8-k",
@@ -6159,24 +6071,26 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 12,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-12b-it-UD-Q8_K_XL.gguf"
+      "file_name": "gemma-3-12b-it-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
-      "id": "gemma-3-12b-it-f32",
-      "model_name": "gemma-3-12b-it",
-      "huggingface_id": "unsloth/gemma-3-12b-it-GGUF",
-      "quantization": "F32",
+      "id": "flux1-schnell-q4-k-s",
+      "model_name": "FLUX.1-schnell",
+      "huggingface_id": "unsloth/FLUX.1-schnell-GGUF",
+      "quantization": "Q4_K_S",
       "family": "Dense",
       "parameters": "12B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 48,
+      "default_context_size": 4096,
+      "max_context_size": 4096,
+      "vram_requirements_gb": 8,
       "capabilities": [
-        "chat"
+        "image_generation"
       ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "flux1-schnell-Q4_K_S.gguf"
     },
     {
       "id": "flux-2-klein-9b-q4-k-s",
@@ -6206,7 +6120,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-BF16.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-q3-k-s",
@@ -6221,7 +6136,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-q4-k-s",
@@ -6236,7 +6152,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-q5-k-s",
@@ -6251,7 +6168,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-q6-k",
@@ -6266,7 +6184,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-Q6_K.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-q8-0",
@@ -6281,7 +6200,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-Q8_0.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-q8-k",
@@ -6296,22 +6216,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-8b-f32",
-      "model_name": "Qwen3-VL-8B",
-      "huggingface_id": "unsloth/Qwen3-VL-8B-Instruct-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 32,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-f16",
@@ -6326,7 +6232,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-BF16.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-q3-k-s",
@@ -6341,7 +6248,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-q4-k-s",
@@ -6356,7 +6264,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-q5-k-s",
@@ -6371,7 +6280,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-q6-k",
@@ -6386,7 +6296,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-Q6_K.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-q8-0",
@@ -6401,7 +6312,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-Q8_0.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-q8-k",
@@ -6416,22 +6328,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-8b-thinking-f32",
-      "model_name": "Qwen3-VL-8B-Thinking",
-      "huggingface_id": "unsloth/Qwen3-VL-8B-Thinking-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 32,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-1m-f16",
@@ -6446,7 +6344,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-1M-BF16.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-1M-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-1m-q3-k-s",
@@ -6461,7 +6360,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-1M-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-1M-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-1m-q4-k-s",
@@ -6476,7 +6376,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-1M-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-1M-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-1m-q5-k-s",
@@ -6491,7 +6392,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-1M-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-1M-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-1m-q6-k",
@@ -6506,7 +6408,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-1M-Q6_K.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-1M-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-1m-q8-0",
@@ -6521,7 +6424,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-1M-Q8_0.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-1M-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-thinking-1m-q8-k",
@@ -6536,22 +6440,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Thinking-1M-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-8b-thinking-1m-f32",
-      "model_name": "Qwen3-VL-8B-Thinking-1M",
-      "huggingface_id": "unsloth/Qwen3-VL-8B-Thinking-1M-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 1000000,
-      "vram_requirements_gb": 32,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-8B-Thinking-1M-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-instruct-1m-f16",
@@ -6566,7 +6456,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-1M-BF16.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-1M-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-instruct-1m-q3-k-s",
@@ -6581,7 +6472,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-1M-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-1M-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-instruct-1m-q4-k-s",
@@ -6596,7 +6488,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-1M-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-1M-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-instruct-1m-q5-k-s",
@@ -6611,7 +6504,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-1M-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-1M-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-instruct-1m-q6-k",
@@ -6626,7 +6520,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-1M-Q6_K.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-1M-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-instruct-1m-q8-0",
@@ -6641,7 +6536,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-1M-Q8_0.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-1M-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-8b-instruct-1m-q8-k",
@@ -6656,22 +6552,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-8B-Instruct-1M-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-8b-instruct-1m-f32",
-      "model_name": "Qwen3-VL-8B-Instruct-1M",
-      "huggingface_id": "unsloth/Qwen3-VL-8B-Instruct-1M-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 32768,
-      "max_context_size": 1000000,
-      "vram_requirements_gb": 32,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-8B-Instruct-1M-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-8b-f16",
@@ -6894,9 +6776,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 16,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Instruct-2512-BF16.gguf"
+      "file_name": "Ministral-3-8B-Instruct-2512-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-8b-instruct-2512-q3-k-s",
@@ -6909,9 +6793,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 2.5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Instruct-2512-Q3_K_S.gguf"
+      "file_name": "Ministral-3-8B-Instruct-2512-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-8b-instruct-2512-q4-k-s",
@@ -6924,9 +6810,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 4,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Instruct-2512-Q4_K_S.gguf"
+      "file_name": "Ministral-3-8B-Instruct-2512-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-8b-instruct-2512-q5-k-s",
@@ -6939,9 +6827,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Instruct-2512-Q5_K_S.gguf"
+      "file_name": "Ministral-3-8B-Instruct-2512-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-8b-instruct-2512-q6-k",
@@ -6954,9 +6844,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 6,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Instruct-2512-Q6_K.gguf"
+      "file_name": "Ministral-3-8B-Instruct-2512-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-8b-instruct-2512-q8-0",
@@ -6969,9 +6861,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 8,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Instruct-2512-Q8_0.gguf"
+      "file_name": "Ministral-3-8B-Instruct-2512-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-8b-instruct-2512-q8-k",
@@ -6984,24 +6878,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 8,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Instruct-2512-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "ministral-3-8b-instruct-2512-f32",
-      "model_name": "Ministral-3-8B-Instruct-2512",
-      "huggingface_id": "unsloth/Ministral-3-8B-Instruct-2512-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 8192,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 32,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Ministral-3-8B-Instruct-2512-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-8b-reasoning-2512-f16",
@@ -7014,9 +6895,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 16,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Reasoning-2512-BF16.gguf"
+      "file_name": "Ministral-3-8B-Reasoning-2512-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-8b-reasoning-2512-q3-k-s",
@@ -7029,9 +6912,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 2.5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Reasoning-2512-Q3_K_S.gguf"
+      "file_name": "Ministral-3-8B-Reasoning-2512-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-8b-reasoning-2512-q4-k-s",
@@ -7044,9 +6929,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 4,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Reasoning-2512-Q4_K_S.gguf"
+      "file_name": "Ministral-3-8B-Reasoning-2512-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-8b-reasoning-2512-q5-k-s",
@@ -7059,9 +6946,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Reasoning-2512-Q5_K_S.gguf"
+      "file_name": "Ministral-3-8B-Reasoning-2512-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-8b-reasoning-2512-q6-k",
@@ -7074,9 +6963,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 6,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Reasoning-2512-Q6_K.gguf"
+      "file_name": "Ministral-3-8B-Reasoning-2512-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-8b-reasoning-2512-q8-0",
@@ -7089,9 +6980,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 8,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Reasoning-2512-Q8_0.gguf"
+      "file_name": "Ministral-3-8B-Reasoning-2512-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-8b-reasoning-2512-q8-k",
@@ -7104,24 +6997,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 8,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-8B-Reasoning-2512-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "ministral-3-8b-reasoning-2512-f32",
-      "model_name": "Ministral-3-8B-Reasoning-2512",
-      "huggingface_id": "unsloth/Ministral-3-8B-Reasoning-2512-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "8B",
-      "default_context_size": 8192,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 32,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Ministral-3-8B-Reasoning-2512-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "deepseek-r1-0528-qwen3-8b-f16",
@@ -7601,7 +7481,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-BF16.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-q3-k-s",
@@ -7616,7 +7497,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-q4-k-s",
@@ -7631,7 +7513,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-q5-k-s",
@@ -7646,7 +7529,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-q6-k",
@@ -7661,7 +7545,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-Q6_K.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-q8-0",
@@ -7676,7 +7561,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-Q8_0.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-q8-k",
@@ -7691,22 +7577,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-4b-f32",
-      "model_name": "Qwen3-VL-4B",
-      "huggingface_id": "unsloth/Qwen3-VL-4B-Instruct-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "4B",
-      "default_context_size": 32768,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 16,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-f16",
@@ -7721,7 +7593,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-BF16.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-q3-k-s",
@@ -7736,7 +7609,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-q4-k-s",
@@ -7751,7 +7625,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-q5-k-s",
@@ -7766,7 +7641,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-q6-k",
@@ -7781,7 +7657,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-Q6_K.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-q8-0",
@@ -7796,7 +7673,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-Q8_0.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-q8-k",
@@ -7811,22 +7689,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-4b-thinking-f32",
-      "model_name": "Qwen3-VL-4B-Thinking",
-      "huggingface_id": "unsloth/Qwen3-VL-4B-Thinking-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "4B",
-      "default_context_size": 32768,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 16,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-instruct-1m-f16",
@@ -7841,7 +7705,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-1M-BF16.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-1M-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-instruct-1m-q3-k-s",
@@ -7856,7 +7721,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-1M-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-1M-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-instruct-1m-q4-k-s",
@@ -7871,7 +7737,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-1M-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-1M-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-instruct-1m-q5-k-s",
@@ -7886,7 +7753,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-1M-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-1M-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-instruct-1m-q6-k",
@@ -7901,7 +7769,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-1M-Q6_K.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-1M-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-instruct-1m-q8-0",
@@ -7916,7 +7785,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-1M-Q8_0.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-1M-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-instruct-1m-q8-k",
@@ -7931,22 +7801,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Instruct-1M-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-4b-instruct-1m-f32",
-      "model_name": "Qwen3-VL-4B-Instruct-1M",
-      "huggingface_id": "unsloth/Qwen3-VL-4B-Instruct-1M-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "4B",
-      "default_context_size": 32768,
-      "max_context_size": 1000000,
-      "vram_requirements_gb": 16,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-4B-Instruct-1M-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-1m-f16",
@@ -7961,7 +7817,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-1M-BF16.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-1M-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-1m-q3-k-s",
@@ -7976,7 +7833,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-1M-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-1M-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-1m-q4-k-s",
@@ -7991,7 +7849,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-1M-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-1M-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-1m-q5-k-s",
@@ -8006,7 +7865,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-1M-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-1M-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-1m-q6-k",
@@ -8021,7 +7881,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-1M-Q6_K.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-1M-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-1m-q8-0",
@@ -8036,7 +7897,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-1M-Q8_0.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-1M-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-thinking-1m-q8-k",
@@ -8051,22 +7913,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-4B-Thinking-1M-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-4b-thinking-1m-f32",
-      "model_name": "Qwen3-VL-4B-Thinking-1M",
-      "huggingface_id": "unsloth/Qwen3-VL-4B-Thinking-1M-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "4B",
-      "default_context_size": 32768,
-      "max_context_size": 1000000,
-      "vram_requirements_gb": 16,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-4B-Thinking-1M-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-4b-instruct-2507-f16",
@@ -8499,9 +8347,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 8,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-qat-BF16.gguf"
+      "file_name": "gemma-3-4b-it-qat-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-qat-q3-k-s",
@@ -8514,9 +8364,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 1.3,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-qat-Q3_K_S.gguf"
+      "file_name": "gemma-3-4b-it-qat-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-qat-q4-k-s",
@@ -8529,9 +8381,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 2,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-qat-Q4_K_S.gguf"
+      "file_name": "gemma-3-4b-it-qat-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-qat-q5-k-s",
@@ -8544,9 +8398,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 2.5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-qat-Q5_K_S.gguf"
+      "file_name": "gemma-3-4b-it-qat-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-qat-q6-k",
@@ -8559,9 +8415,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 3,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-qat-Q6_K.gguf"
+      "file_name": "gemma-3-4b-it-qat-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-qat-q8-0",
@@ -8574,9 +8432,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 4,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-qat-Q8_0.gguf"
+      "file_name": "gemma-3-4b-it-qat-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-qat-q8-k",
@@ -8589,24 +8449,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 4,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-qat-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "gemma-3-4b-it-qat-f32",
-      "model_name": "gemma-3-4b-it-qat",
-      "huggingface_id": "unsloth/gemma-3-4b-it-qat-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "4B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 16,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "gemma-3-4b-it-qat-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-f16",
@@ -8619,9 +8466,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 8,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-BF16.gguf"
+      "file_name": "gemma-3-4b-it-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-q3-k-s",
@@ -8634,9 +8483,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 1.3,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-Q3_K_S.gguf"
+      "file_name": "gemma-3-4b-it-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-q4-k-s",
@@ -8649,9 +8500,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 2,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-Q4_K_S.gguf"
+      "file_name": "gemma-3-4b-it-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-q5-k-s",
@@ -8664,9 +8517,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 2.5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-Q5_K_S.gguf"
+      "file_name": "gemma-3-4b-it-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-q6-k",
@@ -8679,9 +8534,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 3,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-Q6_K.gguf"
+      "file_name": "gemma-3-4b-it-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-q8-0",
@@ -8694,9 +8551,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 4,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-Q8_0.gguf"
+      "file_name": "gemma-3-4b-it-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-q8-k",
@@ -8709,24 +8568,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 4,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "gemma-3-4b-it-f32",
-      "model_name": "gemma-3-4b-it",
-      "huggingface_id": "unsloth/gemma-3-4b-it-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "4B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 16,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "gemma-3-4b-it-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "gemma-3-4b-it-qat-int4-f16",
@@ -8739,9 +8585,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 8,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-qat-int4-BF16.gguf"
+      "file_name": "gemma-3-4b-it-qat-int4-BF16.gguf",
+      "mmproj_file_name": "mmproj-BF16.gguf"
     },
     {
       "id": "gemma-3-4b-it-qat-int4-q6-k",
@@ -8754,9 +8602,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 3,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-qat-int4-Q6_K.gguf"
+      "file_name": "gemma-3-4b-it-qat-int4-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-BF16.gguf"
     },
     {
       "id": "gemma-3-4b-it-qat-int4-q8-0",
@@ -8769,24 +8619,11 @@
       "max_context_size": 131072,
       "vram_requirements_gb": 4,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "gemma-3-4b-it-qat-int4-Q8_0.gguf"
-    },
-    {
-      "id": "gemma-3-4b-it-qat-int4-f32",
-      "model_name": "gemma-3-4b-it-qat-int4",
-      "huggingface_id": "unsloth/gemma-3-4b-it-qat-int4-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "4B",
-      "default_context_size": 8192,
-      "max_context_size": 131072,
-      "vram_requirements_gb": 16,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "gemma-3-4b-it-qat-int4-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-BF16.gguf"
     },
     {
       "id": "gemma-3n-e2b-it-f16",
@@ -8919,9 +8756,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 6,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Instruct-2512-BF16.gguf"
+      "file_name": "Ministral-3-3B-Instruct-2512-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-3b-instruct-2512-q3-k-s",
@@ -8934,9 +8773,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 1,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Instruct-2512-Q3_K_S.gguf"
+      "file_name": "Ministral-3-3B-Instruct-2512-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-3b-instruct-2512-q4-k-s",
@@ -8949,9 +8790,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 1.5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Instruct-2512-Q4_K_S.gguf"
+      "file_name": "Ministral-3-3B-Instruct-2512-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-3b-instruct-2512-q5-k-s",
@@ -8964,9 +8807,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 1.9,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Instruct-2512-Q5_K_S.gguf"
+      "file_name": "Ministral-3-3B-Instruct-2512-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-3b-instruct-2512-q6-k",
@@ -8979,9 +8824,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 2.3,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Instruct-2512-Q6_K.gguf"
+      "file_name": "Ministral-3-3B-Instruct-2512-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-3b-instruct-2512-q8-0",
@@ -8994,9 +8841,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 3,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Instruct-2512-Q8_0.gguf"
+      "file_name": "Ministral-3-3B-Instruct-2512-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-3b-instruct-2512-q8-k",
@@ -9009,24 +8858,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 3,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Instruct-2512-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "ministral-3-3b-instruct-2512-f32",
-      "model_name": "Ministral-3-3B-Instruct-2512",
-      "huggingface_id": "unsloth/Ministral-3-3B-Instruct-2512-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 8192,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 12,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Ministral-3-3B-Instruct-2512-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-3b-reasoning-2512-f16",
@@ -9039,9 +8875,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 6,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Reasoning-2512-BF16.gguf"
+      "file_name": "Ministral-3-3B-Reasoning-2512-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-3b-reasoning-2512-q3-k-s",
@@ -9054,9 +8892,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 1,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Reasoning-2512-Q3_K_S.gguf"
+      "file_name": "Ministral-3-3B-Reasoning-2512-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-3b-reasoning-2512-q4-k-s",
@@ -9069,9 +8909,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 1.5,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Reasoning-2512-Q4_K_S.gguf"
+      "file_name": "Ministral-3-3B-Reasoning-2512-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-3b-reasoning-2512-q5-k-s",
@@ -9084,9 +8926,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 1.9,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Reasoning-2512-Q5_K_S.gguf"
+      "file_name": "Ministral-3-3B-Reasoning-2512-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-3b-reasoning-2512-q6-k",
@@ -9099,9 +8943,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 2.3,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Reasoning-2512-Q6_K.gguf"
+      "file_name": "Ministral-3-3B-Reasoning-2512-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-3b-reasoning-2512-q8-0",
@@ -9114,9 +8960,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 3,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Reasoning-2512-Q8_0.gguf"
+      "file_name": "Ministral-3-3B-Reasoning-2512-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "ministral-3-3b-reasoning-2512-q8-k",
@@ -9129,24 +8977,11 @@
       "max_context_size": 262144,
       "vram_requirements_gb": 3,
       "capabilities": [
-        "chat"
+        "chat",
+        "vision"
       ],
-      "file_name": "Ministral-3-3B-Reasoning-2512-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "ministral-3-3b-reasoning-2512-f32",
-      "model_name": "Ministral-3-3B-Reasoning-2512",
-      "huggingface_id": "unsloth/Ministral-3-3B-Reasoning-2512-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "3B",
-      "default_context_size": 8192,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 12,
-      "capabilities": [
-        "chat"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Ministral-3-3B-Reasoning-2512-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-f16",
@@ -9161,7 +8996,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-BF16.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-q3-k-s",
@@ -9176,7 +9012,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-q4-k-s",
@@ -9191,7 +9028,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-q5-k-s",
@@ -9206,7 +9044,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-q6-k",
@@ -9221,7 +9060,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-Q6_K.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-q8-0",
@@ -9236,7 +9076,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-Q8_0.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-q8-k",
@@ -9251,22 +9092,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-2b-f32",
-      "model_name": "Qwen3-VL-2B",
-      "huggingface_id": "unsloth/Qwen3-VL-2B-Instruct-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "2B",
-      "default_context_size": 32768,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 8,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-f16",
@@ -9281,7 +9108,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-BF16.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-q3-k-s",
@@ -9296,7 +9124,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-q4-k-s",
@@ -9311,7 +9140,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-q5-k-s",
@@ -9326,7 +9156,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-q6-k",
@@ -9341,7 +9172,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-Q6_K.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-q8-0",
@@ -9356,7 +9188,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-Q8_0.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-q8-k",
@@ -9371,22 +9204,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-2b-thinking-f32",
-      "model_name": "Qwen3-VL-2B-Thinking",
-      "huggingface_id": "unsloth/Qwen3-VL-2B-Thinking-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "2B",
-      "default_context_size": 32768,
-      "max_context_size": 262144,
-      "vram_requirements_gb": 8,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-1m-f16",
@@ -9401,7 +9220,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-1M-BF16.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-1M-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-1m-q3-k-s",
@@ -9416,7 +9236,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-1M-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-1M-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-1m-q4-k-s",
@@ -9431,7 +9252,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-1M-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-1M-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-1m-q5-k-s",
@@ -9446,7 +9268,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-1M-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-1M-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-1m-q6-k",
@@ -9461,7 +9284,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-1M-Q6_K.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-1M-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-1m-q8-0",
@@ -9476,7 +9300,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-1M-Q8_0.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-1M-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-thinking-1m-q8-k",
@@ -9491,22 +9316,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Thinking-1M-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-2b-thinking-1m-f32",
-      "model_name": "Qwen3-VL-2B-Thinking-1M",
-      "huggingface_id": "unsloth/Qwen3-VL-2B-Thinking-1M-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "2B",
-      "default_context_size": 32768,
-      "max_context_size": 1000000,
-      "vram_requirements_gb": 8,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-2B-Thinking-1M-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-instruct-1m-f16",
@@ -9521,7 +9332,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-1M-BF16.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-1M-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-instruct-1m-q3-k-s",
@@ -9536,7 +9348,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-1M-Q3_K_S.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-1M-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-instruct-1m-q4-k-s",
@@ -9551,7 +9364,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-1M-Q4_K_S.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-1M-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-instruct-1m-q5-k-s",
@@ -9566,7 +9380,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-1M-Q5_K_S.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-1M-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-instruct-1m-q6-k",
@@ -9581,7 +9396,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-1M-Q6_K.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-1M-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-instruct-1m-q8-0",
@@ -9596,7 +9412,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-1M-Q8_0.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-1M-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-2b-instruct-1m-q8-k",
@@ -9611,22 +9428,8 @@
       "capabilities": [
         "vision"
       ],
-      "file_name": "Qwen3-VL-2B-Instruct-1M-UD-Q8_K_XL.gguf"
-    },
-    {
-      "id": "qwen3-vl-2b-instruct-1m-f32",
-      "model_name": "Qwen3-VL-2B-Instruct-1M",
-      "huggingface_id": "unsloth/Qwen3-VL-2B-Instruct-1M-GGUF",
-      "quantization": "F32",
-      "family": "Dense",
-      "parameters": "2B",
-      "default_context_size": 32768,
-      "max_context_size": 1000000,
-      "vram_requirements_gb": 8,
-      "capabilities": [
-        "vision"
-      ],
-      "file_name": "mmproj-F32.gguf"
+      "file_name": "Qwen3-VL-2B-Instruct-1M-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-1-7b-f16",
