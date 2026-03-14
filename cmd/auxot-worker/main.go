@@ -24,6 +24,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/auxothq/auxot/internal/cliworker"
 	"github.com/auxothq/auxot/internal/worker"
 	"github.com/auxothq/auxot/pkg/gpudetect"
 	"github.com/auxothq/auxot/pkg/llamabin"
@@ -137,11 +138,20 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 	}
 	logger.Info("authenticated", "gpu_id", conn.GPUID())
 	logger.Info("policy",
+		"worker_type", policy.WorkerType,
+		"cli_type", policy.CLIType,
 		"model", policy.ModelName,
 		"quantization", policy.Quantization,
 		"context_size", policy.ContextSize,
 		"max_parallelism", policy.MaxParallelism,
 	)
+
+	// ----------------------------------------------------------------
+	// CLI worker branch — no llama.cpp, no model download
+	// ----------------------------------------------------------------
+	if policy.WorkerType == "cli" {
+		return runCLIWorker(ctx, cfg, conn, policy, logger)
+	}
 
 	// ----------------------------------------------------------------
 	// External llama.cpp shortcut (AUXOT_LLAMA_URL)
@@ -452,6 +462,120 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 				continue
 			}
 			logger.Info("reconnected", "gpu_id", conn.GPUID())
+			break
+		}
+	}
+}
+
+// runCLIWorker handles the CLI worker path (worker_type = "cli").
+// Unlike the GPU path there is no model download, no binary download, no llama.cpp.
+// The worker connects permanently and dispatches jobs straight to the local CLI tool.
+func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connection, policy *protocol.Policy, logger *slog.Logger) error {
+	cliType := policy.CLIType
+	if cliType == "" {
+		cliType = "claude"
+	}
+
+	// For now only "claude" is implemented; "cursor" and "codex" are reserved.
+	switch cliType {
+	case "claude":
+		// OK
+	default:
+		return fmt.Errorf("unsupported cli_type %q — only \"claude\" is implemented", cliType)
+	}
+
+	// Resolve the claude binary path. Workers can override via CLAUDE_PATH env.
+	claudePath := os.Getenv("CLAUDE_PATH")
+	if claudePath == "" {
+		claudePath = "claude"
+	}
+
+	modelName := policy.ModelName // e.g. "claude-sonnet-4-5" — passed as --model flag
+	logger.Info("cli worker ready",
+		"cli_type", cliType,
+		"claude_path", claudePath,
+		"model", modelName,
+	)
+
+	// Build synthetic capabilities to report back to the server.
+	caps := &worker.DiscoveredCaps{
+		Backend: "cli/" + cliType,
+		Model:   modelName,
+		CtxSize: policy.ContextSize,
+	}
+
+	if err := conn.ConnectPermanent(caps); err != nil {
+		return fmt.Errorf("cli worker: permanent connection: %w", err)
+	}
+	defer conn.Close()
+
+	go func() {
+		<-ctx.Done()
+		conn.Close()
+	}()
+
+	logger.Info("cli worker connected", "gpu_id", conn.GPUID())
+
+	activeJobs := &sync.Map{}
+
+	conn.OnJob(func(job protocol.JobMessage) {
+		abortCtx, cancel := context.WithCancel(ctx)
+		activeJobs.Store(job.JobID, cancel)
+		defer func() {
+			activeJobs.Delete(job.JobID)
+			cancel()
+		}()
+
+		cliworker.RunJob(
+			abortCtx,
+			job,
+			claudePath,
+			modelName,
+			func(token string) error { return conn.SendToken(job.JobID, token) },
+			func(token string) error { return conn.SendReasoningToken(job.JobID, token) },
+			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
+				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls)
+			},
+			func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
+		)
+	})
+
+	conn.OnCancel(func(jobID string) {
+		if cancel, ok := activeJobs.Load(jobID); ok {
+			cancel.(context.CancelFunc)()
+		}
+	})
+
+	for {
+		err := conn.RunMessageLoop()
+		if ctx.Err() != nil {
+			logger.Info("cli worker shutting down")
+			return nil
+		}
+		if err != nil {
+			logger.Warn("cli worker disconnected", "error", err.Error())
+		}
+
+		delay := cfg.ReconnectDelay
+		for {
+			if ctx.Err() != nil {
+				return nil
+			}
+			logger.Info("cli worker reconnecting", "delay", delay.String())
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(delay):
+			}
+			if err := conn.ConnectPermanent(caps); err != nil {
+				logger.Warn("cli worker reconnect failed", "error", err.Error())
+				delay *= 2
+				if delay > cfg.ReconnectMaxDelay {
+					delay = cfg.ReconnectMaxDelay
+				}
+				continue
+			}
+			logger.Info("cli worker reconnected")
 			break
 		}
 	}

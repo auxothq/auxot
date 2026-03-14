@@ -141,6 +141,13 @@ type ErrorMessage struct {
 
 // Policy tells the worker what model and configuration to use.
 type Policy struct {
+	// WorkerType identifies the execution backend.
+	// "gpu" (default/empty) = llama.cpp; "cli" = local CLI subprocess.
+	WorkerType string `json:"worker_type,omitempty"`
+	// CLIType identifies which CLI tool to spawn when WorkerType is "cli".
+	// Supported values: "claude" | "cursor" | "codex"
+	CLIType string `json:"cli_type,omitempty"`
+
 	ModelName      string   `json:"model_name"`
 	Quantization   string   `json:"quantization"`
 	ContextSize    int      `json:"context_size"`
