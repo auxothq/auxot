@@ -19,6 +19,7 @@ const (
 	TypeConfig         MessageType = "config"
 	TypeToken          MessageType = "token"
 	TypeToolGenerating MessageType = "tool_generating" // Sent once when the model starts writing a tool call
+	TypeBuiltinTool    MessageType = "builtin_tool"    // CLI worker: native tool completed (Bash, Read, etc.)
 	TypeComplete       MessageType = "complete"
 	TypeError          MessageType = "error"
 
@@ -28,6 +29,17 @@ const (
 	TypeConfigAck    MessageType = "config_ack"
 	TypeJob          MessageType = "job"
 	TypeCancel       MessageType = "cancel"
+
+	// Agent worker → Server
+	TypeAgentToken      MessageType = "agent_token"       // streaming token from agent
+	TypeAgentComplete   MessageType = "agent_complete"    // agent finished job
+	TypeAgentError      MessageType = "agent_error"       // agent job failed
+	TypeAgentToolCall   MessageType = "agent_tool_call"   // agent is calling a tool
+	TypeAgentToolResult MessageType = "agent_tool_result" // agent received a tool result
+
+	// Server → Agent worker
+	TypeAgentJob MessageType = "agent_job" // dispatch a chat job
+	// TypeReloadPolicy (already defined above) is also used for agent system prompt reload.
 )
 
 // Envelope is the first-pass parse of any WebSocket message.
@@ -94,6 +106,18 @@ type ToolGeneratingMessage struct {
 	JobID string      `json:"job_id"`
 }
 
+// BuiltinToolMessage is sent by the CLI worker in real-time when a CLI-native
+// tool (e.g. Bash, Read, WebSearch) completes. Sent before the first text token
+// of the following assistant turn to preserve correct display order.
+type BuiltinToolMessage struct {
+	Type   MessageType `json:"type"` // TypeBuiltinTool
+	JobID  string      `json:"job_id"`
+	ID     string      `json:"id"`
+	Name   string      `json:"name"`
+	Args   string      `json:"arguments"`
+	Result string      `json:"result"`
+}
+
 // ToolCall represents a function call requested by the model.
 type ToolCall struct {
 	ID       string       `json:"id"`
@@ -115,18 +139,29 @@ type ToolDefinition struct {
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 }
 
+// BuiltinToolUse records a single invocation of a CLI-native tool (e.g. Bash, Read)
+// that the CLI model executed autonomously. These are display-only — the Auxot server
+// shows them as collapsed pills but does not execute or re-dispatch them.
+type BuiltinToolUse struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"` // JSON string of the input
+	Result    string `json:"result,omitempty"`
+}
+
 // CompleteMessage is sent by the worker when a job finishes.
 type CompleteMessage struct {
-	Type             MessageType `json:"type"`
-	JobID            string      `json:"job_id"`
-	FullResponse     string      `json:"full_response"`
-	ReasoningContent string      `json:"reasoning_content,omitempty"` // Full chain-of-thought text
-	DurationMS       int64       `json:"duration_ms,omitempty"`
-	CacheTokens      int         `json:"cache_tokens,omitempty"`
-	InputTokens      int         `json:"input_tokens,omitempty"`
-	OutputTokens     int         `json:"output_tokens,omitempty"`
-	ReasoningTokens  int         `json:"reasoning_tokens,omitempty"` // Count of reasoning/thinking tokens
-	ToolCalls        []ToolCall  `json:"tool_calls,omitempty"`
+	Type             MessageType      `json:"type"`
+	JobID            string           `json:"job_id"`
+	FullResponse     string           `json:"full_response"`
+	ReasoningContent string           `json:"reasoning_content,omitempty"` // Full chain-of-thought text
+	DurationMS       int64            `json:"duration_ms,omitempty"`
+	CacheTokens      int              `json:"cache_tokens,omitempty"`
+	InputTokens      int              `json:"input_tokens,omitempty"`
+	OutputTokens     int              `json:"output_tokens,omitempty"`
+	ReasoningTokens  int              `json:"reasoning_tokens,omitempty"` // Count of reasoning/thinking tokens
+	ToolCalls        []ToolCall       `json:"tool_calls,omitempty"`
+	BuiltinToolUses  []BuiltinToolUse `json:"builtin_tool_uses,omitempty"`
 }
 
 // ErrorMessage is sent by the worker when a job fails.
@@ -147,6 +182,11 @@ type Policy struct {
 	// CLIType identifies which CLI tool to spawn when WorkerType is "cli".
 	// Supported values: "claude" | "cursor" | "codex"
 	CLIType string `json:"cli_type,omitempty"`
+	// BuiltinTools lists which claude CLI built-in tools the worker should enable.
+	// nil/empty → --tools "" (only MCP/external tools, no built-ins).
+	// ["default"] → --tools default (all built-ins enabled).
+	// Any other list → --tools "Bash,Read,WebSearch,..." (specific built-ins).
+	BuiltinTools []string `json:"builtin_tools,omitempty"`
 
 	ModelName      string   `json:"model_name"`
 	Quantization   string   `json:"quantization"`
@@ -297,6 +337,13 @@ func ParseMessage(data []byte) (any, error) {
 		}
 		return msg, nil
 
+	case TypeBuiltinTool:
+		var msg BuiltinToolMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing builtin_tool message: %w", err)
+		}
+		return msg, nil
+
 	case TypeComplete:
 		var msg CompleteMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
@@ -343,6 +390,49 @@ func ParseMessage(data []byte) (any, error) {
 		}
 		return msg, nil
 
+	// Agent worker messages
+	case TypeAgentJob:
+		var msg AgentJobMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing agent_job message: %w", err)
+		}
+		return msg, nil
+
+	case TypeAgentToken:
+		var msg AgentTokenMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing agent_token message: %w", err)
+		}
+		return msg, nil
+
+	case TypeAgentComplete:
+		var msg AgentCompleteMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing agent_complete message: %w", err)
+		}
+		return msg, nil
+
+	case TypeAgentError:
+		var msg AgentErrorMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing agent_error message: %w", err)
+		}
+		return msg, nil
+
+	case TypeAgentToolCall:
+		var msg AgentToolCallMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing agent_tool_call message: %w", err)
+		}
+		return msg, nil
+
+	case TypeAgentToolResult:
+		var msg AgentToolResultMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing agent_tool_result message: %w", err)
+		}
+		return msg, nil
+
 	// Tools-worker messages (defined in tools_messages.go)
 	case TypeToolJob:
 		var msg ToolJobMessage
@@ -382,6 +472,105 @@ func ParseMessage(data []byte) (any, error) {
 	default:
 		return nil, fmt.Errorf("unknown message type: %q", env.Type)
 	}
+}
+
+// ── Agent worker messages ─────────────────────────────────────────────────────
+
+// AgentHelloMessage is sent by the agent worker on connection.
+type AgentHelloMessage struct {
+	Type       MessageType   `json:"type"`        // TypeHello
+	WorkerType string        `json:"worker_type"` // "agent"
+	AgentKey   string        `json:"agent_key"`
+	Metadata   AgentMetadata `json:"metadata,omitempty"`
+}
+
+// AgentMetadata is extra info the agent sends at connect time.
+type AgentMetadata struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	SoulDigest  string `json:"soul_digest,omitempty"` // sha256 of SOUL.md
+}
+
+// ExternalToolDef describes a tool that is executed server-side (not locally).
+// Source is "builtin" for Auxot built-in server tools, or "mcp:package-name"
+// for tools provided by an MCP server.
+type ExternalToolDef struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+	Source      string          `json:"source"` // "builtin", "mcp:package-name"
+}
+
+// AgentHelloAckMessage is the server's response to a valid agent hello.
+type AgentHelloAckMessage struct {
+	Type          MessageType       `json:"type"` // TypeHelloAck
+	Status        string            `json:"status"`
+	AgentID       string            `json:"agent_id,omitempty"`
+	SystemPrompt  string            `json:"system_prompt,omitempty"`
+	ExternalTools []ExternalToolDef `json:"external_tools,omitempty"`
+	Error         string            `json:"error,omitempty"`
+}
+
+// AgentChatMsg is a single turn in the conversation history sent to the agent.
+type AgentChatMsg struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// AgentJobMessage is sent by the server to dispatch a chat job to the agent worker.
+type AgentJobMessage struct {
+	Type         MessageType    `json:"type"` // TypeAgentJob
+	JobID        string         `json:"job_id"`
+	SystemPrompt string         `json:"system_prompt,omitempty"`
+	Messages     []AgentChatMsg `json:"messages"`
+}
+
+// AgentTokenMessage streams a single token from the agent back to the server.
+type AgentTokenMessage struct {
+	Type  MessageType `json:"type"` // TypeAgentToken
+	JobID string      `json:"job_id"`
+	Token string      `json:"token"`
+}
+
+// AgentCompleteMessage signals the agent has finished processing a job.
+type AgentCompleteMessage struct {
+	Type       MessageType `json:"type"` // TypeAgentComplete
+	JobID      string      `json:"job_id"`
+	StopReason string      `json:"stop_reason,omitempty"`
+}
+
+// AgentErrorMessage signals that the agent encountered an error on a job.
+type AgentErrorMessage struct {
+	Type  MessageType `json:"type"` // TypeAgentError
+	JobID string      `json:"job_id,omitempty"`
+	Error string      `json:"error"`
+}
+
+// AgentToolCallMessage is sent by the agent when it's about to execute a tool.
+// This allows the server to publish the event to the UI in real time.
+type AgentToolCallMessage struct {
+	Type      MessageType `json:"type"` // TypeAgentToolCall
+	JobID     string      `json:"job_id"`
+	ID        string      `json:"id"`        // tool call ID from the model
+	Name      string      `json:"name"`      // tool function name
+	Arguments string      `json:"arguments"` // JSON string of tool input
+}
+
+// AgentToolResultMessage is sent by the agent after a tool finishes execution.
+type AgentToolResultMessage struct {
+	Type       MessageType `json:"type"` // TypeAgentToolResult
+	JobID      string      `json:"job_id"`
+	ToolCallID string      `json:"tool_call_id"` // matches AgentToolCallMessage.ID
+	Content    string      `json:"content"`      // tool output
+	IsError    bool        `json:"is_error,omitempty"`
+}
+
+// AgentReloadPolicyMessage is sent by the server to push an updated system prompt.
+// Uses TypeReloadPolicy ("reload_policy") as the wire type.
+type AgentReloadPolicyMessage struct {
+	Type          MessageType       `json:"type"` // TypeReloadPolicy
+	SystemPrompt  string            `json:"system_prompt"`
+	ExternalTools []ExternalToolDef `json:"external_tools,omitempty"`
 }
 
 // MarshalMessage serializes a message to JSON bytes for sending over WebSocket.

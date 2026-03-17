@@ -36,6 +36,16 @@ import (
 )
 
 func main() {
+	// MCP stdio mode: when spawned by the claude CLI as an MCP subprocess.
+	// The AUXOT_MCP_TOOLS_FILE env var is set by setupMCP() in cliworker/claude.go.
+	if toolsFile := os.Getenv("AUXOT_MCP_TOOLS_FILE"); toolsFile != "" {
+		if err := cliworker.RunMCPStdio(toolsFile); err != nil {
+			fmt.Fprintf(os.Stderr, "mcp: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	_ = godotenv.Load()
 
 	// Manual argument parsing (--debug has optional value that flag package can't handle)
@@ -397,7 +407,7 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 				return conn.SendToolGenerating(job.JobID)
 			},
 			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
-				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls)
+				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
 			},
 			func(errMsg, details string) error {
 				return conn.SendError(job.JobID, errMsg)
@@ -491,10 +501,12 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 	}
 
 	modelName := policy.ModelName // e.g. "claude-sonnet-4-5" — passed as --model flag
+	builtinTools := policy.BuiltinTools
 	logger.Info("cli worker ready",
 		"cli_type", cliType,
 		"claude_path", claudePath,
 		"model", modelName,
+		"builtin_tools", builtinTools,
 	)
 
 	// Build synthetic capabilities to report back to the server.
@@ -519,9 +531,23 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 	activeJobs := &sync.Map{}
 
 	conn.OnJob(func(job protocol.JobMessage) {
+		logger.Info("JOB_RECEIVED",
+			"job_id", job.JobID,
+			"tools", len(job.Tools),
+			"messages", len(job.Messages),
+		)
+		// File-based debug log — bypasses all stdout/stderr routing.
+		if df, err := os.OpenFile("/tmp/auxot-debug.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+			fmt.Fprintf(df, "%s JOB_RECEIVED job_id=%s tools=%d msgs=%d\n",
+				time.Now().Format(time.RFC3339), job.JobID, len(job.Tools), len(job.Messages))
+			df.Close()
+		}
 		abortCtx, cancel := context.WithCancel(ctx)
 		activeJobs.Store(job.JobID, cancel)
 		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("PANIC in RunJob", "job_id", job.JobID, "panic", fmt.Sprintf("%v", r))
+			}
 			activeJobs.Delete(job.JobID)
 			cancel()
 		}()
@@ -529,12 +555,18 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 		cliworker.RunJob(
 			abortCtx,
 			job,
-			claudePath,
-			modelName,
+			cliworker.JobConfig{
+				ClaudePath:   claudePath,
+				Model:        modelName,
+				BuiltinTools: builtinTools,
+			},
 			func(token string) error { return conn.SendToken(job.JobID, token) },
 			func(token string) error { return conn.SendReasoningToken(job.JobID, token) },
+			func(id, name, args, result string) error {
+				return conn.SendBuiltinTool(job.JobID, id, name, args, result)
+			},
 			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
-				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls)
+				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
 			},
 			func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
 		)
@@ -690,7 +722,7 @@ func runWithStableDiffusion(ctx context.Context, cfg *worker.Config, conn *worke
 			func(token string) error { return conn.SendReasoningToken(job.JobID, token) },
 			func() error { return conn.SendToolGenerating(job.JobID) },
 			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
-				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls)
+				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
 			},
 			func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
 		)
@@ -803,7 +835,7 @@ func runWithExternalLlama(ctx context.Context, cfg *worker.Config, conn *worker.
 			func(token string) error { return conn.SendReasoningToken(job.JobID, token) },
 			func() error { return conn.SendToolGenerating(job.JobID) },
 			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
-				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls)
+				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
 			},
 			func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
 		)

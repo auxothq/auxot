@@ -315,21 +315,22 @@ func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.workers[workerID] = wc
 	h.workersMu.Unlock()
 
-	// Infer capabilities from model name
-	policyCaps := inferCapabilities(h.config.ModelName)
+	// Detect worker type: explicit config > auto-detect from capabilities
+	isCLI := h.config.WorkerType == "cli" || isCLIBackend(hello.Capabilities.Backend)
+
+	var policy *protocol.Policy
+	if isCLI {
+		policy = h.buildCLIPolicy(hello)
+	} else {
+		policy = h.buildGPUPolicy()
+	}
 
 	// Send hello_ack with policy so worker knows what model to run
 	ack := protocol.HelloAckMessage{
 		Type:    protocol.TypeHelloAck,
 		Success: true,
 		GPUID:   workerID,
-		Policy: &protocol.Policy{
-			ModelName:      h.config.ModelName,
-			Quantization:   h.config.Quantization,
-			ContextSize:    h.config.ContextSize,
-			MaxParallelism: h.config.MaxParallel,
-			Capabilities:   policyCaps,
-		},
+		Policy:  policy,
 	}
 	if err := wc.sendMessage(ack); err != nil {
 		h.logger.Error("sending hello_ack", "worker_id", workerID, "error", err)
@@ -952,6 +953,55 @@ func inferCapabilities(modelName string) []string {
 		caps = append(caps, "chat")
 	}
 	return caps
+}
+
+// isCLIBackend returns true if the announced backend is a known CLI tool.
+func isCLIBackend(backend string) bool {
+	switch strings.ToLower(backend) {
+	case "claude", "cursor", "codex":
+		return true
+	default:
+		return false
+	}
+}
+
+// buildCLIPolicy creates a Policy for CLI workers.
+// In mixed mode (no AUXOT_WORKER_TYPE set), cfg.ModelName is the GPU model name,
+// so we prefer the worker-announced model instead.
+func (h *WSHandler) buildCLIPolicy(hello protocol.HelloMessage) *protocol.Policy {
+	cliType := h.config.CLIType
+	if cliType == "" {
+		cliType = hello.Capabilities.Backend // worker-announced fallback
+	}
+
+	// In CLI-only mode, cfg.ModelName IS the CLI model (e.g., "opus").
+	// In mixed mode, cfg.ModelName is the GPU model — use worker-announced model.
+	model := hello.Capabilities.Model
+	if h.config.WorkerType == "cli" && h.config.ModelName != "" {
+		model = h.config.ModelName
+	}
+
+	return &protocol.Policy{
+		WorkerType:     "cli",
+		CLIType:        cliType,
+		BuiltinTools:   h.config.CLITools, // nil = no built-ins (safe default)
+		ModelName:      model,
+		ContextSize:    200_000,
+		MaxParallelism: 1,
+		Capabilities:   []string{"chat", "reasoning", "code"},
+	}
+}
+
+// buildGPUPolicy creates a Policy for GPU workers (extracted from the original inline block).
+func (h *WSHandler) buildGPUPolicy() *protocol.Policy {
+	policyCaps := inferCapabilities(h.config.ModelName)
+	return &protocol.Policy{
+		ModelName:      h.config.ModelName,
+		Quantization:   h.config.Quantization,
+		ContextSize:    h.config.ContextSize,
+		MaxParallelism: h.config.MaxParallel,
+		Capabilities:   policyCaps,
+	}
 }
 
 // escapeJSON escapes a string for safe embedding in a JSON string value.

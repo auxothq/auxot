@@ -45,29 +45,36 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "setup":
-			writeEnv := false
-			flySecrets := false
-			newToolsKey := false
-			model := ""
-			for i, arg := range os.Args[2:] {
-				switch arg {
-				case "--write-env":
-					writeEnv = true
-				case "--fly":
-					flySecrets = true
-				case "--new-tools-key":
-					newToolsKey = true
-				case "--model":
-					if i+1 < len(os.Args[2:]) {
-						model = os.Args[2+i+1]
-					}
+		writeEnv := false
+		flySecrets := false
+		newToolsKey := false
+		cliMode := false
+		model := ""
+		for i, arg := range os.Args[2:] {
+			switch arg {
+			case "--write-env":
+				writeEnv = true
+			case "--fly":
+				flySecrets = true
+			case "--new-tools-key":
+				newToolsKey = true
+			case "--cli":
+				cliMode = true
+			case "--model":
+				if i+1 < len(os.Args[2:]) {
+					model = os.Args[2+i+1]
 				}
 			}
-			if newToolsKey {
-				runNewToolsKey()
-				return
-			}
-			runSetup(writeEnv, flySecrets, model)
+		}
+		if newToolsKey {
+			runNewToolsKey()
+			return
+		}
+		if cliMode {
+			runSetupCLI(model)
+			return
+		}
+		runSetup(writeEnv, flySecrets, model)
 			return
 		case "models":
 			runModels()
@@ -265,6 +272,71 @@ func runSetup(writeEnv, flySecrets bool, model string) {
 	}
 }
 
+// runSetupCLI generates keys and prints CLI worker-specific configuration.
+// Unlike GPU setup, it sets AUXOT_WORKER_TYPE=cli and omits GPU-specific vars.
+func runSetupCLI(model string) {
+	if model == "" {
+		model = "opus"
+	}
+
+	adminKey, err := auth.GenerateAdminKey()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating admin key: %v\n", err)
+		os.Exit(1)
+	}
+
+	apiKey, err := auth.GenerateAPIKey()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating API key: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("auxot-router setup --cli")
+	fmt.Println("========================")
+	fmt.Println()
+	fmt.Println("Generating keys for CLI worker mode...")
+	fmt.Println()
+
+	fmt.Println("=== WORKER KEY (for auxot-worker / CLI workers) ===")
+	fmt.Println("Give this key to CLI workers:")
+	fmt.Printf("  %s\n", adminKey.Key)
+	fmt.Println()
+	fmt.Printf("  Use it with:  AUXOT_ROUTER_URL=ws://localhost:8080/ws/gpu AUXOT_GPU_KEY=%s auxot-worker\n", adminKey.Key)
+	fmt.Println()
+
+	fmt.Println("=== API KEY (for callers) ===")
+	fmt.Println("Give this key to applications calling /v1/chat/completions:")
+	fmt.Printf("  %s\n", apiKey.Key)
+	fmt.Println()
+
+	fmt.Println("=== SAVE THESE KEYS NOW ===")
+	fmt.Println("The plaintext keys above will NOT be shown again.")
+	fmt.Println()
+
+	fmt.Println("=== .env FILE ===")
+	fmt.Println("Copy this into your .env file:")
+	fmt.Println()
+	fmt.Printf("AUXOT_WORKER_TYPE=cli\n")
+	fmt.Printf("AUXOT_CLI_TYPE=claude\n")
+	fmt.Printf("AUXOT_MODEL=%s\n", model)
+	fmt.Printf("AUXOT_CLI_TOOLS=\n")
+	fmt.Println()
+	fmt.Printf("AUXOT_ADMIN_KEY_HASH='%s'\n", adminKey.Hash)
+	fmt.Printf("AUXOT_API_KEY_HASH='%s'\n", apiKey.Hash)
+	fmt.Println()
+	fmt.Println("# Built-in tools are disabled by default (safest).")
+	fmt.Println("# To enable specific tools:")
+	fmt.Println("#   AUXOT_CLI_TOOLS=Read,Grep,Glob,WebFetch,WebSearch")
+	fmt.Println("# To enable all built-in tools:")
+	fmt.Println("#   AUXOT_CLI_TOOLS=default")
+	fmt.Println()
+	fmt.Println("# Start the router:")
+	fmt.Println("#   source .env && auxot-router")
+	fmt.Println()
+	fmt.Println("# Start a CLI worker (after router is running):")
+	fmt.Printf("#   AUXOT_ROUTER_URL=ws://localhost:8080/ws/gpu AUXOT_GPU_KEY=%s auxot-worker\n", adminKey.Key)
+}
+
 // runNewToolsKey generates a single new tool connector key and prints what to update.
 // This is useful for key rotation — the existing GPU and API keys are left untouched.
 func runNewToolsKey() {
@@ -391,13 +463,17 @@ Usage:
   auxot-router setup --write-env     Write keys to .env file
   auxot-router setup --fly           Output "fly secrets set" command for Fly.io
   auxot-router setup --model NAME    Use a specific model (default: Qwen3-Coder-30B-A3B)
+  auxot-router setup --cli           Generate CLI worker configuration
   auxot-router setup --new-tools-key Generate a new tools connector key (for key rotation)
   auxot-router models                List all available models
   auxot-router version               Print version
   auxot-router help                  Print this help
 
 Environment Variables:
-  AUXOT_MODEL                  Model name (default: Qwen3-Coder-30B-A3B)
+  AUXOT_MODEL                  Model name or CLI model (default: Qwen3-Coder-30B-A3B; for CLI: "opus")
+  AUXOT_WORKER_TYPE            Worker type: "gpu" or "cli" (default: auto-detect from capabilities)
+  AUXOT_CLI_TYPE               CLI tool to spawn: "claude", "cursor", "codex" (default: claude)
+  AUXOT_CLI_TOOLS              Comma-separated built-in tools for CLI workers (default: none)
   AUXOT_ADMIN_KEY_HASH         Argon2id hash of the GPU key (required)
   AUXOT_API_KEY_HASH           Argon2id hash of the API key (required)
   AUXOT_TOOLS_KEY_HASH         Argon2id hash of the tools connector key (optional)

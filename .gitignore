@@ -1,6 +1,4 @@
-# Binaries (root-level only — don't ignore cmd/ source)
-/auxot-router
-/auxot-worker
+# Binaries
 *.exe
 *.exe~
 *.dll
@@ -10,6 +8,8 @@
 # Build output
 /dist/
 /bin/
+/auxot-worker
+/claude-probe
 
 # Test binary, built with `go test -c`
 *.test

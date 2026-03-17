@@ -20,9 +20,11 @@ require (
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/redis/go-redis/v9 v9.17.3 // indirect
+	github.com/sashabaranov/go-openai v1.41.2 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

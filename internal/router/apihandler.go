@@ -515,6 +515,24 @@ func (h *APIHandler) streamChatResponse(w http.ResponseWriter, r *http.Request, 
 			finishReason := "stop"
 			if len(complete.ToolCalls) > 0 {
 				finishReason = "tool_calls"
+				var oaiToolCalls []openai.ToolCall
+				for i, tc := range complete.ToolCalls {
+					oaiToolCalls = append(oaiToolCalls, openai.ToolCall{
+						Index:    i,
+						ID:       tc.ID,
+						Type:     tc.Type,
+						Function: openai.ToolCallFunction{
+							Name:      tc.Function.Name,
+							Arguments: tc.Function.Arguments,
+						},
+					})
+				}
+				for _, chunk := range openai.NewStreamingToolCallChunks(completionID, model, oaiToolCalls) {
+					if data, err := openai.FormatSSE(chunk); err == nil {
+						w.Write(data)
+						flusher.Flush()
+					}
+				}
 			}
 
 			doneChunk := openai.NewStreamingDoneChunk(completionID, model, finishReason, usage)
@@ -605,10 +623,11 @@ func (h *APIHandler) blockingChatResponse(w http.ResponseWriter, r *http.Request
 					reasoningContent.WriteString(complete.ReasoningContent)
 				}
 
-				for _, tc := range complete.ToolCalls {
+				for i, tc := range complete.ToolCalls {
 					toolCalls = append(toolCalls, openai.ToolCall{
-						ID:   tc.ID,
-						Type: tc.Type,
+						Index: i,
+						ID:    tc.ID,
+						Type:  tc.Type,
 						Function: openai.ToolCallFunction{
 							Name:      tc.Function.Name,
 							Arguments: tc.Function.Arguments,

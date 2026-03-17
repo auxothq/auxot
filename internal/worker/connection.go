@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -217,9 +218,14 @@ func (c *Connection) RunMessageLoop() error {
 			DebugServerToClient(msg)
 		}
 
+		// File-based debug: log every message type received from router.
+		if df, err := os.OpenFile("/tmp/auxot-debug.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+			fmt.Fprintf(df, "%s MSG_RECEIVED type=%T\n", time.Now().Format(time.RFC3339), msg)
+			df.Close()
+		}
+
 		switch m := msg.(type) {
 		case protocol.JobMessage:
-			// Log job receipt with progressive detail based on debug level
 			logJobReceived(c.logger, m)
 			if c.onJob != nil {
 				go c.onJob(m)
@@ -272,8 +278,22 @@ func (c *Connection) SendReasoningToken(jobID, token string) error {
 	})
 }
 
+// SendBuiltinTool notifies the server that a CLI-native tool has completed.
+// Should be called in real-time (after tool_result received, before first text token)
+// so the server can publish the SSE events in the correct order.
+func (c *Connection) SendBuiltinTool(jobID, id, name, args, result string) error {
+	return c.sendJSON(protocol.BuiltinToolMessage{
+		Type:   protocol.TypeBuiltinTool,
+		JobID:  jobID,
+		ID:     id,
+		Name:   name,
+		Args:   args,
+		Result: result,
+	})
+}
+
 // SendComplete sends a completion message to the router.
-func (c *Connection) SendComplete(jobID, fullResponse, reasoningContent string, durationMS int64, cacheTokens, inputTokens, outputTokens, reasoningTokens int, toolCalls []protocol.ToolCall) error {
+func (c *Connection) SendComplete(jobID, fullResponse, reasoningContent string, durationMS int64, cacheTokens, inputTokens, outputTokens, reasoningTokens int, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error {
 	return c.sendJSON(protocol.CompleteMessage{
 		Type:             protocol.TypeComplete,
 		JobID:            jobID,
@@ -285,6 +305,7 @@ func (c *Connection) SendComplete(jobID, fullResponse, reasoningContent string, 
 		OutputTokens:     outputTokens,
 		ReasoningTokens:  reasoningTokens,
 		ToolCalls:        toolCalls,
+		BuiltinToolUses:  builtinToolUses,
 	})
 }
 

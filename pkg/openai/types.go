@@ -65,7 +65,7 @@ type ToolFunction struct {
 
 // ToolCall represents a tool call returned by the model.
 type ToolCall struct {
-	Index    int              `json:"-"` // Streaming only: used to merge SSE deltas by position
+	Index    int              `json:"index"`
 	ID       string           `json:"id"`
 	Type     string           `json:"type"` // "function"
 	Function ToolCallFunction `json:"function"`
@@ -239,6 +239,36 @@ func NewStreamingRoleChunk(completionID, model string) *ChatCompletionChunk {
 			},
 		},
 	}
+}
+
+// NewStreamingToolCallChunks builds SSE chunks for tool calls in streaming mode.
+// Each tool call is emitted as a single chunk with full arguments, since
+// tool calls arrive complete from the worker (not incrementally).
+func NewStreamingToolCallChunks(completionID, model string, toolCalls []ToolCall) []*ChatCompletionChunk {
+	chunks := make([]*ChatCompletionChunk, len(toolCalls))
+	for i, tc := range toolCalls {
+		chunks[i] = &ChatCompletionChunk{
+			ID:      completionID,
+			Object:  "chat.completion.chunk",
+			Created: time.Now().Unix(),
+			Model:   model,
+			Choices: []Choice{
+				{
+					Index: 0,
+					Delta: &Message{
+						ToolCalls: []ToolCall{{
+							Index:    i,
+							ID:       tc.ID,
+							Type:     tc.Type,
+							Function: tc.Function,
+						}},
+					},
+					FinishReason: nil,
+				},
+			},
+		}
+	}
+	return chunks
 }
 
 // NewStreamingDoneChunk builds the final SSE chunk with a finish reason and optional usage.

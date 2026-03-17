@@ -48,6 +48,11 @@ type Config struct {
 	MaxParallel  int             // Max concurrent jobs per GPU (default: 2)
 	ModelEntry   *registry.Model // The full registry entry — nil only in tests
 
+	// CLI worker settings
+	WorkerType string   // "gpu", "cli", or "" (auto-detect). AUXOT_WORKER_TYPE
+	CLIType    string   // "claude", "cursor", "codex". AUXOT_CLI_TYPE (default: "claude")
+	CLITools   []string // Built-in tools to enable. AUXOT_CLI_TOOLS (default: none)
+
 	// Timeouts
 	HeartbeatInterval time.Duration // Expected heartbeat interval from workers (default: 15s)
 	DeadWorkerTimeout time.Duration // Time before a worker is considered dead (default: 45s)
@@ -95,6 +100,9 @@ func LoadConfig() (*Config, error) {
 		AuthCacheTTL:      envDuration("AUXOT_AUTH_CACHE_TTL", 5*time.Minute),
 		MCPExposeLLM:      os.Getenv("AUXOT_MCP_EXPOSE_LLM") == "true",
 		RegistryFile:      os.Getenv("AUXOT_REGISTRY_FILE"),
+		WorkerType:        os.Getenv("AUXOT_WORKER_TYPE"),
+		CLIType:           envStr("AUXOT_CLI_TYPE", "claude"),
+		CLITools:          envStringList("AUXOT_CLI_TOOLS"),
 	}
 
 	// Validate required auth fields
@@ -105,32 +113,40 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("AUXOT_API_KEY_HASH is required (run auxot-router setup to generate)")
 	}
 
-	// --- Model validation against registry ---
-	modelInput := os.Getenv("AUXOT_MODEL")
-	if modelInput == "" {
-		modelInput = "Qwen3.5-35B-A3B" // Good default: 35B MoE, capable — chat + agentic
-	}
+	if cfg.WorkerType == "cli" {
+		// CLI-only router: AUXOT_MODEL is the --model param passed to the CLI tool,
+		// not a GPU model registry ID. Skip registry validation entirely.
+		cfg.ModelName = os.Getenv("AUXOT_MODEL") // empty OK = CLI tool's default
+		if cfg.ContextSize == 0 || cfg.ContextSize == 131072 {
+			cfg.ContextSize = 200_000
+		}
+		cfg.MaxParallel = envInt("AUXOT_MAX_PARALLEL", 1) // CLI workers are single-threaded
+	} else {
+		// GPU path: validate model against the registry.
+		modelInput := os.Getenv("AUXOT_MODEL")
+		if modelInput == "" {
+			modelInput = "Qwen3.5-35B-A3B"
+		}
 
-	explicitQuant := os.Getenv("AUXOT_QUANTIZATION") // Empty string if not set
+		explicitQuant := os.Getenv("AUXOT_QUANTIZATION")
 
-	// Load registry (embedded or override file)
-	reg, err := loadRegistry(cfg.RegistryFile)
-	if err != nil {
-		return nil, err
-	}
+		reg, err := loadRegistry(cfg.RegistryFile)
+		if err != nil {
+			return nil, err
+		}
 
-	entry, err := resolveModel(modelInput, explicitQuant, reg)
-	if err != nil {
-		return nil, err
-	}
+		entry, err := resolveModel(modelInput, explicitQuant, reg)
+		if err != nil {
+			return nil, err
+		}
 
-	cfg.ModelName = entry.ModelName
-	cfg.Quantization = entry.Quantization
-	cfg.ModelEntry = entry
+		cfg.ModelName = entry.ModelName
+		cfg.Quantization = entry.Quantization
+		cfg.ModelEntry = entry
 
-	// Clamp to model's max context size
-	if cfg.ContextSize > entry.MaxContextSize {
-		cfg.ContextSize = entry.MaxContextSize
+		if cfg.ContextSize > entry.MaxContextSize {
+			cfg.ContextSize = entry.MaxContextSize
+		}
 	}
 
 	cfg.ToolCredentials = pkgtools.ParseToolCredentials()
