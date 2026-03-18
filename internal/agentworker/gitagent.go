@@ -14,6 +14,7 @@ type GitAgent struct {
 	Dir          string
 	Soul         string
 	Rules        string
+	Agents       string
 	Skills       []SkillMeta
 	MemoryIndex  string
 	MemoryCtx    string
@@ -66,6 +67,7 @@ func LoadGitAgent(dir string) (*GitAgent, error) {
 		Dir:          dir,
 		Soul:         string(soul),
 		Rules:        readOptional(dir, "RULES.md"),
+		Agents:       readOptional(dir, "AGENTS.md"),
 		MemoryIndex:  readOptional(dir, filepath.Join("memory", "MEMORY.md")),
 		MemoryCtx:    readOptional(dir, filepath.Join("memory", "context.md")),
 		KnowledgeIdx: readOptional(dir, filepath.Join("knowledge", "index.yaml")),
@@ -103,6 +105,11 @@ func (ga *GitAgent) BuildSystemPrompt(auxotContext string, toolNames []string) s
 	if ga.Rules != "" {
 		b.WriteString("\n\n")
 		b.WriteString(ga.Rules)
+	}
+
+	if ga.Agents != "" {
+		b.WriteString("\n\n")
+		b.WriteString(ga.Agents)
 	}
 
 	if len(ga.Skills) > 0 {
