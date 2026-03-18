@@ -1,0 +1,94 @@
+# Publish npm packages on tag push.
+#
+# Tag formats:
+#   worker-cli-v1.0.5    -> publishes @auxot/worker-cli
+#   model-registry-v1.1.5 -> publishes @auxot/model-registry
+#   cli-v0.1.9           -> publishes @auxot/cli
+#
+# Secrets required:
+#   NPM_TOKEN: automation token from npmjs.com with publish access to @auxot org
+
+name: Publish npm
+
+on:
+  push:
+    tags:
+      - "worker-cli-v*"
+      - "model-registry-v*"
+      - "cli-v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Determine package from tag
+        id: pkg
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          if [[ "$TAG" == worker-cli-v* ]]; then
+            echo "dir=npm/worker-cli" >> "$GITHUB_OUTPUT"
+            echo "version=${TAG#worker-cli-v}" >> "$GITHUB_OUTPUT"
+            echo "name=@auxot/worker-cli" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == model-registry-v* ]]; then
+            echo "dir=npm/model-registry" >> "$GITHUB_OUTPUT"
+            echo "version=${TAG#model-registry-v}" >> "$GITHUB_OUTPUT"
+            echo "name=@auxot/model-registry" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == cli-v* ]]; then
+            echo "dir=npm/cli" >> "$GITHUB_OUTPUT"
+            echo "version=${TAG#cli-v}" >> "$GITHUB_OUTPUT"
+            echo "name=@auxot/cli" >> "$GITHUB_OUTPUT"
+          else
+            echo "Unknown tag format: $TAG"
+            exit 1
+          fi
+
+      - name: Set version in package.json
+        env:
+          PKG_DIR: ${{ steps.pkg.outputs.dir }}
+          PKG_VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          cd "$PKG_DIR"
+          npm version "$PKG_VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Install dependencies
+        env:
+          PKG_DIR: ${{ steps.pkg.outputs.dir }}
+        run: |
+          cd "$PKG_DIR"
+          npm install
+
+      - name: Build
+        env:
+          PKG_DIR: ${{ steps.pkg.outputs.dir }}
+        run: |
+          cd "$PKG_DIR"
+          npm run build
+
+      - name: Publish
+        env:
+          PKG_DIR: ${{ steps.pkg.outputs.dir }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd "$PKG_DIR"
+          npm publish --provenance --access public
+
+      - name: Summary
+        env:
+          PKG_NAME: ${{ steps.pkg.outputs.name }}
+          PKG_VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          echo "### Published ${PKG_NAME}@${PKG_VERSION}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- npm: https://www.npmjs.com/package/${PKG_NAME}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: ${GITHUB_REF_NAME}" >> "$GITHUB_STEP_SUMMARY"

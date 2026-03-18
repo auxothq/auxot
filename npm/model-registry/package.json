@@ -1,0 +1,41 @@
+{
+  "name": "@auxot/model-registry",
+  "version": "1.1.4",
+  "type": "module",
+  "description": "Curated catalog of GGUF models for the Auxot GPU worker ecosystem",
+  "exports": {
+    ".": "./dist/src/index.js",
+    "./registry.json": "./registry.json"
+  },
+  "files": [
+    "dist/src/**/*.js",
+    "dist/src/**/*.d.ts",
+    "dist/src/**/*.d.ts.map",
+    "registry.json"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build:registry": "tsx scripts/build-registry.ts",
+    "patch:registry": "tsx scripts/build-registry.ts --patch",
+    "update:registry": "tsx scripts/build-registry.ts --update",
+    "build": "tsc",
+    "build:full": "npm run build:registry && npm run build",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/auxothq/auxot.git",
+    "directory": "npm/model-registry"
+  },
+  "license": "Apache-2.0"
+}

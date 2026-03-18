@@ -6,8 +6,7 @@ build: bin/auxot-router bin/auxot-worker bin/auxot-tools bin/auxot-agent
 bin/auxot-router: $(shell find cmd/auxot-router internal pkg -name '*.go' 2>/dev/null)
 	go build -o bin/auxot-router ./cmd/auxot-router
 
-# ensure-registry is phony so it always runs — keeps mmproj_file_name and vision metadata current.
-# Prefers monorepo (../../auxot) when present; otherwise fetches from npm.
+# ensure-registry is phony so it always runs — keeps the Go-embedded copy current.
 .PHONY: ensure-registry
 ensure-registry:
 	@$(MAKE) -s sync-registry
@@ -58,31 +57,32 @@ clean:
 	rm -rf bin/
 	go clean ./...
 
-# Fetch latest registry.json. Prefers local monorepo (../../auxot) when present,
-# otherwise fetches from npm (@auxot/model-registry). Ensures mmproj_file_name
-# and vision capabilities are included for vision models.
+# Sync registry.json from npm/model-registry/ into pkg/registry/ (Go embed source).
+# The canonical copy lives at npm/model-registry/registry.json (same repo).
 # Usage:
-#   make sync-registry              # fetch latest (monorepo or npm)
-#   make sync-registry VERSION=1.2.0 # fetch specific version from npm (ignores monorepo)
-#   make sync-registry FROM=npm      # force npm even if monorepo exists
+#   make sync-registry              # copy from npm/model-registry/ (default)
+#   make sync-registry FROM=npm     # fetch from npmjs.com instead
+#   make sync-registry VERSION=1.2.0 # fetch specific version from npmjs.com
 FROM ?= auto
 VERSION ?= latest
 sync-registry:
-	@MONOREPO=../../auxot/packages/model-registry/registry.json; \
-	if [ "$(FROM)" = "auto" ] && [ -f "$$MONOREPO" ]; then \
-		DEST=pkg/registry/registry.json; \
-		if [ ! -f "$$DEST" ] || [ "$$MONOREPO" -nt "$$DEST" ]; then \
-			echo "Copying registry from monorepo ($$MONOREPO)..."; \
-			cp "$$MONOREPO" "$$DEST"; \
-		fi; \
-	else \
+	@SRC=npm/model-registry/registry.json; \
+	DEST=pkg/registry/registry.json; \
+	if [ "$(FROM)" = "npm" ] || [ "$(VERSION)" != "latest" ]; then \
 		echo "Fetching @auxot/model-registry@$(VERSION) from npm..."; \
 		TARBALL_URL=$$(curl -sL "https://registry.npmjs.org/@auxot/model-registry/$(VERSION)" | \
 			python3 -c "import json,sys; print(json.load(sys.stdin)['dist']['tarball'])") && \
-		curl -sL "$$TARBALL_URL" | tar xzO package/registry.json > pkg/registry/registry.json; \
+		curl -sL "$$TARBALL_URL" | tar xzO package/registry.json > "$$DEST" && \
+		cp "$$DEST" "$$SRC"; \
+	elif [ -f "$$SRC" ]; then \
+		if [ ! -f "$$DEST" ] || [ "$$SRC" -nt "$$DEST" ]; then \
+			cp "$$SRC" "$$DEST"; \
+		fi; \
+	else \
+		echo "Error: $$SRC not found. Run from repo root."; exit 1; \
 	fi && \
-	MODEL_COUNT=$$(python3 -c "import json; print(len(json.load(open('pkg/registry/registry.json'))['models']))") && \
-	echo "✓ Updated pkg/registry/registry.json ($$MODEL_COUNT models)"
+	MODEL_COUNT=$$(python3 -c "import json; print(len(json.load(open('$$DEST'))['models']))") && \
+	echo "✓ Updated $$DEST ($$MODEL_COUNT models)"
 
 # Tag a release — triggers GoReleaser + Docker build via GitHub Actions.
 # Usage: make tag-release V=0.1.0

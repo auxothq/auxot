@@ -1,0 +1,38 @@
+{
+  "name": "@auxot/worker-cli",
+  "version": "1.0.4",
+  "type": "module",
+  "description": "Auxot GPU worker CLI — connects your GPU to an auxot-router",
+  "license": "Apache-2.0",
+  "author": "Auxot <support@auxot.com>",
+  "homepage": "https://github.com/auxothq/auxot",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/auxothq/auxot.git",
+    "directory": "npm/worker-cli"
+  },
+  "keywords": ["auxot", "gpu", "worker", "llama", "llm", "ai", "inference"],
+  "bin": {
+    "auxot-worker": "./dist/index.js"
+  },
+  "files": ["dist/**/*", "README.md"],
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "dev:debug": "tsx src/index.ts --debug 2",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "esbuild": "^0.20.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.3.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
