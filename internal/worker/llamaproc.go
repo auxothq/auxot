@@ -89,8 +89,9 @@ func (lp *LlamaProcess) Start() error {
 		"--port", strconv.Itoa(lp.opts.Port),
 		"--host", lp.opts.Host,
 		"--batch-size", "512",
-		"--jinja",                    // Enable Jinja templating for tool calling
-		"--reasoning-format", "deepseek", // Always extract <think> blocks into reasoning_content (harmless if model doesn't think)
+		"--jinja",
+		"--reasoning-format", "deepseek",
+		"--swa-full",
 	)
 
 	if lp.opts.Threads > 0 {

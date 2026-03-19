@@ -44,6 +44,16 @@ type StreamToken struct {
 	ToolCalls        []openai.ToolCall // Tool calls (streamed incrementally)
 	FinishReason     string           // "stop", "tool_calls", or "" if not done
 	Timings          *Timings         // Only present in the final chunk
+	PromptProgress   *PromptProgress  // Prompt processing progress (llama.cpp return_progress)
+}
+
+// PromptProgress reports prompt processing progress during streaming.
+// Sent by llama.cpp when return_progress is enabled in the request.
+type PromptProgress struct {
+	Total     int `json:"total"`
+	Cached    int `json:"cache"`
+	Processed int `json:"processed"`
+	TimeMS    int `json:"time_ms"`
 }
 
 // Timings contains llama.cpp performance metrics from the last chunk.
@@ -215,13 +225,15 @@ type llamaCppChunk struct {
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
-	Timings *Timings `json:"timings,omitempty"`
+	Timings        *Timings        `json:"timings,omitempty"`
+	PromptProgress *PromptProgress `json:"prompt_progress,omitempty"`
 }
 
 // chunkToToken converts a raw llama.cpp chunk to our StreamToken type.
 func chunkToToken(chunk *llamaCppChunk) StreamToken {
 	token := StreamToken{
-		Timings: chunk.Timings,
+		Timings:        chunk.Timings,
+		PromptProgress: chunk.PromptProgress,
 	}
 
 	if len(chunk.Choices) == 0 {

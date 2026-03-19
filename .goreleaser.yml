@@ -42,6 +42,22 @@ builds:
       - -X main.version={{.Version}}
       - -X main.commit={{.ShortCommit}}
 
+  - id: auxot-agent
+    main: ./cmd/auxot-agent
+    binary: auxot-agent
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+
   - id: auxot-tools
     main: ./cmd/auxot-tools
     binary: auxot-tools
@@ -63,10 +79,10 @@ archives:
   - id: default
     format: tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    # Package router + worker into one archive per platform
     builds:
       - auxot-router
       - auxot-worker
+      - auxot-agent
 
   - id: tools
     format: tar.gz

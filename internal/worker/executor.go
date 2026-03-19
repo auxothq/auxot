@@ -37,6 +37,68 @@ func NewExecutor(llamaURL string, jobTimeout time.Duration, logger *slog.Logger)
 	}
 }
 
+// toolCallKey is a compact key representing one tool call + its result,
+// used to detect identical consecutive tool calls in the conversation history.
+type toolCallKey struct {
+	name      string
+	arguments string
+	result    string
+}
+
+// detectToolLoop scans the conversation history for the last N rounds of
+// tool_call→tool_result pairs. Returns true (and a description) if the most
+// recent 3 consecutive rounds are all identical: same tool name, same
+// arguments, and same result. An agent retrying the same call with the same
+// result is stuck and will never make progress.
+func detectToolLoop(messages []protocol.ChatMessage) (bool, string) {
+	const window = 3
+
+	// Walk backwards collecting (assistant w/ tool_calls, tool result) pairs.
+	type round struct{ key toolCallKey }
+	var rounds []round
+
+	i := len(messages) - 1
+	for i >= 0 && len(rounds) < window {
+		// Expect a tool result message (role=tool).
+		if messages[i].Role != "tool" {
+			break
+		}
+		resultContent := messages[i].ContentString()
+		i--
+
+		// The message before the tool result should be the assistant turn that
+		// issued the tool call. It may itself be preceded by more tool results
+		// from the same assistant turn (parallel tool calls), but for our purposes
+		// we only look at single-call turns to keep the comparison simple.
+		if i < 0 || messages[i].Role != "assistant" || len(messages[i].ToolCalls) != 1 {
+			break
+		}
+		tc := messages[i].ToolCalls[0]
+		rounds = append(rounds, round{key: toolCallKey{
+			name:      tc.Function.Name,
+			arguments: tc.Function.Arguments,
+			result:    resultContent,
+		}})
+		i--
+	}
+
+	if len(rounds) < window {
+		return false, ""
+	}
+
+	first := rounds[0].key
+	for _, r := range rounds[1:] {
+		if r.key != first {
+			return false, ""
+		}
+	}
+
+	return true, fmt.Sprintf(
+		"Tool loop detected: %q called %d times with identical input and output. Stopping.",
+		first.name, window,
+	)
+}
+
 // Execute runs a job: converts protocol messages to llama.cpp request,
 // streams tokens via sendToken, and sends completion/error via the callbacks.
 // sendReasoningToken is called for thinking/reasoning tokens (may be nil if not supported).
@@ -48,9 +110,17 @@ func (e *Executor) Execute(
 	sendToolGenerating func() error,
 	sendComplete func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error,
 	sendError func(errMsg, details string) error,
+	sendProgress func(total, cached, processed int) error,
 ) {
 	jobCtx, cancel := context.WithTimeout(ctx, e.jobTimeout)
 	defer cancel()
+
+	// Detect infinite tool loops before spending tokens on another inference round.
+	if looped, msg := detectToolLoop(job.Messages); looped {
+		e.logger.Warn("tool loop detected, aborting job", "job_id", job.JobID, "detail", msg)
+		_ = sendError(msg, "")
+		return
+	}
 
 	// No separate "executing job" log - the "received job" log is sufficient
 
@@ -106,6 +176,7 @@ func (e *Executor) Execute(
 		MaxTokens:       job.MaxTokens,
 		Stream:          true,
 		ReasoningEffort: job.ReasoningEffort,
+		ReturnProgress:  true,
 	}
 
 	// When thinking is suppressed, tell llama.cpp to disable thinking at the
@@ -165,6 +236,11 @@ func (e *Executor) Execute(
 			e.logger.Error("llama.cpp stream error", "job_id", job.JobID, "error", token.Content)
 			_ = sendError(fmt.Sprintf("llama.cpp: %s", token.Content), "")
 			return
+		}
+
+		// Relay prompt processing progress to the server (GPU-only; cloud providers don't emit this).
+		if token.PromptProgress != nil && sendProgress != nil {
+			_ = sendProgress(token.PromptProgress.Total, token.PromptProgress.Cached, token.PromptProgress.Processed)
 		}
 
 		if token.Content != "" {

@@ -292,6 +292,17 @@ func (c *Connection) SendBuiltinTool(jobID, id, name, args, result string) error
 	})
 }
 
+// SendPromptProgress reports prompt processing progress to the router.
+func (c *Connection) SendPromptProgress(jobID string, total, cached, processed int) error {
+	return c.sendJSON(protocol.PromptProgressMessage{
+		Type:      protocol.TypePromptProgress,
+		JobID:     jobID,
+		Total:     total,
+		Cached:    cached,
+		Processed: processed,
+	})
+}
+
 // SendComplete sends a completion message to the router.
 func (c *Connection) SendComplete(jobID, fullResponse, reasoningContent string, durationMS int64, cacheTokens, inputTokens, outputTokens, reasoningTokens int, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error {
 	return c.sendJSON(protocol.CompleteMessage{

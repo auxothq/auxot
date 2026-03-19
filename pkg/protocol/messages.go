@@ -18,8 +18,9 @@ const (
 	TypeHeartbeat      MessageType = "heartbeat"
 	TypeConfig         MessageType = "config"
 	TypeToken          MessageType = "token"
-	TypeToolGenerating MessageType = "tool_generating" // Sent once when the model starts writing a tool call
-	TypeBuiltinTool    MessageType = "builtin_tool"    // CLI worker: native tool completed (Bash, Read, etc.)
+	TypeToolGenerating MessageType = "tool_generating"  // Sent once when the model starts writing a tool call
+	TypeBuiltinTool    MessageType = "builtin_tool"     // CLI worker: native tool completed (Bash, Read, etc.)
+	TypePromptProgress MessageType = "prompt_progress"  // GPU worker: prompt processing progress
 	TypeComplete       MessageType = "complete"
 	TypeError          MessageType = "error"
 
@@ -104,6 +105,16 @@ type TokenMessage struct {
 type ToolGeneratingMessage struct {
 	Type  MessageType `json:"type"`
 	JobID string      `json:"job_id"`
+}
+
+// PromptProgressMessage reports prompt processing progress from the GPU worker.
+// Emitted during the prompt evaluation phase before token generation starts.
+type PromptProgressMessage struct {
+	Type      MessageType `json:"type"`
+	JobID     string      `json:"job_id"`
+	Total     int         `json:"total"`     // total prompt tokens
+	Cached    int         `json:"cached"`    // tokens served from KV cache
+	Processed int         `json:"processed"` // tokens processed so far
 }
 
 // BuiltinToolMessage is sent by the CLI worker in real-time when a CLI-native
@@ -334,6 +345,13 @@ func ParseMessage(data []byte) (any, error) {
 		var msg ToolGeneratingMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
 			return nil, fmt.Errorf("parsing tool_generating message: %w", err)
+		}
+		return msg, nil
+
+	case TypePromptProgress:
+		var msg PromptProgressMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing prompt_progress message: %w", err)
 		}
 		return msg, nil
 

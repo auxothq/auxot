@@ -28,6 +28,7 @@ type ChatCompletionRequest struct {
 	Stop               any            `json:"stop,omitempty"`                    // string or []string
 	ReasoningEffort    string         `json:"reasoning_effort,omitempty"`        // "none", "low", "medium", "high" — controls thinking
 	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`   // llama.cpp extension: passed to Jinja template (e.g. enable_thinking)
+	ReturnProgress     bool           `json:"return_progress,omitempty"`        // llama.cpp extension: emit prompt processing progress in stream
 }
 
 // Message represents a single message in the conversation.

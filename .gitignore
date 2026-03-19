@@ -9,7 +9,10 @@
 /dist/
 /bin/
 /auxot-worker
+/auxot-agent
 /claude-probe
+/auxot-router
+/auxot-tools
 
 # Test binary, built with `go test -c`
 *.test

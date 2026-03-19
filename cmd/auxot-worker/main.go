@@ -412,6 +412,9 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 			func(errMsg, details string) error {
 				return conn.SendError(job.JobID, errMsg)
 			},
+			func(total, cached, processed int) error {
+				return conn.SendPromptProgress(job.JobID, total, cached, processed)
+			},
 		)
 	})
 
@@ -725,6 +728,7 @@ func runWithStableDiffusion(ctx context.Context, cfg *worker.Config, conn *worke
 				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
 			},
 			func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
+			nil,
 		)
 	})
 
@@ -838,6 +842,9 @@ func runWithExternalLlama(ctx context.Context, cfg *worker.Config, conn *worker.
 				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
 			},
 			func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
+			func(total, cached, processed int) error {
+				return conn.SendPromptProgress(job.JobID, total, cached, processed)
+			},
 		)
 	})
 

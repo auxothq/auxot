@@ -32,9 +32,9 @@ import (
 
 func main() {
 	// Defaults from environment.
-	serverDefault := os.Getenv("AUXOT_SERVER_URL")
-	if serverDefault == "" {
-		serverDefault = "wss://auxot.company.com"
+	routerDefault := os.Getenv("AUXOT_ROUTER_URL")
+	if routerDefault == "" {
+		routerDefault = os.Getenv("AUXOT_SERVER_URL") // legacy compat
 	}
 	agentKeyDefault := os.Getenv("AUXOT_AGENT_KEY")
 	dirDefault := os.Getenv("AUXOT_AGENT_DIR")
@@ -49,20 +49,26 @@ func main() {
 		logLevelDefault = "info"
 	}
 
-	var serverURL, agentKey, dir, logLevel string
-	flag.StringVar(&serverURL, "server", serverDefault, "Auxot server URL (overrides AUXOT_SERVER_URL)")
+	var routerURL, serverURL, agentKey, dir, logLevel string
+	flag.StringVar(&routerURL, "router-url", routerDefault, "Auxot router URL (overrides AUXOT_ROUTER_URL)")
+	flag.StringVar(&serverURL, "server", "", "Deprecated: use --router-url instead")
 	flag.StringVar(&agentKey, "agent-key", agentKeyDefault, "Agent key (overrides AUXOT_AGENT_KEY)")
 	flag.StringVar(&dir, "dir", dirDefault, "Gitagent directory containing SOUL.md and agent.yaml (overrides AUXOT_AGENT_DIR)")
 	flag.StringVar(&logLevel, "log-level", logLevelDefault, "Log level: debug, info, warn, error")
 
 	flag.Parse()
 
+	// --server is the legacy alias for --router-url
+	if routerURL == "" && serverURL != "" {
+		routerURL = serverURL
+	}
+
 	if agentKey == "" {
 		fmt.Fprintln(os.Stderr, "error: --agent-key (or AUXOT_AGENT_KEY) is required")
 		os.Exit(1)
 	}
-	if serverURL == "" {
-		fmt.Fprintln(os.Stderr, "error: --server (or AUXOT_SERVER_URL) is required")
+	if routerURL == "" {
+		fmt.Fprintln(os.Stderr, "error: --router-url (or AUXOT_ROUTER_URL) is required")
 		os.Exit(1)
 	}
 
@@ -75,7 +81,7 @@ func main() {
 	defer cancel()
 
 	worker := agentworker.New(agentworker.Config{
-		ServerURL: serverURL,
+		ServerURL: routerURL,
 		AgentKey:  agentKey,
 		Dir:       dir,
 	}, logger)

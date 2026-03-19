@@ -40,6 +40,7 @@ func (e *ImageExecutor) Execute(
 	sendToolGenerating func() error,
 	sendComplete func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error,
 	sendError func(errMsg, details string) error,
+	_ func(total, cached, processed int) error,
 ) {
 	jobCtx, cancel := context.WithTimeout(ctx, e.jobTimeout)
 	defer cancel()

@@ -1,0 +1,37 @@
+{
+  "name": "@auxot/worker-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Auxot agent worker CLI — connects a gitagent to your Auxot server",
+  "license": "Apache-2.0",
+  "author": "Auxot <support@auxot.com>",
+  "homepage": "https://github.com/auxothq/auxot",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/auxothq/auxot.git",
+    "directory": "npm/worker-agent"
+  },
+  "keywords": ["auxot", "agent", "gitagent", "worker", "ai"],
+  "bin": {
+    "auxot-agent": "./dist/index.js"
+  },
+  "files": ["dist/**/*", "README.md"],
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "esbuild": "^0.20.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.3.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
