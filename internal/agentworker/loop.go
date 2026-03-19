@@ -122,6 +122,8 @@ func (l *AgenticLoop) Run(ctx context.Context, job protocol.AgentJobMessage, tok
 			return fmt.Errorf("collect stream (turn %d): %w", turn+1, err)
 		}
 
+		l.logger.Debug("stream collected", "turn", turn+1, "tool_calls", len(resp.ToolCalls), "content_len", len(resp.Content))
+
 		// No tool calls → model is done.
 		if len(resp.ToolCalls) == 0 {
 			return nil
@@ -300,10 +302,7 @@ func (l *AgenticLoop) emitToolEvent(ev ToolEvent) {
 	if l.toolEventCh == nil {
 		return
 	}
-	select {
-	case l.toolEventCh <- ev:
-	default:
-	}
+	l.toolEventCh <- ev
 }
 
 // buildMessages converts a job's system prompt and conversation history into

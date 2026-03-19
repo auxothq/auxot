@@ -50,13 +50,19 @@ func main() {
 	}
 
 	var routerURL, serverURL, agentKey, dir, logLevel string
+	var debug bool
 	flag.StringVar(&routerURL, "router-url", routerDefault, "Auxot router URL (overrides AUXOT_ROUTER_URL)")
 	flag.StringVar(&serverURL, "server", "", "Deprecated: use --router-url instead")
 	flag.StringVar(&agentKey, "agent-key", agentKeyDefault, "Agent key (overrides AUXOT_AGENT_KEY)")
 	flag.StringVar(&dir, "dir", dirDefault, "Gitagent directory containing SOUL.md and agent.yaml (overrides AUXOT_AGENT_DIR)")
 	flag.StringVar(&logLevel, "log-level", logLevelDefault, "Log level: debug, info, warn, error")
+	flag.BoolVar(&debug, "debug", false, "Enable debug logging (shorthand for --log-level debug)")
 
 	flag.Parse()
+
+	if debug {
+		logLevel = "debug"
+	}
 
 	// --server is the legacy alias for --router-url
 	if routerURL == "" && serverURL != "" {

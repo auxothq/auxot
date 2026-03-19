@@ -243,21 +243,27 @@ func (w *Worker) handleJob(ctx context.Context, msg protocol.AgentJobMessage) {
 				continue
 			}
 			if ev.IsResult {
-				_ = conn.WriteJSON(protocol.AgentToolResultMessage{
+				log.Debug("sending agent_tool_result", "tool_call_id", ev.ID)
+				if err := conn.WriteJSON(protocol.AgentToolResultMessage{
 					Type:       protocol.TypeAgentToolResult,
 					JobID:      msg.JobID,
 					ToolCallID: ev.ID,
 					Content:    ev.Content,
 					IsError:    ev.IsError,
-				})
+				}); err != nil {
+					log.Warn("failed to send agent_tool_result", "err", err)
+				}
 			} else {
-				_ = conn.WriteJSON(protocol.AgentToolCallMessage{
+				log.Debug("sending agent_tool_call", "tool", ev.Name, "id", ev.ID)
+				if err := conn.WriteJSON(protocol.AgentToolCallMessage{
 					Type:      protocol.TypeAgentToolCall,
 					JobID:     msg.JobID,
 					ID:        ev.ID,
 					Name:      ev.Name,
 					Arguments: ev.Arguments,
-				})
+				}); err != nil {
+					log.Warn("failed to send agent_tool_call", "err", err)
+				}
 			}
 
 		case <-ctx.Done():
