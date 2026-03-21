@@ -33,17 +33,18 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -o /auxot-agent \
     ./cmd/auxot-agent
 
-# ── Stage 2: Install gitagent ─────────────────────────────────────────────────
-FROM node:22-bookworm-slim AS gitagent-installer
-
-RUN npm install -g @open-gitagent/gitagent
-
-# ── Stage 3: Runtime ──────────────────────────────────────────────────────────
+# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Install gitagent globally in the final stage so npm creates proper bin
+# symlinks. Copying a global install across stages copies the raw file that
+# the symlink resolved to, stripping the symlink — Node.js then cannot find
+# the package's own dependencies (e.g. commander) from the resolved path.
+RUN npm install -g @open-gitagent/gitagent
 
 # node:22-bookworm-slim ships a built-in "node" user at uid/gid 1000.
 # Rename it to "agent" and relocate the home directory.
@@ -51,8 +52,6 @@ RUN groupmod -n agent node && \
     usermod -l agent -d /home/agent -m node
 
 COPY --from=build /auxot-agent /usr/local/bin/auxot-agent
-COPY --from=gitagent-installer /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=gitagent-installer /usr/local/bin/gitagent /usr/local/bin/gitagent
 COPY entrypoint-agent.sh /usr/local/bin/entrypoint-agent.sh
 RUN chmod +x /usr/local/bin/entrypoint-agent.sh
 

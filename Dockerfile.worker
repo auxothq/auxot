@@ -47,23 +47,20 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     ./cmd/auxot-worker
 
 # ============================================================================
-# Stage 2: claude-installer — install Claude Code CLI globally
-# ============================================================================
-FROM node:22-bookworm-slim AS claude-installer
-
-RUN npm install -g @anthropic-ai/claude-code
-
-# ============================================================================
-# Stage 3: final — slim runtime, non-root, claude + auxot-worker
+# Stage 2: final — slim runtime, non-root, claude + auxot-worker
 # ============================================================================
 FROM node:22-bookworm-slim
+
+# Install Claude Code globally in the final stage so npm creates proper bin
+# symlinks. Copying a global install across stages copies the raw file that
+# the symlink resolved to, stripping the symlink — Node.js then cannot find
+# the package's own dependencies from the resolved path.
+RUN npm install -g @anthropic-ai/claude-code
 
 RUN groupadd --gid 65532 nonroot && \
     useradd --uid 65532 --gid 65532 --create-home --shell /usr/sbin/nologin nonroot
 
 COPY --from=go-builder /build/auxot-worker /usr/local/bin/auxot-worker
-COPY --from=claude-installer /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=claude-installer /usr/local/bin/claude /usr/local/bin/claude
 
 # Model and binary cache land in the nonroot home; mount a volume here for
 # GPU workers to persist downloaded models across container restarts.
