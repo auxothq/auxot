@@ -45,8 +45,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd --gid 1000 agent && \
-    useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash agent
+# node:22-bookworm-slim ships a built-in "node" user at uid/gid 1000.
+# Rename it to "agent" and relocate the home directory.
+RUN groupmod -n agent node && \
+    usermod -l agent -d /home/agent -m node
 
 COPY --from=build /auxot-agent /usr/local/bin/auxot-agent
 COPY --from=gitagent-installer /usr/local/lib/node_modules /usr/local/lib/node_modules
