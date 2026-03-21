@@ -1,23 +1,60 @@
-# ── Stage 1: Build ────────────────────────────────────────────────────────────
-FROM golang:1.25-alpine AS build
+# Auxot Agent — gitagent runtime for autonomous agent workers
+#
+# Bundles the auxot-agent Go binary with gitagent (npm global install) and Node.js.
+# On first boot the entrypoint initialises a fresh gitagent workspace in /home/agent
+# (creates SOUL.md + agent.yaml via `gitagent init`) if SOUL.md is absent, then
+# starts the agent worker. On subsequent starts the init step is skipped.
+#
+# Bind-mount a host directory to /home/agent to persist the workspace across
+# container restarts, or let the container manage its own ephemeral state.
+#
+# Required environment variables:
+#   AUXOT_AGENT_KEY    Agent authentication key (agent_... from Auxot dashboard)
+#   AUXOT_ROUTER_URL   Router WebSocket URL (e.g. wss://auxot.example.com/ws)
+#
+# Optional environment variables:
+#   AUXOT_AGENT_DIR    Override agent workspace path (default: /home/agent)
+#   AUXOT_LOG_LEVEL    Log level: debug, info, warn, error (default: info)
+#
+# Supports multi-arch builds via docker buildx:
+#   docker buildx build -f Dockerfile.agent --platform linux/amd64,linux/arm64 .
+
+# ── Stage 1: Build auxot-agent ────────────────────────────────────────────────
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
+
+ARG TARGETOS TARGETARCH
+
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /auxot-agent ./cmd/auxot-agent
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+    -ldflags="-s -w" \
+    -o /auxot-agent \
+    ./cmd/auxot-agent
 
-# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
-FROM alpine:3.21
-RUN apk add --no-cache bash git ca-certificates
+# ── Stage 2: Install gitagent ─────────────────────────────────────────────────
+FROM node:22-bookworm-slim AS gitagent-installer
+
+RUN npm install -g @open-gitagent/gitagent
+
+# ── Stage 3: Runtime ──────────────────────────────────────────────────────────
+FROM node:22-bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 1000 agent && \
+    useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash agent
 
 COPY --from=build /auxot-agent /usr/local/bin/auxot-agent
+COPY --from=gitagent-installer /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=gitagent-installer /usr/local/bin/gitagent /usr/local/bin/gitagent
+COPY entrypoint-agent.sh /usr/local/bin/entrypoint-agent.sh
+RUN chmod +x /usr/local/bin/entrypoint-agent.sh
 
-# Agent directory is bind-mounted from the host.
-# It must contain SOUL.md and agent.yaml.
-WORKDIR /agent
+USER agent
+WORKDIR /home/agent
 
-# Configuration via environment variables:
-#   AUXOT_AGENT_KEY     — agent key (required)
-#   AUXOT_SERVER_URL    — Auxot server URL (required), e.g. http://auxot:8080
-#   AUXOT_AGENT_DIR     — agent directory (default: /agent)
-ENTRYPOINT ["auxot-agent"]
+ENTRYPOINT ["/usr/local/bin/entrypoint-agent.sh"]
