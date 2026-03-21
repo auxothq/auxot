@@ -36,6 +36,9 @@ type Connection struct {
 
 	// Callback invoked when the router sends a validate_configuration message.
 	onValidateConfiguration func(req protocol.ValidateConfigurationMessage)
+
+	// onConnected is invoked once after hello_ack succeeds (session established).
+	onConnected func()
 }
 
 // NewConnection creates a Connection to the router.
@@ -67,6 +70,12 @@ func (c *Connection) OnReloadPolicy(fn func(policy protocol.ToolsPolicy)) {
 // separate goroutine so it does not block the message loop.
 func (c *Connection) OnValidateConfiguration(fn func(req protocol.ValidateConfigurationMessage)) {
 	c.onValidateConfiguration = fn
+}
+
+// OnConnected registers a callback invoked once after authentication succeeds
+// (hello_ack received). Used by Worker to reset reconnect backoff.
+func (c *Connection) OnConnected(fn func()) {
+	c.onConnected = fn
 }
 
 // ToolID returns the server-assigned tools worker ID (available after Connect).
@@ -143,6 +152,10 @@ func (c *Connection) Connect(ctx context.Context) error {
 		"tool_id", c.toolID,
 		"tools", currentTools,
 	)
+
+	if c.onConnected != nil {
+		c.onConnected()
+	}
 
 	// Apply the initial policy if the server provided one.
 	if ack.ToolsPolicy != nil && c.onReloadPolicy != nil {

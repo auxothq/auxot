@@ -52,10 +52,14 @@ func NewWorker(cfg *Config, registry *tools.Registry, logger *slog.Logger) *Work
 
 // Run connects to the router and processes tool jobs until the context is cancelled.
 // On disconnection it retries immediately, then uses exponential backoff on repeated failures.
-// Backoff resets to zero when a connection succeeds (clean disconnect).
+// Backoff resets when a session is established (hello_ack), so a later disconnect
+// does not inherit stale delay from earlier dial failures.
 func (w *Worker) Run(ctx context.Context) error {
 	w.runCtx = ctx
-	var delay time.Duration // 0 = immediate retry
+	var delay time.Duration // 0 = immediate retry; escalates only after failed Connect
+	w.conn.OnConnected(func() {
+		delay = 0
+	})
 
 	for {
 		if ctx.Err() != nil {
@@ -71,8 +75,6 @@ func (w *Worker) Run(ctx context.Context) error {
 			w.logger.Error("router connection failed", "error", err, "retry_in_sec", int64(delay.Seconds()))
 		} else {
 			w.logger.Info("disconnected from router, retrying", "retry_in_sec", int64(delay.Seconds()))
-			// Reset backoff on clean disconnects (server restart, etc.) — immediate retry.
-			delay = 0
 		}
 
 		select {
@@ -81,13 +83,15 @@ func (w *Worker) Run(ctx context.Context) error {
 		case <-time.After(delay):
 		}
 
-		// Exponential backoff for failures; stays 0 after successful connect.
-		if delay == 0 {
-			delay = w.cfg.ReconnectDelay
-		} else {
-			delay *= 2
-			if delay > w.cfg.ReconnectMaxDelay {
-				delay = w.cfg.ReconnectMaxDelay
+		// Escalate backoff only after a failed connection attempt.
+		if err != nil {
+			if delay == 0 {
+				delay = w.cfg.ReconnectDelay
+			} else {
+				delay *= 2
+				if delay > w.cfg.ReconnectMaxDelay {
+					delay = w.cfg.ReconnectMaxDelay
+				}
 			}
 		}
 	}

@@ -1,5 +1,5 @@
 // Package agentworker implements the agent worker that connects to an Auxot
-// server as a worker-backed auxie. It reads SOUL.md and agent.yaml from the
+// server as a worker-backed agent. It reads SOUL.md and agent.yaml from the
 // gitagent directory, authenticates with an agent key, and executes chat jobs
 // using an embedded agentic loop backed by Auxot's OpenAI-compatible API.
 package agentworker
