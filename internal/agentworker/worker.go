@@ -147,6 +147,34 @@ func (w *Worker) connectAndRun(ctx context.Context) error {
 
 	w.logger.Info("connected to server", "agent_id", ack.AgentID, "external_tools", len(ack.ExternalTools))
 
+	// Heartbeat keeps the connection alive through load balancers (ALB default idle: 60s).
+	heartbeatStop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-heartbeatStop:
+				return
+			case <-ticker.C:
+				w.mu.Lock()
+				c := w.conn
+				w.mu.Unlock()
+				if c == nil {
+					return
+				}
+				msg := map[string]string{"type": "heartbeat"}
+				if err := c.WriteJSON(msg); err != nil {
+					w.logger.Debug("heartbeat write failed", "err", err)
+					return
+				}
+			}
+		}
+	}()
+	defer close(heartbeatStop)
+
 	// Message loop.
 	for {
 		_, raw, err := conn.ReadMessage()
