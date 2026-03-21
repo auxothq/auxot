@@ -38,10 +38,21 @@ type Worker struct {
 	logger *slog.Logger
 	mu     sync.Mutex
 	conn   *websocket.Conn
+	writeMu sync.Mutex // guards all conn.WriteJSON calls (gorilla/websocket is not concurrent-write-safe)
 
 	gitagent      *GitAgent
 	externalTools []protocol.ExternalToolDef
 	toolClient    *ToolClient
+}
+
+func (w *Worker) writeJSON(v any) error {
+	w.writeMu.Lock()
+	defer w.writeMu.Unlock()
+	c := w.currentConn()
+	if c == nil {
+		return fmt.Errorf("no connection")
+	}
+	return c.WriteJSON(v)
 }
 
 // New creates a Worker.
@@ -159,14 +170,7 @@ func (w *Worker) connectAndRun(ctx context.Context) error {
 			case <-heartbeatStop:
 				return
 			case <-ticker.C:
-				w.mu.Lock()
-				c := w.conn
-				w.mu.Unlock()
-				if c == nil {
-					return
-				}
-				msg := map[string]string{"type": "heartbeat"}
-				if err := c.WriteJSON(msg); err != nil {
+				if err := w.writeJSON(map[string]string{"type": "heartbeat"}); err != nil {
 					w.logger.Debug("heartbeat write failed", "err", err)
 					return
 				}
@@ -238,8 +242,7 @@ func (w *Worker) handleJob(ctx context.Context, msg protocol.AgentJobMessage) {
 	}
 	msg.SystemPrompt = w.gitagent.BuildSystemPrompt(msg.SystemPrompt, toolNames)
 
-	conn := w.currentConn()
-	if conn == nil {
+	if w.currentConn() == nil {
 		log.Error("no connection, dropping job")
 		return
 	}
@@ -263,7 +266,7 @@ func (w *Worker) handleJob(ctx context.Context, msg protocol.AgentJobMessage) {
 				tokenCh = nil
 				continue
 			}
-			_ = conn.WriteJSON(protocol.AgentTokenMessage{
+			_ = w.writeJSON(protocol.AgentTokenMessage{
 				Type:  protocol.TypeAgentToken,
 				JobID: msg.JobID,
 				Token: tok,
@@ -276,7 +279,7 @@ func (w *Worker) handleJob(ctx context.Context, msg protocol.AgentJobMessage) {
 			}
 			if ev.IsResult {
 				log.Debug("sending agent_tool_result", "tool_call_id", ev.ID)
-				if err := conn.WriteJSON(protocol.AgentToolResultMessage{
+				if err := w.writeJSON(protocol.AgentToolResultMessage{
 					Type:       protocol.TypeAgentToolResult,
 					JobID:      msg.JobID,
 					ToolCallID: ev.ID,
@@ -287,7 +290,7 @@ func (w *Worker) handleJob(ctx context.Context, msg protocol.AgentJobMessage) {
 				}
 			} else {
 				log.Debug("sending agent_tool_call", "tool", ev.Name, "id", ev.ID)
-				if err := conn.WriteJSON(protocol.AgentToolCallMessage{
+				if err := w.writeJSON(protocol.AgentToolCallMessage{
 					Type:      protocol.TypeAgentToolCall,
 					JobID:     msg.JobID,
 					ID:        ev.ID,
@@ -304,17 +307,16 @@ func (w *Worker) handleJob(ctx context.Context, msg protocol.AgentJobMessage) {
 		}
 	}
 
-	// Both channels closed — loop.Run returned. Check result.
 	if err := <-errCh; err != nil {
 		log.Error("job failed", "err", err)
-		_ = conn.WriteJSON(protocol.AgentErrorMessage{
+		_ = w.writeJSON(protocol.AgentErrorMessage{
 			Type:  protocol.TypeAgentError,
 			JobID: msg.JobID,
 			Error: err.Error(),
 		})
 		return
 	}
-	_ = conn.WriteJSON(protocol.AgentCompleteMessage{
+	_ = w.writeJSON(protocol.AgentCompleteMessage{
 		Type:       protocol.TypeAgentComplete,
 		JobID:      msg.JobID,
 		StopReason: "end_turn",
