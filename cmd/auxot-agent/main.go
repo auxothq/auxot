@@ -9,7 +9,7 @@
 //
 // On startup:
 //  1. Validate the gitagent directory
-//  2. Connect to the server via WebSocket at /ws/agent
+//  2. Connect to the server via WebSocket at /ws
 //  3. Send hello with agent key and metadata
 //  4. Receive hello_ack with system prompt
 //  5. Enter job loop: for each agent_job, spawn claude, stream tokens back
@@ -28,6 +28,7 @@ import (
 
 	"github.com/auxothq/auxot/internal/agentworker"
 	"github.com/auxothq/auxot/pkg/logutil"
+	"github.com/auxothq/auxot/pkg/routerurl"
 )
 
 func main() {
@@ -78,6 +79,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	normalizedURL, err := routerurl.Normalize(routerURL, "/ws")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: AUXOT_ROUTER_URL: %v\n", err)
+		os.Exit(1)
+	}
+
 	logger := slog.New(slog.NewJSONHandler(
 		logutil.Output(os.Stderr),
 		&slog.HandlerOptions{Level: slogLevel(logLevel)},
@@ -87,7 +94,7 @@ func main() {
 	defer cancel()
 
 	worker := agentworker.New(agentworker.Config{
-		ServerURL: routerURL,
+		ServerURL: normalizedURL,
 		AgentKey:  agentKey,
 		Dir:       dir,
 	}, logger)

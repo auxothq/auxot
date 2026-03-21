@@ -58,7 +58,7 @@ func (c *Connection) GPUID() string {
 // receives the model policy from hello_ack, and disconnects.
 // This is Phase 1 — before model download and llama.cpp spawn.
 func (c *Connection) FetchPolicy() (*protocol.Policy, error) {
-	c.logger.Info("connecting to router", "url", c.url)
+	c.logger.Info("connecting to router", "AUXOT_ROUTER_URL", c.url)
 
 	conn, _, err := websocket.DefaultDialer.Dial(c.url, nil)
 	if err != nil {
@@ -115,7 +115,7 @@ func (c *Connection) FetchPolicy() (*protocol.Policy, error) {
 // ConnectPermanent establishes the permanent WebSocket connection and sends
 // the discovered capabilities. This is Phase 2 — after llama.cpp is running.
 func (c *Connection) ConnectPermanent(caps *DiscoveredCaps) error {
-	c.logger.Info("connecting to router", "url", c.url)
+	c.logger.Info("connecting to router", "AUXOT_ROUTER_URL", c.url)
 
 	conn, _, err := websocket.DefaultDialer.Dial(c.url, nil)
 	if err != nil {

@@ -95,7 +95,7 @@ func (c *Connection) UpdateAdvertisedTools(tools []string) {
 // It blocks until the connection is closed or ctx is cancelled. The caller
 // should call this in a retry loop (handled by Worker.Run).
 func (c *Connection) Connect(ctx context.Context) error {
-	c.logger.Info("connecting to router", "url", c.url)
+	c.logger.Info("connecting to router", "AUXOT_ROUTER_URL", c.url)
 
 	conn, _, err := websocket.DefaultDialer.Dial(c.url, nil)
 	if err != nil {

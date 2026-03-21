@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/auxothq/auxot/pkg/routerurl"
 )
 
 // CLIFlags holds command-line flag values that override environment variables.
@@ -51,17 +53,18 @@ type Config struct {
 // CLI flag values override env vars when non-empty.
 // Returns an error if required values are missing.
 func LoadConfig(flags CLIFlags) (*Config, error) {
-	routerURL := os.Getenv("AUXOT_ROUTER_URL")
-	if routerURL == "" {
-		routerURL = "wss://auxot.com/api/gpu/client"
+	rawURL := os.Getenv("AUXOT_ROUTER_URL")
+	if rawURL == "" {
+		rawURL = "auxot.com"
 	}
 	if flags.RouterURL != "" {
-		routerURL = flags.RouterURL
+		rawURL = flags.RouterURL
 	}
 
-	// Normalise: router may be given as http(s):// — convert to ws(s)://
-	routerURL = strings.Replace(routerURL, "https://", "wss://", 1)
-	routerURL = strings.Replace(routerURL, "http://", "ws://", 1)
+	routerURL, err := routerurl.Normalize(rawURL, "/ws")
+	if err != nil {
+		return nil, fmt.Errorf("AUXOT_ROUTER_URL: %w", err)
+	}
 
 	// Support both AUXOT_TOOLS_KEY (preferred) and the legacy AUXOT_GPU_KEY
 	// so existing users don't need to update immediately.

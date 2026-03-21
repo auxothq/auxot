@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,8 +23,11 @@ import (
 
 // Config holds the worker configuration.
 type Config struct {
-	ServerURL string // wss://... URL of the Auxot server
-	AgentKey  string // agnt_xxx key
+	// ServerURL is the normalised WebSocket URL including path: wss://host/ws
+	// Set via AUXOT_ROUTER_URL. Accepts http/https/ws/wss schemes and bare
+	// hostnames; the path is always replaced with /ws.
+	ServerURL string
+	AgentKey  string // agent key (wrk_xxx)
 	Dir       string // gitagent directory (default: current directory)
 }
 
@@ -76,8 +80,8 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 
 func (w *Worker) connectAndRun(ctx context.Context) error {
-	serverURL := w.cfg.ServerURL + "/ws/agent"
-	w.logger.Info("dialing server", "url", serverURL)
+	serverURL := w.cfg.ServerURL
+	w.logger.Info("connecting to router", "AUXOT_ROUTER_URL", serverURL)
 
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, serverURL, nil)
 	if err != nil {
@@ -307,10 +311,20 @@ func (w *Worker) validateDir() error {
 	return nil
 }
 
-// toHTTPURL converts a ws/wss URL to an http/https URL for REST API calls.
-func toHTTPURL(serverURL string) string {
+// toHTTPURL converts a normalised ws/wss URL to an http/https base URL for
+// REST API calls. The WebSocket path (/ws) is stripped so callers can append
+// their own API paths (e.g. /api/tools/v1/execute).
+func toHTTPURL(wsURL string) string {
+	u, err := url.Parse(wsURL)
+	if err != nil {
+		r := strings.NewReplacer("wss://", "https://", "ws://", "http://")
+		return r.Replace(wsURL)
+	}
+	u.Path = ""
+	u.RawQuery = ""
+	u.Fragment = ""
 	r := strings.NewReplacer("wss://", "https://", "ws://", "http://")
-	return r.Replace(serverURL)
+	return r.Replace(u.String())
 }
 
 // localToolNames returns the names of locally-executed coding tools.

@@ -18,6 +18,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/auxothq/auxot/pkg/routerurl"
 )
 
 // Config holds all configuration for the worker.
@@ -25,7 +27,7 @@ import (
 // model policy from the router on connect (hello_ack).
 type Config struct {
 	// Required: Router connection
-	RouterURL string // WebSocket URL of the router (e.g., "wss://auxot.com/api/gpu/client" or "ws://localhost:8080/ws")
+	RouterURL string // Normalised WebSocket URL: wss://host/ws or ws://host:port/ws
 	AdminKey  string // Plaintext admin key for authentication (adm_...)
 
 	// Optional: Model file override for air-gapped deployments.
@@ -69,8 +71,17 @@ type CLIFlags struct {
 // LoadConfig reads worker configuration from environment variables.
 // CLI flag values override env vars when non-empty.
 func LoadConfig(flags CLIFlags) (*Config, error) {
+	rawURL := envStr("AUXOT_ROUTER_URL", "auxot.com")
+	if flags.RouterURL != "" {
+		rawURL = flags.RouterURL
+	}
+	normalizedURL, err := routerurl.Normalize(rawURL, "/ws")
+	if err != nil {
+		return nil, fmt.Errorf("AUXOT_ROUTER_URL: %w", err)
+	}
+
 	cfg := &Config{
-		RouterURL:         envStr("AUXOT_ROUTER_URL", "wss://auxot.com/api/gpu/client"),
+		RouterURL:         normalizedURL,
 		AdminKey:          os.Getenv("AUXOT_GPU_KEY"),
 		ModelFile:         os.Getenv("AUXOT_MODEL_FILE"),
 		ModelsDir:         os.Getenv("AUXOT_MODELS_DIR"),
@@ -85,10 +96,6 @@ func LoadConfig(flags CLIFlags) (*Config, error) {
 		GPULayers:         envInt("AUXOT_GPU_LAYERS", 9999),
 	}
 
-	// CLI flags override env vars
-	if flags.RouterURL != "" {
-		cfg.RouterURL = flags.RouterURL
-	}
 	if flags.GPUKey != "" {
 		cfg.AdminKey = flags.GPUKey
 	}
