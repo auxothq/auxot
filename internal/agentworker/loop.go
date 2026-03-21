@@ -46,8 +46,7 @@ type AgenticLoop struct {
 // NewAgenticLoop creates a loop that authenticates to the Auxot server with
 // agentKey and calls the OpenAI-compatible API at serverURL + "/api/openai/v1".
 func NewAgenticLoop(serverURL, agentKey, workDir string, ga *GitAgent, externalTools []protocol.ExternalToolDef, toolClient *ToolClient, logger *slog.Logger) *AgenticLoop {
-	// Convert ws/wss URLs to http/https for the HTTP API.
-	httpURL := strings.NewReplacer("wss://", "https://", "ws://", "http://").Replace(serverURL)
+	httpURL := toHTTPURL(serverURL)
 
 	cfg := openai.DefaultConfig(agentKey)
 	cfg.BaseURL = httpURL + "/api/openai/v1"
