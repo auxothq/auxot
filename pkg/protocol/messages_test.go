@@ -391,3 +391,278 @@ func TestMarshalMessage_JobRoundTrip(t *testing.T) {
 // helpers for pointer types in test data
 func ptrFloat64(v float64) *float64 { return &v }
 func ptrInt(v int) *int             { return &v }
+
+// TestParseMessage_ToolsWorkerMessages tests round-trip for tools-worker message types.
+func TestParseMessage_ToolsWorkerMessages(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  any
+	}{
+		{
+			name:  "tools worker hello",
+			input: `{"type":"hello","gpu_key":"wrk_test123","worker_type":"tools","tools_capabilities":{"tools":["web_search","shell_exec"]}}`,
+			want: HelloMessage{
+				Type:       TypeHello,
+				GPUKey:     "wrk_test123",
+				WorkerType: "tools",
+				ToolsCapabilities: &ToolsCapabilities{
+					Tools: []string{"web_search", "shell_exec"},
+				},
+			},
+		},
+		{
+			name:  "tool_job message",
+			input: `{"type":"tool_job","job_id":"tool-123","parent_job_id":"parent-123","tool_name":"web_search","tool_call_id":"call_1","arguments":{"query":"auxot"}}`,
+			want: ToolJobMessage{
+				Type:        "tool_job",
+				JobID:       "tool-123",
+				ParentJobID: "parent-123",
+				ToolName:    "web_search",
+				ToolCallID:  "call_1",
+				Arguments:   json.RawMessage(`{"query":"auxot"}`),
+			},
+		},
+		{
+			name:  "tool_result success",
+			input: `{"type":"tool_result","job_id":"tool-123","parent_job_id":"parent-123","tool_call_id":"call_1","tool_name":"web_search","result":{"status":"ok"}}`,
+			want: ToolResultMessage{
+				Type:        "tool_result",
+				JobID:       "tool-123",
+				ParentJobID: "parent-123",
+				ToolCallID:  "call_1",
+				ToolName:    "web_search",
+				Result:      json.RawMessage(`{"status":"ok"}`),
+			},
+		},
+		{
+			name:  "tool_result error",
+			input: `{"type":"tool_result","job_id":"tool-124","parent_job_id":"parent-124","tool_call_id":"call_2","tool_name":"web_fetch","error":"tool failed"}`,
+			want: ToolResultMessage{
+				Type:        "tool_result",
+				JobID:       "tool-124",
+				ParentJobID: "parent-124",
+				ToolCallID:  "call_2",
+				ToolName:    "web_fetch",
+				Error:       "tool failed",
+			},
+		},
+		{
+			name:  "policy_reloaded with mcp schemas",
+			input: `{"type":"policy_reloaded","advertised_tools":["web_fetch","github"],"mcp_schemas":[{"tool_name":"github","package":"@modelcontextprotocol/server-github","version":"1.0.0","description":"GitHub ops","commands":["create_issue"]}]}`,
+			want: PolicyReloadedMessage{
+				Type:            "policy_reloaded",
+				AdvertisedTools: []string{"web_fetch", "github"},
+				McpSchemas: []McpAggregateSchema{
+					{
+						ToolName:    "github",
+						Package:     "@modelcontextprotocol/server-github",
+						Version:     "1.0.0",
+						Description: "GitHub ops",
+						Commands:    []string{"create_issue"},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseMessage([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			gotJSON, _ := json.Marshal(got)
+			wantJSON, _ := json.Marshal(tt.want)
+
+			if string(gotJSON) != string(wantJSON) {
+				t.Errorf("mismatch:\n  got:  %s\n  want: %s", gotJSON, wantJSON)
+			}
+		})
+	}
+}
+
+// TestParseMessage_AgentWorkerMessages tests round-trip for agent-worker message types.
+func TestParseMessage_AgentWorkerMessages(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  any
+	}{
+		{
+			name:  "agent_job",
+			input: `{"type":"agent_job","job_id":"job-999","messages":[{"role":"user","content":"Hello"}],"system_prompt":"You are helpful"}`,
+			want: AgentJobMessage{
+				Type:         TypeAgentJob,
+				JobID:        "job-999",
+				Messages:     []AgentChatMsg{{Role: "user", Content: "Hello"}},
+				SystemPrompt: "You are helpful",
+			},
+		},
+		{
+			name:  "agent_token",
+			input: `{"type":"agent_token","job_id":"job-999","token":"Hi"}`,
+			want: AgentTokenMessage{
+				Type:  TypeAgentToken,
+				JobID: "job-999",
+				Token: "Hi",
+			},
+		},
+		{
+			name:  "agent_complete",
+			input: `{"type":"agent_complete","job_id":"job-999","stop_reason":"end_turn"}`,
+			want: AgentCompleteMessage{
+				Type:       TypeAgentComplete,
+				JobID:      "job-999",
+				StopReason: "end_turn",
+			},
+		},
+		{
+			name:  "agent_error",
+			input: `{"type":"agent_error","job_id":"job-999","error":"connection lost"}`,
+			want: AgentErrorMessage{
+				Type:  TypeAgentError,
+				JobID: "job-999",
+				Error: "connection lost",
+			},
+		},
+		{
+			name:  "agent_tool_call",
+			input: `{"type":"agent_tool_call","job_id":"job-999","id":"call_1","name":"web_search","arguments":"{\"q\":\"test\"}"}`,
+			want: AgentToolCallMessage{
+				Type:      TypeAgentToolCall,
+				JobID:     "job-999",
+				ID:        "call_1",
+				Name:      "web_search",
+				Arguments: `{"q":"test"}`,
+			},
+		},
+		{
+			name:  "agent_tool_result success",
+			input: `{"type":"agent_tool_result","job_id":"job-999","tool_call_id":"call_1","content":"result data","is_error":false}`,
+			want: AgentToolResultMessage{
+				Type:       TypeAgentToolResult,
+				JobID:      "job-999",
+				ToolCallID: "call_1",
+				Content:    "result data",
+				IsError:    false,
+			},
+		},
+		{
+			name:  "agent_tool_result error",
+			input: `{"type":"agent_tool_result","job_id":"job-999","tool_call_id":"call_2","content":"error message","is_error":true}`,
+			want: AgentToolResultMessage{
+				Type:       TypeAgentToolResult,
+				JobID:      "job-999",
+				ToolCallID: "call_2",
+				Content:    "error message",
+				IsError:    true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseMessage([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			gotJSON, _ := json.Marshal(got)
+			wantJSON, _ := json.Marshal(tt.want)
+
+			if string(gotJSON) != string(wantJSON) {
+				t.Errorf("mismatch:\n  got:  %s\n  want: %s", gotJSON, wantJSON)
+			}
+		})
+	}
+}
+
+// TestAgentHelloAck tests agent hello_ack round-trip (not part of ParseMessage).
+func TestAgentHelloAck(t *testing.T) {
+	input := `{"type":"agent_hello_ack","status":"ok","agent_id":"agt-001","external_tools":[{"name":"github__list_repos","description":"List repos","parameters":{"type":"object"},"source":"mcp:github"}]}`
+	
+	var ack AgentHelloAckMessage
+	if err := json.Unmarshal([]byte(input), &ack); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if ack.Status != "ok" {
+		t.Errorf("status = %q, want ok", ack.Status)
+	}
+	if ack.AgentID != "agt-001" {
+		t.Errorf("agent_id = %q, want agt-001", ack.AgentID)
+	}
+	if len(ack.ExternalTools) != 1 {
+		t.Fatalf("external_tools length = %d, want 1", len(ack.ExternalTools))
+	}
+	if ack.ExternalTools[0].Name != "github__list_repos" {
+		t.Errorf("tool name = %q, want github__list_repos", ack.ExternalTools[0].Name)
+	}
+}
+
+// TestAgentReloadPolicy tests agent reload_policy round-trip.
+func TestAgentReloadPolicy(t *testing.T) {
+	input := `{"type":"reload_policy","external_tools":[{"name":"jira__create_ticket","description":"Create ticket","parameters":{"type":"object"},"source":"mcp:jira"}]}`
+	
+	var reload AgentReloadPolicyMessage
+	if err := json.Unmarshal([]byte(input), &reload); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if reload.Type != "reload_policy" {
+		t.Errorf("type = %q, want reload_policy", reload.Type)
+	}
+	if len(reload.ExternalTools) != 1 {
+		t.Fatalf("external_tools length = %d, want 1", len(reload.ExternalTools))
+	}
+	if reload.ExternalTools[0].Name != "jira__create_ticket" {
+		t.Errorf("tool name = %q, want jira__create_ticket", reload.ExternalTools[0].Name)
+	}
+}
+
+// TestParseToolsMessage tests that ParseToolsMessage delegates correctly.
+func TestParseToolsMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{
+			name:    "valid tool_job",
+			input:   `{"type":"tool_job","job_id":"job-1","parent_job_id":"p-1","tool_name":"web_search","tool_call_id":"call_1","arguments":"{}"}`,
+			wantErr: false,
+		},
+		{
+			name:    "valid tool_result",
+			input:   `{"type":"tool_result","job_id":"job-1","parent_job_id":"p-1","tool_call_id":"call_1","tool_name":"web_search","result":"ok"}`,
+			wantErr: false,
+		},
+		{
+			name:    "valid policy_reloaded",
+			input:   `{"type":"policy_reloaded","advertised_tools":[],"mcp_schemas":[]}`,
+			wantErr: false,
+		},
+		{
+			name:    "unknown message type",
+			input:   `{"type":"unknown"}`,
+			wantErr: true,
+		},
+		{
+			name:    "invalid json",
+			input:   `{not json}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseToolsMessage([]byte(tt.input))
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseToolsMessage() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+

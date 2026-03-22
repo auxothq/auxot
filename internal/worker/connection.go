@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 	"time"
 
@@ -216,12 +215,6 @@ func (c *Connection) RunMessageLoop() error {
 		// Debug log inbound messages (level 1), skip heartbeat_ack
 		if _, isHBAck := msg.(protocol.HeartbeatAckMessage); !isHBAck {
 			DebugServerToClient(msg)
-		}
-
-		// File-based debug: log every message type received from router.
-		if df, err := os.OpenFile("/tmp/auxot-debug.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
-			fmt.Fprintf(df, "%s MSG_RECEIVED type=%T\n", time.Now().Format(time.RFC3339), msg)
-			df.Close()
 		}
 
 		switch m := msg.(type) {

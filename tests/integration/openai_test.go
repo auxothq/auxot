@@ -66,8 +66,12 @@ func TestOpenAI_ChatCompletions_NonStreaming(t *testing.T) {
 	if result.Choices[0].Message == nil {
 		t.Fatal("expected message in choice, got nil")
 	}
-	if result.Choices[0].Message.Content != "Hello from the GPU!" {
-		t.Errorf("expected content %q, got %q", "Hello from the GPU!", result.Choices[0].Message.Content)
+	var content string
+	if err := json.Unmarshal(result.Choices[0].Message.Content, &content); err != nil {
+		t.Fatalf("failed to unmarshal content: %v", err)
+	}
+	if content != "Hello from the GPU!" {
+		t.Errorf("expected content %q, got %q", "Hello from the GPU!", content)
 	}
 	if result.Choices[0].FinishReason == nil || *result.Choices[0].FinishReason != "stop" {
 		t.Errorf("expected finish_reason=stop, got %v", result.Choices[0].FinishReason)
@@ -160,8 +164,12 @@ func TestOpenAI_ChatCompletions_Streaming(t *testing.T) {
 	// Concatenate content deltas
 	var content strings.Builder
 	for _, c := range chunks {
-		if c.Choices[0].Delta != nil {
-			content.WriteString(c.Choices[0].Delta.Content)
+		if c.Choices[0].Delta != nil && len(c.Choices[0].Delta.Content) > 0 {
+			var deltaContent string
+			if err := json.Unmarshal(c.Choices[0].Delta.Content, &deltaContent); err != nil {
+				t.Fatalf("failed to unmarshal delta content: %v", err)
+			}
+			content.WriteString(deltaContent)
 		}
 	}
 

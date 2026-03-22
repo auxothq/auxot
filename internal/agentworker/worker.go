@@ -9,16 +9,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 
 	"github.com/auxothq/auxot/pkg/protocol"
+	"github.com/auxothq/auxot/pkg/routerurl"
 )
 
 // Config holds the worker configuration.
@@ -78,6 +77,8 @@ func (w *Worker) Run(ctx context.Context) error {
 				return nil // normal shutdown
 			}
 			w.logger.Warn("connection failed, reconnecting", "err", err, "backoff", backoff)
+		} else {
+			backoff = 1 * time.Second
 		}
 		select {
 		case <-ctx.Done():
@@ -150,7 +151,7 @@ func (w *Worker) connectAndRun(ctx context.Context) error {
 	}
 
 	// Store external tools and build tool client from hello_ack.
-	httpURL := toHTTPURL(w.cfg.ServerURL)
+	httpURL := routerurl.HTTPBase(w.cfg.ServerURL)
 	w.mu.Lock()
 	w.externalTools = ack.ExternalTools
 	w.toolClient = NewToolClient(httpURL, w.cfg.AgentKey)
@@ -161,7 +162,7 @@ func (w *Worker) connectAndRun(ctx context.Context) error {
 	// Heartbeat keeps the connection alive through load balancers (ALB default idle: 60s).
 	heartbeatStop := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
@@ -339,22 +340,6 @@ func (w *Worker) validateDir() error {
 		}
 	}
 	return nil
-}
-
-// toHTTPURL converts a normalised ws/wss URL to an http/https base URL for
-// REST API calls. The WebSocket path (/ws) is stripped so callers can append
-// their own API paths (e.g. /api/tools/v1/execute).
-func toHTTPURL(wsURL string) string {
-	u, err := url.Parse(wsURL)
-	if err != nil {
-		r := strings.NewReplacer("wss://", "https://", "ws://", "http://")
-		return r.Replace(wsURL)
-	}
-	u.Path = ""
-	u.RawQuery = ""
-	u.Fragment = ""
-	r := strings.NewReplacer("wss://", "https://", "ws://", "http://")
-	return r.Replace(u.String())
 }
 
 // localToolNames returns the names of locally-executed coding tools.

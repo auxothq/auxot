@@ -173,7 +173,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	mux.Handle("/health", apiHandler)
 	toolsAPIHandler := router.NewToolsAPIHandler(verifier, toolsHandler, cfg, logger.With("component", "tools_api"))
 	mux.Handle("/api/tools/", toolsAPIHandler)
-	mcpHandler := router.NewMCPHandler(verifier, toolsHandler, cfg, logger.With("component", "mcp"))
+	mcpHandler := router.NewMCPHandler(verifier, toolsHandler, jobQueue, tokenStream, cfg, logger.With("component", "mcp"))
 	mux.Handle("/mcp/", mcpHandler)
 
 	ts := httptest.NewServer(mux)

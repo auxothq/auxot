@@ -13,6 +13,7 @@ import (
 
 	"github.com/auxothq/auxot/pkg/codingtools"
 	"github.com/auxothq/auxot/pkg/protocol"
+	"github.com/auxothq/auxot/pkg/routerurl"
 )
 
 const defaultMaxTurns = 25
@@ -46,7 +47,7 @@ type AgenticLoop struct {
 // NewAgenticLoop creates a loop that authenticates to the Auxot server with
 // agentKey and calls the OpenAI-compatible API at serverURL + "/api/openai/v1".
 func NewAgenticLoop(serverURL, agentKey, workDir string, ga *GitAgent, externalTools []protocol.ExternalToolDef, toolClient *ToolClient, logger *slog.Logger) *AgenticLoop {
-	httpURL := toHTTPURL(serverURL)
+	httpURL := routerurl.HTTPBase(serverURL)
 
 	cfg := openai.DefaultConfig(agentKey)
 	cfg.BaseURL = httpURL + "/api/openai/v1"
