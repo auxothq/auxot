@@ -65,7 +65,13 @@ func RunJob(
 	claudeCtx, cancelClaude := context.WithCancel(ctx)
 	defer cancelClaude()
 
-	systemPrompt, prompt := buildPrompt(job.Messages)
+	// Build a set of MCP tool names so buildPrompt can re-prefix bare names
+	// in conversation history to match what Claude CLI sees in its tool list.
+	mcpToolNames := make(map[string]string, len(job.Tools))
+	for _, t := range job.Tools {
+		mcpToolNames[t.Function.Name] = "mcp__auxot__" + t.Function.Name
+	}
+	systemPrompt, prompt := buildPrompt(job.Messages, mcpToolNames)
 
 	effectiveBuiltins := filterShadowedBuiltins(cfg.BuiltinTools, job.Tools)
 	toolsFlag := buildToolsFlag(effectiveBuiltins)
@@ -122,6 +128,11 @@ func RunJob(
 	}()
 
 	cmd := exec.CommandContext(claudeCtx, claudePath, args...)
+	// Run in a neutral directory so Claude Code does not discover CLAUDE.md
+	// files from the server process's working directory ancestry. The system
+	// prompt is provided explicitly via --system-prompt; project context files
+	// must not override it.
+	cmd.Dir = os.TempDir()
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = onError("failed to create stdout pipe", err.Error())
@@ -438,7 +449,7 @@ func setupMCP(tools []protocol.Tool) (args []string, cleanup func(), err error) 
 //
 // For tool result turns (role "tool"), the content is formatted so claude understands
 // it received the result of a tool call it previously requested.
-func buildPrompt(messages []protocol.ChatMessage) (systemPrompt, prompt string) {
+func buildPrompt(messages []protocol.ChatMessage, mcpToolNames map[string]string) (systemPrompt, prompt string) {
 	var turns []string
 
 	for _, msg := range messages {
@@ -449,7 +460,9 @@ func buildPrompt(messages []protocol.ChatMessage) (systemPrompt, prompt string) 
 			turns = append(turns, "[user]\n"+msg.ContentString())
 		case "assistant":
 			// Reconstruct assistant turn — may include tool calls.
-			text := reconstructAssistantTurn(msg)
+			// Re-prefix bare tool names to MCP names so the conversation
+			// history matches Claude CLI's tool list.
+			text := reconstructAssistantTurn(msg, mcpToolNames)
 			if text != "" {
 				turns = append(turns, "[assistant]\n"+text)
 			}
@@ -492,15 +505,22 @@ func buildPrompt(messages []protocol.ChatMessage) (systemPrompt, prompt string) 
 
 // reconstructAssistantTurn rebuilds an assistant message that may carry tool calls
 // (i.e. the OpenAI-format ToolCalls field on the message).
-func reconstructAssistantTurn(msg protocol.ChatMessage) string {
+func reconstructAssistantTurn(msg protocol.ChatMessage, mcpToolNames map[string]string) string {
 	text := msg.ContentString()
 	var parts []string
 	if text != "" {
 		parts = append(parts, text)
 	}
 	for _, tc := range msg.ToolCalls {
+		// Re-prefix bare names (e.g. "web_search") to MCP names
+		// (e.g. "mcp__auxot__web_search") so the conversation history
+		// matches the tool names in Claude CLI's tool list.
+		name := tc.Function.Name
+		if prefixed, ok := mcpToolNames[name]; ok {
+			name = prefixed
+		}
 		parts = append(parts, fmt.Sprintf("<tool_use name=%q id=%q>\n%s\n</tool_use>",
-			tc.Function.Name, tc.ID, tc.Function.Arguments))
+			name, tc.ID, tc.Function.Arguments))
 	}
 	return strings.Join(parts, "\n")
 }

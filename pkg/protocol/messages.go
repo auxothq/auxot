@@ -39,7 +39,11 @@ const (
 	TypeAgentToolResult MessageType = "agent_tool_result" // agent received a tool result
 
 	// Server → Agent worker
-	TypeAgentJob MessageType = "agent_job" // dispatch a chat job
+	TypeAgentJob         MessageType = "agent_job"    // dispatch a chat job (legacy — no longer used)
+	TypeAgentToolExecute MessageType = "tool.execute" // server dispatches a local tool call to the agent
+
+	// Agent worker → Server (local tool execution results)
+	TypeAgentLocalToolResult MessageType = "tool.result" // agent reports result of a local tool call
 	// TypeReloadPolicy (already defined above) is also used for agent system prompt reload.
 )
 
@@ -495,11 +499,17 @@ func ParseMessage(data []byte) (any, error) {
 // ── Agent worker messages ─────────────────────────────────────────────────────
 
 // AgentHelloMessage is sent by the agent worker on connection.
+// SystemPrompt carries the agent's identity prompt (SOUL.md + RULES.md + memory)
+// so the server can inject it into LLM jobs on behalf of the agent.
+// LocalTools describes the coding tools the agent can execute locally; the server
+// uses these definitions to tell the LLM which tools are available.
 type AgentHelloMessage struct {
-	Type       MessageType   `json:"type"`        // TypeHello
-	WorkerType string        `json:"worker_type"` // "agent"
-	AgentKey   string        `json:"agent_key"`
-	Metadata   AgentMetadata `json:"metadata,omitempty"`
+	Type         MessageType      `json:"type"`                    // TypeHello
+	WorkerType   string           `json:"worker_type"`             // "agent"
+	AgentKey     string           `json:"agent_key"`
+	SystemPrompt string           `json:"system_prompt,omitempty"` // SOUL.md content
+	LocalTools   []ToolDefinition `json:"local_tools,omitempty"`   // locally-executable tools
+	Metadata     AgentMetadata    `json:"metadata,omitempty"`
 }
 
 // AgentMetadata is extra info the agent sends at connect time.
@@ -581,6 +591,24 @@ type AgentToolResultMessage struct {
 	ToolCallID string      `json:"tool_call_id"` // matches AgentToolCallMessage.ID
 	Content    string      `json:"content"`      // tool output
 	IsError    bool        `json:"is_error,omitempty"`
+}
+
+// AgentToolExecuteMessage is sent by the server to ask the agent to execute a
+// local tool (e.g. Read, Write, Bash) in its working directory.
+type AgentToolExecuteMessage struct {
+	Type      MessageType       `json:"type"`               // TypeAgentToolExecute
+	CallID    string            `json:"call_id"`
+	ToolName  string            `json:"tool_name"`
+	Arguments string            `json:"arguments"`          // JSON-encoded tool arguments
+	Env       map[string]string `json:"env,omitempty"`      // optional env overrides
+}
+
+// AgentLocalToolResultMessage is sent by the agent after executing a local tool.
+type AgentLocalToolResultMessage struct {
+	Type   MessageType `json:"type"`           // TypeAgentLocalToolResult
+	CallID string      `json:"call_id"`
+	Result string      `json:"result"`
+	Error  string      `json:"error,omitempty"`
 }
 
 // AgentReloadPolicyMessage is sent by the server to push an updated system prompt.

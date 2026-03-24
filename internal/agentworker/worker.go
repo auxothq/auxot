@@ -1,7 +1,15 @@
 // Package agentworker implements the agent worker that connects to an Auxot
-// server as a worker-backed agent. It reads SOUL.md and agent.yaml from the
-// gitagent directory, authenticates with an agent key, and executes chat jobs
-// using an embedded agentic loop backed by Auxot's OpenAI-compatible API.
+// server as a context-provider agent. It reads SOUL.md and agent.yaml from
+// the gitagent directory, authenticates with an agent key, and:
+//
+//  1. Sends system_prompt (SOUL.md content) and local tool definitions on hello.
+//  2. Listens for tool.execute messages from the server.
+//  3. Executes local coding tools (Read, Write, Edit, Bash, …) in the gitagent
+//     directory and returns results via tool.result.
+//
+// The server runs LLM inference on behalf of the agent using the provided
+// system_prompt and tool definitions — the agent binary does NOT call any
+// inference API itself.
 package agentworker
 
 import (
@@ -16,8 +24,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/auxothq/auxot/pkg/codingtools"
 	"github.com/auxothq/auxot/pkg/protocol"
-	"github.com/auxothq/auxot/pkg/routerurl"
 )
 
 // Config holds the worker configuration.
@@ -30,18 +38,17 @@ type Config struct {
 	Dir       string // gitagent directory (default: current directory)
 }
 
-// Worker manages the WebSocket connection to the Auxot server and executes
-// chat jobs by spawning Claude Code.
+// Worker manages the WebSocket connection to the Auxot server.
+// It is a context provider: it sends its identity (system_prompt, local_tools)
+// on hello and executes local tool calls dispatched by the server.
 type Worker struct {
-	cfg    Config
-	logger *slog.Logger
-	mu     sync.Mutex
-	conn   *websocket.Conn
-	writeMu sync.Mutex // guards all conn.WriteJSON calls (gorilla/websocket is not concurrent-write-safe)
+	cfg     Config
+	logger  *slog.Logger
+	mu      sync.Mutex
+	conn    *websocket.Conn
+	writeMu sync.Mutex // guards all conn.WriteJSON calls
 
-	gitagent      *GitAgent
-	externalTools []protocol.ExternalToolDef
-	toolClient    *ToolClient
+	gitagent *GitAgent
 }
 
 func (w *Worker) writeJSON(v any) error {
@@ -101,8 +108,6 @@ func (w *Worker) connectAndRun(ctx context.Context) error {
 	}
 	defer conn.Close()
 
-	// Close the connection when the context is cancelled so conn.ReadMessage()
-	// unblocks immediately on CTRL+C / SIGTERM instead of hanging forever.
 	go func() {
 		<-ctx.Done()
 		conn.Close()
@@ -119,11 +124,20 @@ func (w *Worker) connectAndRun(ctx context.Context) error {
 	}
 	w.gitagent = ga
 
-	// Send hello.
+	// Build system prompt from SOUL.md + RULES.md + memory etc.
+	// Pass empty auxotContext — the server enriches it with skills and knowledge files.
+	systemPrompt := ga.BuildSystemPrompt("", localToolNames())
+
+	// Build local tool definitions from the codingtools package.
+	localTools := buildLocalToolDefs()
+
+	// Send hello with system_prompt and local_tools.
 	hello := protocol.AgentHelloMessage{
-		Type:       protocol.TypeHello,
-		WorkerType: "agent",
-		AgentKey:   w.cfg.AgentKey,
+		Type:         protocol.TypeHello,
+		WorkerType:   "agent",
+		AgentKey:     w.cfg.AgentKey,
+		SystemPrompt: systemPrompt,
+		LocalTools:   localTools,
 		Metadata: protocol.AgentMetadata{
 			Name:        ga.Config.Name,
 			Description: ga.Config.Description,
@@ -150,16 +164,9 @@ func (w *Worker) connectAndRun(ctx context.Context) error {
 		return fmt.Errorf("hello rejected: %s", ack.Error)
 	}
 
-	// Store external tools and build tool client from hello_ack.
-	httpURL := routerurl.HTTPBase(w.cfg.ServerURL)
-	w.mu.Lock()
-	w.externalTools = ack.ExternalTools
-	w.toolClient = NewToolClient(httpURL, w.cfg.AgentKey)
-	w.mu.Unlock()
+	w.logger.Info("connected to server", "agent_id", ack.AgentID)
 
-	w.logger.Info("connected to server", "agent_id", ack.AgentID, "external_tools", len(ack.ExternalTools))
-
-	// Heartbeat keeps the connection alive through load balancers (ALB default idle: 60s).
+	// Heartbeat keeps the connection alive.
 	heartbeatStop := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
@@ -180,7 +187,9 @@ func (w *Worker) connectAndRun(ctx context.Context) error {
 	}()
 	defer close(heartbeatStop)
 
-	// Message loop.
+	// Message loop — context provider model:
+	// - handle tool.execute from server (dispatch local tool, return result)
+	// - handle context_update (re-read SOUL.md and send updated context)
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
@@ -188,8 +197,7 @@ func (w *Worker) connectAndRun(ctx context.Context) error {
 		}
 
 		var env struct {
-			Type  string `json:"type"`
-			JobID string `json:"job_id"`
+			Type string `json:"type"`
 		}
 		if err := json.Unmarshal(raw, &env); err != nil {
 			w.logger.Warn("unmarshal envelope failed", "err", err)
@@ -200,24 +208,17 @@ func (w *Worker) connectAndRun(ctx context.Context) error {
 		case "heartbeat_ack":
 			// nothing to do
 
-		case "reload_policy":
-			var rp protocol.AgentReloadPolicyMessage
-			if err := json.Unmarshal(raw, &rp); err != nil {
-				w.logger.Warn("parse reload_policy failed", "err", err)
-				continue
-			}
-			w.mu.Lock()
-			w.externalTools = rp.ExternalTools
-			w.mu.Unlock()
-			w.logger.Info("reload_policy received", "external_tools", len(rp.ExternalTools))
-
-		case "agent_job":
-			var msg protocol.AgentJobMessage
+		case string(protocol.TypeAgentToolExecute): // "tool.execute"
+			var msg protocol.AgentToolExecuteMessage
 			if err := json.Unmarshal(raw, &msg); err != nil {
-				w.logger.Warn("parse agent_job failed", "err", err)
+				w.logger.Warn("parse tool.execute failed", "err", err)
 				continue
 			}
-			go w.handleJob(ctx, msg)
+			go w.handleToolExecute(ctx, msg)
+
+		case "reload_policy":
+			// Re-read the gitagent directory and push an updated context_update.
+			go w.sendContextUpdate()
 
 		default:
 			w.logger.Debug("unknown message type", "type", env.Type)
@@ -225,104 +226,66 @@ func (w *Worker) connectAndRun(ctx context.Context) error {
 	}
 }
 
-func (w *Worker) handleJob(ctx context.Context, msg protocol.AgentJobMessage) {
-	log := w.logger.With("job_id", msg.JobID)
-	log.Info("job received")
+// handleToolExecute executes a local coding tool and sends the result back to the server.
+func (w *Worker) handleToolExecute(ctx context.Context, msg protocol.AgentToolExecuteMessage) {
+	log := w.logger.With("call_id", msg.CallID, "tool", msg.ToolName)
+	log.Debug("executing local tool")
 
-	w.mu.Lock()
-	externalTools := w.externalTools
-	toolClient := w.toolClient
-	w.mu.Unlock()
-
-	w.gitagent.RefreshMemory()
-
-	// Collect all available tool names for the system prompt.
-	toolNames := localToolNames()
-	for _, t := range externalTools {
-		toolNames = append(toolNames, t.Name)
-	}
-	msg.SystemPrompt = w.gitagent.BuildSystemPrompt(msg.SystemPrompt, toolNames)
-
-	if w.currentConn() == nil {
-		log.Error("no connection, dropping job")
-		return
-	}
-
-	tokenCh := make(chan string, 64)
-	toolEventCh := make(chan ToolEvent, 16)
-	errCh := make(chan error, 1)
-
-	loop := NewAgenticLoop(w.cfg.ServerURL, w.cfg.AgentKey, w.cfg.Dir, w.gitagent, externalTools, toolClient, w.logger)
-
-	go func() {
-		defer close(tokenCh)
-		defer close(toolEventCh)
-		errCh <- loop.Run(ctx, msg, tokenCh, toolEventCh)
-	}()
-
-	for tokenCh != nil || toolEventCh != nil {
-		select {
-		case tok, ok := <-tokenCh:
-			if !ok {
-				tokenCh = nil
-				continue
-			}
-			_ = w.writeJSON(protocol.AgentTokenMessage{
-				Type:  protocol.TypeAgentToken,
-				JobID: msg.JobID,
-				Token: tok,
-			})
-
-		case ev, ok := <-toolEventCh:
-			if !ok {
-				toolEventCh = nil
-				continue
-			}
-			if ev.IsResult {
-				log.Debug("sending agent_tool_result", "tool_call_id", ev.ID)
-				if err := w.writeJSON(protocol.AgentToolResultMessage{
-					Type:       protocol.TypeAgentToolResult,
-					JobID:      msg.JobID,
-					ToolCallID: ev.ID,
-					Content:    ev.Content,
-					IsError:    ev.IsError,
-				}); err != nil {
-					log.Warn("failed to send agent_tool_result", "err", err)
-				}
-			} else {
-				log.Debug("sending agent_tool_call", "tool", ev.Name, "id", ev.ID)
-				if err := w.writeJSON(protocol.AgentToolCallMessage{
-					Type:      protocol.TypeAgentToolCall,
-					JobID:     msg.JobID,
-					ID:        ev.ID,
-					Name:      ev.Name,
-					Arguments: ev.Arguments,
-				}); err != nil {
-					log.Warn("failed to send agent_tool_call", "err", err)
-				}
-			}
-
-		case <-ctx.Done():
-			log.Info("job cancelled")
-			return
-		}
-	}
-
-	if err := <-errCh; err != nil {
-		log.Error("job failed", "err", err)
-		_ = w.writeJSON(protocol.AgentErrorMessage{
-			Type:  protocol.TypeAgentError,
-			JobID: msg.JobID,
-			Error: err.Error(),
+	tool := codingtools.FindTool(msg.ToolName)
+	if tool == nil {
+		log.Warn("unknown tool requested")
+		_ = w.writeJSON(protocol.AgentLocalToolResultMessage{
+			Type:   protocol.TypeAgentLocalToolResult,
+			CallID: msg.CallID,
+			Error:  fmt.Sprintf("unknown tool: %s", msg.ToolName),
 		})
 		return
 	}
-	_ = w.writeJSON(protocol.AgentCompleteMessage{
-		Type:       protocol.TypeAgentComplete,
-		JobID:      msg.JobID,
-		StopReason: "end_turn",
+
+	result, err := tool.Execute(ctx, w.cfg.Dir, json.RawMessage(msg.Arguments))
+	if err != nil {
+		log.Warn("tool execution failed", "err", err)
+		_ = w.writeJSON(protocol.AgentLocalToolResultMessage{
+			Type:   protocol.TypeAgentLocalToolResult,
+			CallID: msg.CallID,
+			Error:  err.Error(),
+		})
+		return
+	}
+
+	log.Debug("tool executed successfully")
+	_ = w.writeJSON(protocol.AgentLocalToolResultMessage{
+		Type:   protocol.TypeAgentLocalToolResult,
+		CallID: msg.CallID,
+		Result: result,
 	})
-	log.Info("job complete")
+}
+
+// sendContextUpdate re-reads SOUL.md and pushes an updated context to the server.
+func (w *Worker) sendContextUpdate() {
+	ga, err := LoadGitAgent(w.cfg.Dir)
+	if err != nil {
+		w.logger.Warn("context_update: reload failed", "err", err)
+		return
+	}
+	w.mu.Lock()
+	w.gitagent = ga
+	w.mu.Unlock()
+
+	systemPrompt := ga.BuildSystemPrompt("", localToolNames())
+	localTools := buildLocalToolDefs()
+
+	type contextUpdateMsg struct {
+		Type         string                   `json:"type"`
+		SystemPrompt string                   `json:"system_prompt"`
+		LocalTools   []protocol.ToolDefinition `json:"local_tools"`
+	}
+	_ = w.writeJSON(contextUpdateMsg{
+		Type:         "context_update",
+		SystemPrompt: systemPrompt,
+		LocalTools:   localTools,
+	})
+	w.logger.Info("sent context_update to server")
 }
 
 func (w *Worker) currentConn() *websocket.Conn {
@@ -342,9 +305,28 @@ func (w *Worker) validateDir() error {
 	return nil
 }
 
-// localToolNames returns the names of locally-executed coding tools.
+// localToolNames returns the names of locally-executable coding tools.
 func localToolNames() []string {
-	return []string{"Read", "Write", "Edit", "Bash", "useSkill", "saveMemory"}
+	names := make([]string, 0, len(codingtools.AllTools()))
+	for _, t := range codingtools.AllTools() {
+		names = append(names, t.Name)
+	}
+	return names
+}
+
+// buildLocalToolDefs converts the codingtools into protocol ToolDefinition records
+// for inclusion in the hello message.
+func buildLocalToolDefs() []protocol.ToolDefinition {
+	tools := codingtools.AllTools()
+	defs := make([]protocol.ToolDefinition, len(tools))
+	for i, t := range tools {
+		defs[i] = protocol.ToolDefinition{
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  t.Parameters,
+		}
+	}
+	return defs
 }
 
 // soulDigest returns a simple fingerprint of SOUL.md for the hello metadata.
