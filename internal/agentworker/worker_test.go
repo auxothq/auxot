@@ -65,12 +65,11 @@ func TestSoulDigest_WithFile(t *testing.T) {
 }
 
 func TestBackoffReset(t *testing.T) {
-	// This test verifies that the backoff is reset after a successful connection.
-	// We can't easily test the full Run() loop in a unit test, but we can verify
-	// the logic is correct by inspecting the code. This test documents the expected
-	// behavior: after connectAndRun() returns nil (success), backoff should reset.
+	// This test documents the backoff reset behavior. Backoff is reset when:
+	// 1. connectAndRun calls onConnected after hello_ack (connection established)
+	// 2. connectAndRun returns nil (clean shutdown)
 	//
-	// The fix ensures that when connectAndRun() succeeds, backoff is reset to 1s
-	// before continuing the loop. This prevents permanent backoff accumulation.
-	t.Skip("backoff reset is verified by code inspection in worker.go line 77")
+	// That ensures a disconnect after a successful session does not inherit
+	// stale delay from earlier dial failures. See worker.go Run() and connectAndRun().
+	t.Skip("backoff reset is verified by code inspection in worker.go")
 }

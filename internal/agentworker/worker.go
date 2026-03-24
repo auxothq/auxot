@@ -68,6 +68,8 @@ func New(cfg Config, logger *slog.Logger) *Worker {
 
 // Run connects to the server and processes jobs until ctx is cancelled.
 // Reconnects with exponential backoff on disconnect.
+// Backoff resets to 1s when a connection is established (hello_ack), so a later
+// disconnect does not inherit stale delay from earlier dial failures.
 func (w *Worker) Run(ctx context.Context) error {
 	if err := w.validateDir(); err != nil {
 		return fmt.Errorf("invalid gitagent directory %q: %w", w.cfg.Dir, err)
@@ -79,7 +81,7 @@ func (w *Worker) Run(ctx context.Context) error {
 
 	backoff := 1 * time.Second
 	for {
-		if err := w.connectAndRun(ctx); err != nil {
+		if err := w.connectAndRun(ctx, func() { backoff = 1 * time.Second }); err != nil {
 			if ctx.Err() != nil {
 				return nil // normal shutdown
 			}
@@ -98,7 +100,8 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 }
 
-func (w *Worker) connectAndRun(ctx context.Context) error {
+// onConnected is called after hello_ack; use it to reset reconnect backoff.
+func (w *Worker) connectAndRun(ctx context.Context, onConnected func()) error {
 	serverURL := w.cfg.ServerURL
 	w.logger.Info("connecting to router", "AUXOT_ROUTER_URL", serverURL)
 
@@ -165,6 +168,9 @@ func (w *Worker) connectAndRun(ctx context.Context) error {
 	}
 
 	w.logger.Info("connected to server", "agent_id", ack.AgentID)
+	if onConnected != nil {
+		onConnected()
+	}
 
 	// Heartbeat keeps the connection alive.
 	heartbeatStop := make(chan struct{})
