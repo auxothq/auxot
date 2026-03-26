@@ -1,4 +1,4 @@
-.PHONY: build test test-integration test-race vet lint check clean sync-registry tag-release test-router-url-flag
+.PHONY: build test test-integration test-race vet lint check clean sync-registry tag tag-release test-router-url-flag
 
 # Build all binaries to ./bin/
 build: bin/auxot-router bin/auxot-worker bin/auxot-tools bin/auxot-agent
@@ -88,6 +88,19 @@ sync-registry:
 	fi && \
 	MODEL_COUNT=$$(python3 -c "import json; print(len(json.load(open('$$DEST'))['models']))") && \
 	echo "✓ Updated $$DEST ($$MODEL_COUNT models)"
+
+# Bump patch version and tag HEAD — triggers GoReleaser + Docker build via GitHub Actions.
+# Finds the latest v* tag and creates vX.Y.(Z+1) on HEAD.
+tag:
+	@LATEST=$$(git describe --tags --abbrev=0 --match "v*" 2>/dev/null || echo "v0.0.0"); \
+	MAJOR=$$(echo $$LATEST | sed 's/v\([0-9]*\)\..*/\1/'); \
+	MINOR=$$(echo $$LATEST | sed 's/v[0-9]*\.\([0-9]*\)\..*/\1/'); \
+	PATCH=$$(echo $$LATEST | sed 's/v[0-9]*\.[0-9]*\.\([0-9]*\).*/\1/'); \
+	NEXT="v$$MAJOR.$$MINOR.$$((PATCH + 1))"; \
+	echo "Latest: $$LATEST  →  $$NEXT"; \
+	git tag "$$NEXT" && \
+	git push origin "$$NEXT" && \
+	echo "✓ Tagged: $$NEXT — watch: https://github.com/auxothq/auxot/actions"
 
 # Tag a release — triggers GoReleaser + Docker build via GitHub Actions.
 # Usage: make tag-release V=0.1.0

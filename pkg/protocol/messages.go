@@ -164,6 +164,16 @@ type BuiltinToolUse struct {
 	Result    string `json:"result,omitempty"`
 }
 
+// FileAttachment carries a base64-encoded file produced by an agent worker.
+// Workers embed ATTACH:/path/to/file in their LLM output; the worker runtime
+// reads the file, base64-encodes it, and appends it here before sending the
+// CompleteMessage to the server. Size limits: 10 MB per file, 5 files max.
+type FileAttachment struct {
+	Name     string `json:"name"`               // filename with extension
+	MimeType string `json:"mime_type,omitempty"` // e.g. "application/pdf"
+	Data     string `json:"data"`               // base64-encoded file bytes
+}
+
 // CompleteMessage is sent by the worker when a job finishes.
 type CompleteMessage struct {
 	Type             MessageType      `json:"type"`
@@ -177,6 +187,7 @@ type CompleteMessage struct {
 	ReasoningTokens  int              `json:"reasoning_tokens,omitempty"` // Count of reasoning/thinking tokens
 	ToolCalls        []ToolCall       `json:"tool_calls,omitempty"`
 	BuiltinToolUses  []BuiltinToolUse `json:"builtin_tool_uses,omitempty"`
+	Attachments      []FileAttachment `json:"attachments,omitempty"`
 }
 
 // ErrorMessage is sent by the worker when a job fails.
@@ -547,10 +558,11 @@ type AgentChatMsg struct {
 
 // AgentJobMessage is sent by the server to dispatch a chat job to the agent worker.
 type AgentJobMessage struct {
-	Type         MessageType    `json:"type"` // TypeAgentJob
-	JobID        string         `json:"job_id"`
-	SystemPrompt string         `json:"system_prompt,omitempty"`
-	Messages     []AgentChatMsg `json:"messages"`
+	Type         MessageType       `json:"type"` // TypeAgentJob
+	JobID        string            `json:"job_id"`
+	SystemPrompt string            `json:"system_prompt,omitempty"`
+	Messages     []AgentChatMsg    `json:"messages"`
+	Credentials  map[string]string `json:"credentials,omitempty"` // per-user resolved env vars
 }
 
 // AgentTokenMessage streams a single token from the agent back to the server.

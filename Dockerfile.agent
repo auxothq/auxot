@@ -35,8 +35,30 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
+# CLI utilities for agent Bash/tool use (curl/jq/dig/ping/nc/sqlite/rg/gh/yq, …).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ca-certificates \
+    ca-certificates \
+    curl \
+    dnsutils \
+    file \
+    gettext-base \
+    gh \
+    git \
+    iputils-ping \
+    jq \
+    lsof \
+    netcat-openbsd \
+    openssh-client \
+    procps \
+    qpdf \
+    ripgrep \
+    sqlite3 \
+    tree \
+    unzip \
+    wget \
+    xmlstarlet \
+    yq \
+    zip \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 1000 agent && \
