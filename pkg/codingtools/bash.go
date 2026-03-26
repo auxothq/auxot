@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
 	"time"
 )
 
@@ -23,6 +26,12 @@ type BashArgs struct {
 // BashTool returns a Tool that executes bash commands in the agent directory.
 // The container itself is the security boundary — bash is not sandboxed to the
 // agent directory, matching the behavior of Claude Code and Pi.
+//
+// The bash subprocess does not inherit the full worker environment: it receives
+// only HOME, PATH, PWD, USER, and TERM, plus any optional per-job variables from
+// the server (tool.execute env). USER is $USER / $USERNAME if set, otherwise
+// os/user.Current (same effective user as the worker — e.g. Dockerfile USER
+// when that variable is not exported).
 func BashTool() Tool {
 	return Tool{
 		Name:        "bash",
@@ -41,13 +50,73 @@ func BashTool() Tool {
 			},
 			"required": ["command"]
 		}`),
-		Execute: func(ctx context.Context, workDir string, args json.RawMessage) (string, error) {
-			return executeBash(ctx, workDir, args)
+		Execute: func(ctx context.Context, workDir string, toolEnv map[string]string, args json.RawMessage) (string, error) {
+			return executeBash(ctx, workDir, toolEnv, args)
 		},
 	}
 }
 
-func executeBash(ctx context.Context, workDir string, rawArgs json.RawMessage) (string, error) {
+// processUsernameForBash resolves USER for the bash child without inheriting
+// the full process environment. Order: USER, USERNAME (Windows), then
+// os/user.Current for the running uid (covers Docker USER with no $USER).
+func processUsernameForBash() string {
+	if u := os.Getenv("USER"); u != "" {
+		return u
+	}
+	if u := os.Getenv("USERNAME"); u != "" {
+		return u
+	}
+	if cur, err := user.Current(); err == nil && cur.Username != "" {
+		return cur.Username
+	}
+	return ""
+}
+
+// bashSubprocessEnv builds a minimal environment for the bash child: HOME,
+// PATH, PWD, USER, TERM from the worker, then merges extra (server-supplied
+// credentials, etc.) which may add or override keys.
+func bashSubprocessEnv(workDir string, extra map[string]string) []string {
+	pwd, err := filepath.Abs(workDir)
+	if err != nil {
+		pwd = filepath.Clean(workDir)
+	} else {
+		pwd = filepath.Clean(pwd)
+	}
+
+	path := os.Getenv("PATH")
+	if path == "" {
+		path = "/usr/local/bin:/usr/bin:/bin"
+	}
+
+	term := os.Getenv("TERM")
+	if term == "" {
+		term = "dumb"
+	}
+
+	user := processUsernameForBash()
+
+	env := map[string]string{
+		"HOME": os.Getenv("HOME"),
+		"PATH": path,
+		"PWD":  pwd,
+		"USER": user,
+		"TERM": term,
+	}
+
+	for k, v := range extra {
+		if k != "" {
+			env[k] = v
+		}
+	}
+
+	out := make([]string, 0, len(env))
+	for k, v := range env {
+		out = append(out, k+"="+v)
+	}
+	return out
+}
+
+func executeBash(ctx context.Context, workDir string, toolEnv map[string]string, rawArgs json.RawMessage) (string, error) {
 	var args BashArgs
 	if err := json.Unmarshal(rawArgs, &args); err != nil {
 		return "", fmt.Errorf("invalid bash args: %w", err)
@@ -66,6 +135,7 @@ func executeBash(ctx context.Context, workDir string, rawArgs json.RawMessage) (
 
 	cmd := exec.CommandContext(cmdCtx, "bash", "-c", args.Command)
 	cmd.Dir = workDir
+	cmd.Env = bashSubprocessEnv(workDir, toolEnv)
 
 	var out bytes.Buffer
 	cmd.Stdout = &out

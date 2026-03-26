@@ -15,7 +15,9 @@ type Tool struct {
 	Name        string
 	Description string
 	Parameters  json.RawMessage // JSON Schema for the function parameters
-	Execute     func(ctx context.Context, workDir string, args json.RawMessage) (string, error)
+	// Execute runs the tool. toolEnv is optional per-job variables (e.g. credentials
+	// from the server); only Bash merges them into its subprocess environment.
+	Execute func(ctx context.Context, workDir string, toolEnv map[string]string, args json.RawMessage) (string, error)
 }
 
 // AllTools returns the full set of coding tools available to the agent.

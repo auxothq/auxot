@@ -23,7 +23,9 @@ func UseSkillTool() Tool {
 			},
 			"required": ["skill_id"]
 		}`),
-		Execute: executeUseSkill,
+		Execute: func(ctx context.Context, workDir string, _ map[string]string, args json.RawMessage) (string, error) {
+			return executeUseSkill(ctx, workDir, args)
+		},
 	}
 }
 

@@ -33,7 +33,7 @@ func WriteTool() Tool {
 			},
 			"required": ["path", "content"]
 		}`),
-		Execute: func(ctx context.Context, workDir string, args json.RawMessage) (string, error) {
+		Execute: func(ctx context.Context, workDir string, _ map[string]string, args json.RawMessage) (string, error) {
 			return executeWrite(workDir, args)
 		},
 	}

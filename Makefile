@@ -20,6 +20,11 @@ bin/auxot-tools: $(shell find cmd/auxot-tools internal/tools pkg/tools pkg/proto
 bin/auxot-agent: $(shell find cmd/auxot-agent internal/agentworker pkg -name '*.go' 2>/dev/null)
 	go build -o bin/auxot-agent ./cmd/auxot-agent
 
+# Linux ELF for bind-mounting into Docker (default GOARCH = host `go env GOARCH`).
+# Override if the container platform differs, e.g. AUXOT_AGENT_LINUX_GOARCH=amd64 on arm64 Mac.
+bin/auxot-agent.linux: $(shell find cmd/auxot-agent internal/agentworker pkg -name '*.go' 2>/dev/null)
+	GOOS=linux GOARCH=$(or $(AUXOT_AGENT_LINUX_GOARCH),$(shell go env GOARCH)) CGO_ENABLED=0 go build -o bin/auxot-agent.linux ./cmd/auxot-agent
+
 # Run all tests
 test:
 	go test ./...

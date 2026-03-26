@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestLocalToolNames(t *testing.T) {
 	got := localToolNames()
-	want := []string{"Read", "Write", "Edit", "Bash", "useSkill", "saveMemory"}
+	want := []string{"read", "write", "edit", "bash", "useSkill", "saveMemory"}
 
 	if len(got) != len(want) {
 		t.Fatalf("localToolNames() returned %d tools, want %d", len(got), len(want))
@@ -61,6 +62,22 @@ func TestSoulDigest_WithFile(t *testing.T) {
 
 	if mtime <= 0 {
 		t.Errorf("soulDigest() mtime = %d, want positive value", mtime)
+	}
+}
+
+func TestBootstrapSystemPrompt(t *testing.T) {
+	p := bootstrapSystemPrompt([]string{"read", "write"})
+	for _, needle := range []string{
+		"Bootstrap mode",
+		"Who are you",
+		"Who am I meant to be",
+		"What is my purpose",
+		"SOUL.md",
+		"read, write",
+	} {
+		if !strings.Contains(p, needle) {
+			t.Errorf("bootstrapSystemPrompt missing %q", needle)
+		}
 	}
 }
 

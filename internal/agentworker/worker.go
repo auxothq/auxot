@@ -2,7 +2,7 @@
 // server as a context-provider agent. It reads SOUL.md and agent.yaml from
 // the gitagent directory, authenticates with an agent key, and:
 //
-//  1. Sends system_prompt (SOUL.md content) and local tool definitions on hello.
+//  1. Sends system_prompt (SOUL.md content, or a bootstrap prompt if SOUL.md is absent) and local tool definitions on hello.
 //  2. Listens for tool.execute messages from the server.
 //  3. Executes local coding tools (Read, Write, Edit, Bash, …) in the gitagent
 //     directory and returns results via tool.result.
@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -49,6 +50,10 @@ type Worker struct {
 	writeMu sync.Mutex // guards all conn.WriteJSON calls
 
 	gitagent *GitAgent
+
+	// bootstrap is true while SOUL.md was absent at connection time; cleared when
+	// SOUL.md appears and LoadGitAgent succeeds (after a tool run or reconnect).
+	bootstrap atomic.Bool
 }
 
 func (w *Worker) writeJSON(v any) error {
@@ -120,19 +125,49 @@ func (w *Worker) connectAndRun(ctx context.Context, onConnected func()) error {
 	w.conn = conn
 	w.mu.Unlock()
 
-	// Load gitagent directory (SOUL.md, agent.yaml, etc.).
-	ga, err := LoadGitAgent(w.cfg.Dir)
-	if err != nil {
-		return fmt.Errorf("load gitagent: %w", err)
-	}
-	w.gitagent = ga
-
-	// Build system prompt from SOUL.md + RULES.md + memory etc.
-	// Pass empty auxotContext — the server enriches it with skills and knowledge files.
-	systemPrompt := ga.BuildSystemPrompt("", localToolNames())
-
-	// Build local tool definitions from the codingtools package.
+	toolNames := localToolNames()
 	localTools := buildLocalToolDefs()
+
+	var systemPrompt string
+	var meta protocol.AgentMetadata
+
+	if SoulMarkdownExists(w.cfg.Dir) {
+		ga, err := LoadGitAgent(w.cfg.Dir)
+		if err != nil {
+			return fmt.Errorf("load gitagent: %w", err)
+		}
+		w.mu.Lock()
+		w.gitagent = ga
+		w.mu.Unlock()
+		w.bootstrap.Store(false)
+		systemPrompt = ga.BuildSystemPrompt("", toolNames)
+		meta = protocol.AgentMetadata{
+			Name:        ga.Config.Name,
+			Description: ga.Config.Description,
+			SoulDigest:  w.soulDigest(),
+		}
+	} else {
+		w.mu.Lock()
+		w.gitagent = nil
+		w.mu.Unlock()
+		w.bootstrap.Store(true)
+		systemPrompt = bootstrapSystemPrompt(toolNames)
+		cfg := ReadAgentConfigOptional(w.cfg.Dir)
+		name := cfg.Name
+		if name == "" {
+			name = "Agent (configuring)"
+		}
+		desc := cfg.Description
+		if desc == "" {
+			desc = "No SOUL.md yet — discover identity and purpose with the user, then write SOUL.md."
+		}
+		meta = protocol.AgentMetadata{
+			Name:        name,
+			Description: desc,
+			SoulDigest:  "",
+		}
+		w.logger.Info("starting in bootstrap mode (SOUL.md missing)")
+	}
 
 	// Send hello with system_prompt and local_tools.
 	hello := protocol.AgentHelloMessage{
@@ -141,11 +176,7 @@ func (w *Worker) connectAndRun(ctx context.Context, onConnected func()) error {
 		AgentKey:     w.cfg.AgentKey,
 		SystemPrompt: systemPrompt,
 		LocalTools:   localTools,
-		Metadata: protocol.AgentMetadata{
-			Name:        ga.Config.Name,
-			Description: ga.Config.Description,
-			SoulDigest:  w.soulDigest(),
-		},
+		Metadata:     meta,
 	}
 	if err := conn.WriteJSON(hello); err != nil {
 		return fmt.Errorf("send hello: %w", err)
@@ -248,7 +279,7 @@ func (w *Worker) handleToolExecute(ctx context.Context, msg protocol.AgentToolEx
 		return
 	}
 
-	result, err := tool.Execute(ctx, w.cfg.Dir, json.RawMessage(msg.Arguments))
+	result, err := tool.Execute(ctx, w.cfg.Dir, msg.Env, json.RawMessage(msg.Arguments))
 	if err != nil {
 		log.Warn("tool execution failed", "err", err)
 		_ = w.writeJSON(protocol.AgentLocalToolResultMessage{
@@ -265,10 +296,22 @@ func (w *Worker) handleToolExecute(ctx context.Context, msg protocol.AgentToolEx
 		CallID: msg.CallID,
 		Result: result,
 	})
+
+	w.maybeLeaveBootstrapAfterTool()
 }
 
-// sendContextUpdate re-reads SOUL.md and pushes an updated context to the server.
+// sendContextUpdate re-reads the workspace and pushes an updated context to the server.
+// Without SOUL.md, sends the bootstrap prompt again.
 func (w *Worker) sendContextUpdate() {
+	toolNames := localToolNames()
+	localTools := buildLocalToolDefs()
+
+	if !SoulMarkdownExists(w.cfg.Dir) {
+		w.pushContextUpdate(bootstrapSystemPrompt(toolNames), localTools)
+		w.logger.Info("sent context_update to server (bootstrap mode)")
+		return
+	}
+
 	ga, err := LoadGitAgent(w.cfg.Dir)
 	if err != nil {
 		w.logger.Warn("context_update: reload failed", "err", err)
@@ -277,13 +320,16 @@ func (w *Worker) sendContextUpdate() {
 	w.mu.Lock()
 	w.gitagent = ga
 	w.mu.Unlock()
+	w.bootstrap.Store(false)
 
-	systemPrompt := ga.BuildSystemPrompt("", localToolNames())
-	localTools := buildLocalToolDefs()
+	w.pushContextUpdate(ga.BuildSystemPrompt("", toolNames), localTools)
+	w.logger.Info("sent context_update to server")
+}
 
+func (w *Worker) pushContextUpdate(systemPrompt string, localTools []protocol.ToolDefinition) {
 	type contextUpdateMsg struct {
-		Type         string                   `json:"type"`
-		SystemPrompt string                   `json:"system_prompt"`
+		Type         string                    `json:"type"`
+		SystemPrompt string                    `json:"system_prompt"`
 		LocalTools   []protocol.ToolDefinition `json:"local_tools"`
 	}
 	_ = w.writeJSON(contextUpdateMsg{
@@ -291,7 +337,27 @@ func (w *Worker) sendContextUpdate() {
 		SystemPrompt: systemPrompt,
 		LocalTools:   localTools,
 	})
-	w.logger.Info("sent context_update to server")
+}
+
+// maybeLeaveBootstrapAfterTool reloads context when SOUL.md appears mid-session.
+func (w *Worker) maybeLeaveBootstrapAfterTool() {
+	if !w.bootstrap.Load() {
+		return
+	}
+	if !SoulMarkdownExists(w.cfg.Dir) {
+		return
+	}
+	ga, err := LoadGitAgent(w.cfg.Dir)
+	if err != nil {
+		w.logger.Warn("bootstrap exit: SOUL.md present but load failed", "err", err)
+		return
+	}
+	w.mu.Lock()
+	w.gitagent = ga
+	w.mu.Unlock()
+	w.bootstrap.Store(false)
+	w.logger.Info("SOUL.md detected; leaving bootstrap mode")
+	w.pushContextUpdate(ga.BuildSystemPrompt("", localToolNames()), buildLocalToolDefs())
 }
 
 func (w *Worker) currentConn() *websocket.Conn {
@@ -300,13 +366,14 @@ func (w *Worker) currentConn() *websocket.Conn {
 	return w.conn
 }
 
-// validateDir checks that the gitagent directory contains SOUL.md and agent.yaml.
+// validateDir checks that the workspace path exists and is a directory.
 func (w *Worker) validateDir() error {
-	for _, f := range []string{"SOUL.md", "agent.yaml"} {
-		path := filepath.Join(w.cfg.Dir, f)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return fmt.Errorf("missing required file: %s", f)
-		}
+	fi, err := os.Stat(w.cfg.Dir)
+	if err != nil {
+		return fmt.Errorf("workspace directory: %w", err)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("workspace path is not a directory: %s", w.cfg.Dir)
 	}
 	return nil
 }

@@ -35,7 +35,9 @@ func SaveMemoryTool() Tool {
 			},
 			"required": ["mode", "content"]
 		}`),
-		Execute: executeSaveMemory,
+		Execute: func(ctx context.Context, workDir string, _ map[string]string, args json.RawMessage) (string, error) {
+			return executeSaveMemory(ctx, workDir, args)
+		},
 	}
 }
 

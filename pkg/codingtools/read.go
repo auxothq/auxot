@@ -38,7 +38,7 @@ func ReadTool() Tool {
 			},
 			"required": ["path"]
 		}`),
-		Execute: func(ctx context.Context, workDir string, args json.RawMessage) (string, error) {
+		Execute: func(ctx context.Context, workDir string, _ map[string]string, args json.RawMessage) (string, error) {
 			return executeRead(workDir, args)
 		},
 	}

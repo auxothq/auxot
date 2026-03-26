@@ -259,7 +259,7 @@ func (l *AgenticLoop) executeTool(ctx context.Context, tc openai.ToolCall) strin
 
 	// Try local tools first.
 	if tool := codingtools.FindTool(tc.Function.Name); tool != nil {
-		out, err := tool.Execute(ctx, l.workDir, json.RawMessage(tc.Function.Arguments))
+		out, err := tool.Execute(ctx, l.workDir, nil, json.RawMessage(tc.Function.Arguments))
 		if err != nil {
 			l.logger.Warn("tool execution failed", "tool", tc.Function.Name, "err", err)
 			result = fmt.Sprintf("Error: %s", err)

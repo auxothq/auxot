@@ -54,6 +54,26 @@ type RuntimeConfig struct {
 	Timeout  int `yaml:"timeout"`
 }
 
+// SoulMarkdownExists reports whether SOUL.md exists in dir (regular file or other).
+func SoulMarkdownExists(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, "SOUL.md"))
+	return err == nil
+}
+
+// ReadAgentConfigOptional loads agent.yaml when present; otherwise returns zero AgentConfig.
+func ReadAgentConfigOptional(dir string) AgentConfig {
+	cfgPath := filepath.Join(dir, "agent.yaml")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return AgentConfig{}
+	}
+	var cfg AgentConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return AgentConfig{}
+	}
+	return cfg
+}
+
 // LoadGitAgent reads a gitagent directory and returns a fully populated GitAgent.
 // SOUL.md is required; all other files are optional.
 func LoadGitAgent(dir string) (*GitAgent, error) {
