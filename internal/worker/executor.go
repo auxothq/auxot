@@ -216,6 +216,11 @@ func (e *Executor) Execute(
 	toolGeneratingNotified := false // Only send tool_generating once per job
 	var finalTimings *llamacpp.Timings
 	finishReason := ""
+	// inXMLToolCall is set true when a <tool_call> XML block is detected in
+	// the reasoning stream (Qwen3/llama.cpp behaviour). Once set, reasoning
+	// tokens are accumulated but not forwarded to the frontend so users never
+	// see raw XML in the Thought process accordion.
+	inXMLToolCall := false
 
 	for token := range tokenCh {
 		// Debug log each SSE chunk from llama.cpp (level 2)
@@ -260,9 +265,16 @@ func (e *Executor) Execute(
 				// tokens back into the content so nothing is lost.
 				fullResponse.WriteString(token.ReasoningContent)
 			} else {
+				// Once a <tool_call> XML block appears in the reasoning stream
+				// (Qwen3/llama.cpp behaviour), stop forwarding tokens to the
+				// frontend. They still accumulate for extractXMLToolCalls at
+				// sendComplete time, but users never see raw XML in Thought process.
+				if strings.Contains(token.ReasoningContent, "<tool_call>") {
+					inXMLToolCall = true
+				}
 				reasoningContent.WriteString(token.ReasoningContent)
 				reasoningTokenCount++
-				if sendReasoningToken != nil {
+				if !inXMLToolCall && sendReasoningToken != nil {
 					if err := sendReasoningToken(token.ReasoningContent); err != nil {
 						e.logger.Warn("failed to send reasoning token", "job_id", job.JobID, "error", err)
 					}
@@ -344,6 +356,15 @@ func (e *Executor) Execute(
 		finalResponse = strings.TrimSpace(thinkTagRe.ReplaceAllString(finalResponse, ""))
 		finalReasoning = "" // Discard reasoning text (already folded into response)
 		reasoningTokenCount = 0
+	}
+
+	// Qwen3 on llama.cpp sometimes puts tool calls in the reasoning block as XML.
+	// Normalize them into structured tool_calls before sending to the server.
+	if len(protoToolCalls) == 0 && strings.Contains(finalReasoning, "<tool_call>") {
+		if extracted, stripped := extractXMLToolCalls(finalReasoning); len(extracted) > 0 {
+			protoToolCalls = extracted
+			finalReasoning = stripped
+		}
 	}
 
 	// At level 1+, log the fully assembled tool call arguments before dispatch.

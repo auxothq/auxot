@@ -15,6 +15,83 @@ import (
 	"time"
 )
 
+// jsonRPCIDMatches reports whether raw is a JSON-RPC id equal to want.
+// Servers may encode ids as numbers or strings; mismatches previously caused
+// us to read stdout until timeout while the real response was ignored.
+func jsonRPCIDMatches(raw json.RawMessage, want int) bool {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return false
+	}
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return int(f) == want
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return false
+	}
+	var n int
+	_, err := fmt.Sscanf(s, "%d", &n)
+	return err == nil && n == want
+}
+
+// normalizeMCPArguments ensures tools/call receives a JSON object. Raw `null`,
+// empty input, or non-objects become `{}` so servers do not see "arguments": null.
+func normalizeMCPArguments(args json.RawMessage) json.RawMessage {
+	b := bytes.TrimSpace(args)
+	if len(b) == 0 || bytes.Equal(b, []byte("null")) {
+		return json.RawMessage(`{}`)
+	}
+	// Require a JSON object at the top level.
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	tok, err := dec.Token()
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	delim, ok := tok.(json.Delim)
+	if !ok || delim != '{' {
+		return json.RawMessage(`{}`)
+	}
+	return args
+}
+
+// hintForMCPToolValidationError inspects common Zod-style JSON arrays returned
+// inside JSON-RPC error messages and adds LLM-oriented context for Auxot's
+// aggregate MCP tools (command + arguments).
+func hintForMCPToolValidationError(message string) string {
+	s := strings.TrimSpace(message)
+	if len(s) < 2 || s[0] != '[' {
+		return ""
+	}
+	var issues []struct {
+		Path []string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(s), &issues); err != nil {
+		return ""
+	}
+	for _, iss := range issues {
+		for i := 0; i < len(iss.Path)-1; i++ {
+			if iss.Path[i] == "params" && iss.Path[i+1] == "arguments" {
+				return "Auxot maps this to your aggregate tool's \"arguments\" field: use a JSON object (not null). Example: {\"command\":\"get_file_contents\",\"arguments\":{\"owner\":\"YOUR_ORG\",\"repo\":\"YOUR_REPO\",\"path\":\"README.md\"}}."
+			}
+		}
+	}
+	return ""
+}
+
+// mcpJSONRPCToolCallError formats JSON-RPC errors from tools/call for operators
+// and the LLM, with hints when the upstream message refers to MCP params.arguments.
+func mcpJSONRPCToolCallError(toolName string, code int, message string) error {
+	msg := strings.TrimSpace(message)
+	hint := hintForMCPToolValidationError(msg)
+	if hint != "" {
+		return fmt.Errorf("MCP tool %q: server rejected the request (JSON-RPC %d): %s\n\n%s", toolName, code, msg, hint)
+	}
+	return fmt.Errorf("MCP tool %q: server rejected the request (JSON-RPC %d): %s", toolName, code, msg)
+}
+
 // McpInstaller manages per-package bun installation state.
 // Each package is installed at most once; concurrent callers for the same
 // package block on the single install goroutine until it completes.
@@ -168,7 +245,7 @@ type jsonRPCRequest struct {
 // jsonRPCResponse is a JSON-RPC 2.0 response (success or error).
 type jsonRPCResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      *int            `json:"id,omitempty"`
+	ID      json.RawMessage `json:"id,omitempty"`
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   *jsonRPCError   `json:"error,omitempty"`
 }
@@ -246,9 +323,13 @@ func McpIntrospect(ctx context.Context, pkg, version string) ([]McpToolDef, erro
 				if err := json.Unmarshal(line, &resp); err != nil {
 					continue // skip non-JSON lines (e.g. startup messages)
 				}
-				if resp.ID != nil && *resp.ID == expectedID {
-					return resp, nil
+				if !jsonRPCIDMatches(resp.ID, expectedID) {
+					continue
 				}
+				if resp.Error != nil {
+					return jsonRPCResponse{}, fmt.Errorf("MCP JSON-RPC error %d: %s", resp.Error.Code, resp.Error.Message)
+				}
+				return resp, nil
 			case <-deadline:
 				return jsonRPCResponse{}, fmt.Errorf("timeout waiting for response id=%d", expectedID)
 			case <-ctx.Done():
@@ -278,9 +359,6 @@ func McpIntrospect(ctx context.Context, pkg, version string) ([]McpToolDef, erro
 	resp, err := readResp(2)
 	if err != nil {
 		return nil, fmt.Errorf("MCP introspect tools/list: %w", err)
-	}
-	if resp.Error != nil {
-		return nil, fmt.Errorf("MCP tools/list error %d: %s", resp.Error.Code, resp.Error.Message)
 	}
 
 	// Parse tools/list result: {"tools": [{name, description, inputSchema}]}
@@ -432,19 +510,23 @@ func McpExecute(ctx context.Context, pkg, version, toolName string, args json.Ra
 					// Could be a log line or a notification without id; skip.
 					continue
 				}
-				if resp.ID != nil && *resp.ID == targetID {
-					return &resp, nil
+				if !jsonRPCIDMatches(resp.ID, targetID) {
+					continue
 				}
+				if resp.Error != nil {
+					if targetID == 2 {
+						return nil, mcpJSONRPCToolCallError(toolName, resp.Error.Code, resp.Error.Message)
+					}
+					return nil, fmt.Errorf("MCP JSON-RPC error %d: %s", resp.Error.Code, resp.Error.Message)
+				}
+				return &resp, nil
 			case <-ctx.Done():
 				return nil, fmt.Errorf("MCP %s timed out: %w", pkgSpec, ctx.Err())
 			}
 		}
 	}
 
-	// Ensure args is a valid JSON object (fall back to empty object).
-	if len(args) == 0 {
-		args = json.RawMessage(`{}`)
-	}
+	args = normalizeMCPArguments(args)
 
 	// Step 1: initialize.
 	id1 := 1
@@ -496,11 +578,38 @@ func McpExecute(ctx context.Context, pkg, version, toolName string, args json.Ra
 	if err != nil {
 		return Result{}, fmt.Errorf("MCP tools/call response: %w", err)
 	}
-	if resp.Error != nil {
-		return Result{}, fmt.Errorf("MCP tool %q error %d: %s", toolName, resp.Error.Code, resp.Error.Message)
-	}
 	if resp.Result == nil {
 		return Result{Output: json.RawMessage(`null`)}, nil
 	}
-	return Result{Output: resp.Result}, nil
+	return interpretMcpToolsCallResult(toolName, resp.Result)
+}
+
+// interpretMcpToolsCallResult maps MCP tools/call "result" into a tools.Result.
+// When the server sets isError, we return a Go error so the worker sends a
+// tool_result with Error set instead of silent "success" with an error payload.
+func interpretMcpToolsCallResult(toolName string, raw json.RawMessage) (Result, error) {
+	var envelope struct {
+		IsError bool `json:"isError"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return Result{Output: raw}, nil
+	}
+	if !envelope.IsError {
+		return Result{Output: raw}, nil
+	}
+	var parts []string
+	for _, c := range envelope.Content {
+		if c.Type == "text" && c.Text != "" {
+			parts = append(parts, c.Text)
+		}
+	}
+	msg := strings.Join(parts, "\n")
+	if msg == "" {
+		msg = "MCP tool returned isError with no text content"
+	}
+	return Result{}, fmt.Errorf("MCP tool %q: %s", toolName, msg)
 }

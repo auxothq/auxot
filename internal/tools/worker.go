@@ -279,13 +279,30 @@ func buildMcpDescription(pkg string, defs []tools.McpToolDef) string {
 		}
 		sb.WriteString("\n")
 	}
-	sb.WriteString("\nCall this tool with {\"command\": \"<command_name>\", \"params\": {\"<param>\": \"<value>\", ...}}.\nExample: {\"command\": \"create_issue\", \"params\": {\"owner\": \"acme\", \"repo\": \"api\", \"title\": \"Bug\"}}")
+	sb.WriteString("\nCall this tool with {\"command\": \"<command_name>\", \"arguments\": {\"<param>\": \"<value>\", ...}} — \"arguments\" must be a JSON object (use {} if the command needs no parameters).\nExample: {\"command\": \"create_issue\", \"arguments\": {\"owner\": \"acme\", \"repo\": \"api\", \"title\": \"Bug\"}}")
 	return sb.String()
+}
+
+// sendToolResultWithRetry delivers a tool result to the router; a single retry
+// helps with transient WebSocket write failures so the server can fan in.
+func (w *Worker) sendToolResultWithRetry(logger *slog.Logger, msg protocol.ToolResultMessage) {
+	var last error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			time.Sleep(150 * time.Millisecond)
+		}
+		last = w.conn.SendResult(msg)
+		if last == nil {
+			return
+		}
+	}
+	logger.Error("sending tool result failed after retry", "error", last)
 }
 
 // handleToolJob is called by Connection when a ToolJobMessage arrives.
 // It runs in its own goroutine (spawned by Connection.messageLoop).
 func (w *Worker) handleToolJob(job protocol.ToolJobMessage) {
+	start := time.Now()
 	logger := w.logger.With(
 		"job_id", job.JobID,
 		"parent_job_id", job.ParentJobID,
@@ -294,7 +311,21 @@ func (w *Worker) handleToolJob(job protocol.ToolJobMessage) {
 	)
 	logger.Info("executing tool")
 
-	start := time.Now()
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("tool job panic", "panic", r)
+			msg := protocol.ToolResultMessage{
+				Type:        protocol.TypeToolResult,
+				JobID:       job.JobID,
+				ParentJobID: job.ParentJobID,
+				ToolCallID:  job.ToolCallID,
+				ToolName:    job.ToolName,
+				Error:       fmt.Sprintf("tool worker panic: %v", r),
+				DurationMS:  time.Since(start).Milliseconds(),
+			}
+			w.sendToolResultWithRetry(logger, msg)
+		}
+	}()
 
 	// Give each tool call its own context with a generous timeout.
 	// Inherit from runCtx so tool calls are cancelled on SIGTERM/SIGINT.
@@ -372,9 +403,7 @@ func (w *Worker) handleToolJob(job protocol.ToolJobMessage) {
 		}
 	}
 
-	if err := w.conn.SendResult(msg); err != nil {
-		logger.Error("sending tool result", "error", err)
-	}
+	w.sendToolResultWithRetry(logger, msg)
 }
 
 // credentialEnvVars returns the AUXOT_TOOL_ env vars for a given tool/server name,

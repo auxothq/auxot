@@ -81,6 +81,20 @@ func TestBootstrapSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestRedactEnvValues_LongestSecretFirst(t *testing.T) {
+	env := map[string]string{
+		"FOO_TEST": "test credential",
+		"TEST":     "test",
+	}
+	// If "test" is replaced before "test credential", the longer value becomes
+	// "******** credential" and the remainder leaks.
+	in := "FOO_TEST=test credential\nTEST=test"
+	want := "FOO_TEST=********\nTEST=********"
+	if got := redactEnvValues(in, env); got != want {
+		t.Errorf("redactEnvValues(...) = %q, want %q", got, want)
+	}
+}
+
 func TestBackoffReset(t *testing.T) {
 	// This test documents the backoff reset behavior. Backoff is reset when:
 	// 1. connectAndRun calls onConnected after hello_ack (connection established)

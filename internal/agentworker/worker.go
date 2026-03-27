@@ -19,6 +19,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -285,7 +287,7 @@ func (w *Worker) handleToolExecute(ctx context.Context, msg protocol.AgentToolEx
 		_ = w.writeJSON(protocol.AgentLocalToolResultMessage{
 			Type:   protocol.TypeAgentLocalToolResult,
 			CallID: msg.CallID,
-			Error:  err.Error(),
+			Error:  redactEnvValues(err.Error(), msg.Env),
 		})
 		return
 	}
@@ -294,7 +296,7 @@ func (w *Worker) handleToolExecute(ctx context.Context, msg protocol.AgentToolEx
 	_ = w.writeJSON(protocol.AgentLocalToolResultMessage{
 		Type:   protocol.TypeAgentLocalToolResult,
 		CallID: msg.CallID,
-		Result: result,
+		Result: redactEnvValues(result, msg.Env),
 	})
 
 	w.maybeLeaveBootstrapAfterTool()
@@ -400,6 +402,41 @@ func buildLocalToolDefs() []protocol.ToolDefinition {
 		}
 	}
 	return defs
+}
+
+// redactEnvValues replaces any credential values from env that appear in output
+// with a fixed redaction marker. Values shorter than minRedactEnvLen are skipped
+// to avoid clobbering common short strings (PATH separators, flags, etc.).
+//
+// Replacement runs longest-first so a short secret that is a prefix of a longer
+// one (e.g. TEST=test inside FOO_TEST=test credential) does not leave a suffix
+// like "******** credential" exposed.
+func redactEnvValues(output string, env map[string]string) string {
+	if len(env) == 0 || output == "" {
+		return output
+	}
+	const redacted = "********"
+	const minRedactEnvLen = 3
+
+	vals := make([]string, 0, len(env))
+	seen := make(map[string]struct{}, len(env))
+	for _, v := range env {
+		if len(v) < minRedactEnvLen {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		vals = append(vals, v)
+	}
+	sort.Slice(vals, func(i, j int) bool {
+		return len(vals[i]) > len(vals[j])
+	})
+	for _, v := range vals {
+		output = strings.ReplaceAll(output, v, redacted)
+	}
+	return output
 }
 
 // soulDigest returns a simple fingerprint of SOUL.md for the hello metadata.
