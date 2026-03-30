@@ -407,7 +407,7 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 				return conn.SendToolGenerating(job.JobID)
 			},
 			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
-				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
+				return conn.SendComplete(job.JobID, fullResponse, "", reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
 			},
 			func(errMsg, details string) error {
 				return conn.SendError(job.JobID, errMsg)
@@ -565,15 +565,15 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 			},
 			func(token string) error { return conn.SendToken(job.JobID, token) },
 			func(token string) error { return conn.SendReasoningToken(job.JobID, token) },
-			func(id, name, args, result string) error {
-				return conn.SendBuiltinTool(job.JobID, id, name, args, result)
-			},
-			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
-				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
-			},
-			func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
-		)
-	})
+		func(id, name, args, result string) error {
+			return conn.SendBuiltinTool(job.JobID, id, name, args, result)
+		},
+		func(preToolContent, postToolContent, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error {
+			return conn.SendComplete(job.JobID, preToolContent, postToolContent, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, builtinToolUses)
+		},
+		func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
+	)
+})
 
 	conn.OnCancel(func(jobID string) {
 		if cancel, ok := activeJobs.Load(jobID); ok {
@@ -725,7 +725,7 @@ func runWithStableDiffusion(ctx context.Context, cfg *worker.Config, conn *worke
 			func(token string) error { return conn.SendReasoningToken(job.JobID, token) },
 			func() error { return conn.SendToolGenerating(job.JobID) },
 			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
-				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
+				return conn.SendComplete(job.JobID, fullResponse, "", reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
 			},
 			func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
 			nil,
@@ -839,7 +839,7 @@ func runWithExternalLlama(ctx context.Context, cfg *worker.Config, conn *worker.
 			func(token string) error { return conn.SendReasoningToken(job.JobID, token) },
 			func() error { return conn.SendToolGenerating(job.JobID) },
 			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
-				return conn.SendComplete(job.JobID, fullResponse, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
+				return conn.SendComplete(job.JobID, fullResponse, "", reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
 			},
 			func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
 			func(total, cached, processed int) error {

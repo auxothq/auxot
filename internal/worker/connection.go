@@ -297,11 +297,15 @@ func (c *Connection) SendPromptProgress(jobID string, total, cached, processed i
 }
 
 // SendComplete sends a completion message to the router.
-func (c *Connection) SendComplete(jobID, fullResponse, reasoningContent string, durationMS int64, cacheTokens, inputTokens, outputTokens, reasoningTokens int, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error {
+// preToolContent is the assistant text before any CLI-native tools ran.
+// postToolContent is the assistant text after CLI-native tools completed (empty when
+// no builtin tools were used or the turn ended with MCP tools).
+func (c *Connection) SendComplete(jobID, preToolContent, postToolContent, reasoningContent string, durationMS int64, cacheTokens, inputTokens, outputTokens, reasoningTokens int, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error {
 	return c.sendJSON(protocol.CompleteMessage{
 		Type:             protocol.TypeComplete,
 		JobID:            jobID,
-		FullResponse:     fullResponse,
+		FullResponse:     preToolContent,
+		PostToolContent:  postToolContent,
 		ReasoningContent: reasoningContent,
 		DurationMS:       durationMS,
 		CacheTokens:      cacheTokens,

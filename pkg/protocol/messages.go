@@ -179,6 +179,12 @@ type CompleteMessage struct {
 	Type             MessageType      `json:"type"`
 	JobID            string           `json:"job_id"`
 	FullResponse     string           `json:"full_response"`
+	// PostToolContent, when non-empty, is the assistant text generated AFTER
+	// CLI-native builtin tools (Bash, WebSearch, etc.) completed. FullResponse
+	// in that case holds the pre-tool text (reasoning preamble or empty string).
+	// The server uses this to insert: first assistant row → tool_call rows →
+	// second assistant row, preserving the actual execution order in the DB.
+	PostToolContent  string           `json:"post_tool_content,omitempty"`
 	ReasoningContent string           `json:"reasoning_content,omitempty"` // Full chain-of-thought text
 	DurationMS       int64            `json:"duration_ms,omitempty"`
 	CacheTokens      int              `json:"cache_tokens,omitempty"`
@@ -305,14 +311,21 @@ type Tool struct {
 
 // JobMessage is sent by the server to assign work to a worker.
 type JobMessage struct {
-	Type            MessageType   `json:"type"`
-	JobID           string        `json:"job_id"`
-	Messages        []ChatMessage `json:"messages"`
-	Tools           []Tool        `json:"tools,omitempty"`
-	Temperature     *float64      `json:"temperature,omitempty"`
-	MaxTokens       *int          `json:"max_tokens,omitempty"`
-	ReasoningEffort string        `json:"reasoning_effort,omitempty"` // "none", "low", "medium", "high"
-	Data            map[string]any `json:"data,omitempty"`           // Optional: tool arguments (e.g. size, steps for image_gen)
+	Type            MessageType    `json:"type"`
+	JobID           string         `json:"job_id"`
+	Messages        []ChatMessage  `json:"messages"`
+	Tools           []Tool         `json:"tools,omitempty"`
+	Temperature     *float64       `json:"temperature,omitempty"`
+	MaxTokens       *int           `json:"max_tokens,omitempty"`
+	ReasoningEffort string         `json:"reasoning_effort,omitempty"` // "none", "low", "medium", "high"
+	Data            map[string]any `json:"data,omitempty"`              // Optional: tool arguments (e.g. size, steps for image_gen)
+	// CompactionSessionID is the UUID of the last conversation-compaction
+	// breakpoint (or the thread ID if the thread has never been compacted).
+	// When non-empty the CLI worker uses this as the session ID:
+	//   - If the session file already exists on disk → --resume (send only delta)
+	//   - If the session file is missing            → --session-id (full seed)
+	// When empty the worker falls back to --no-session-persistence (stateless).
+	CompactionSessionID string `json:"compaction_session_id,omitempty"`
 }
 
 // CancelMessage tells the worker to stop processing a job.

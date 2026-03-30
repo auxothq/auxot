@@ -12,22 +12,84 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/auxothq/auxot/pkg/protocol"
+)
+
+const (
+	// DefaultWorkerDir is the working directory for the claude subprocess.
+	// A neutral, fixed path prevents accidental CLAUDE.md discovery from
+	// whatever directory the server process happens to be running in.
+	DefaultWorkerDir = "/tmp/auxot-worker"
+	// DefaultConfigDir is CLAUDE_CONFIG_DIR for the claude subprocess.
+	// Isolating configuration here keeps sessions, memory, and caches
+	// away from the developer's personal ~/.claude directory and makes
+	// the session file path fully deterministic:
+	//   <DefaultConfigDir>/projects/-tmp-auxot-worker/<session-id>.jsonl
+	DefaultConfigDir = "/tmp/auxot-worker/.claude"
 )
 
 // JobConfig carries per-execution settings derived from the worker policy.
 type JobConfig struct {
 	// ClaudePath is the path to the claude binary; defaults to "claude".
 	ClaudePath string
-	// Model is the --model flag value, e.g. "claude-sonnet-4-5"; empty = CLI default.
+	// Model is the --model flag value, e.g. "claude-sonnet-4-6"; empty = CLI default.
 	Model string
 	// BuiltinTools lists which claude CLI built-in tools to enable.
 	// nil/empty → only MCP tools (--tools "").
 	// ["default"] → all built-in tools.
 	// Any other list → specific tools, e.g. ["Bash","WebSearch"].
 	BuiltinTools []string
+	// WorkDir is cmd.Dir for the claude subprocess.
+	// Defaults to DefaultWorkerDir if empty.
+	WorkDir string
+	// ConfigDir is the CLAUDE_CONFIG_DIR env var for the claude subprocess.
+	// Defaults to DefaultConfigDir if empty.
+	ConfigDir string
+}
+
+// sessionFilePath returns the path where the Claude CLI persists conversation
+// history for a given session ID, given the config directory and working
+// directory that the claude subprocess was started with.
+//
+// Path layout:  <configDir>/projects/<escaped-cwd>/<session-id>.jsonl
+// CWD escaping: every "/" is replaced with "-" (including the leading slash).
+//
+// Symlinks in workDir are resolved before escaping — the CLI uses the real
+// path (as seen by the OS) for the project directory. On macOS /tmp resolves
+// to /private/tmp, changing the escaped project key.
+func sessionFilePath(configDir, workDir, sessionID string) string {
+	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
+		workDir = resolved
+	}
+	escapedCWD := strings.ReplaceAll(workDir, "/", "-")
+	return filepath.Join(configDir, "projects", escapedCWD, sessionID+".jsonl")
+}
+
+// workerEnv builds the subprocess environment for the claude CLI.
+// It inherits the current process environment and overlays the variables
+// that control claude's runtime behaviour in a server context.
+func workerEnv(configDir, proxyAddr string) []string {
+	env := os.Environ()
+	overlay := []string{
+		"CLAUDE_CONFIG_DIR=" + configDir,
+		// Prevent Claude from creating per-user memory files that could
+		// bleed context between different users' sessions on the same worker.
+		"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
+		// No background prefetch, cron jobs, or CLI feedback surveys on a server VM.
+		"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1",
+		"CLAUDE_CODE_DISABLE_CRON=1",
+		"CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1",
+		// Suppress non-essential outbound traffic (update checks, etc.).
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+		"DISABLE_TELEMETRY=1",
+	}
+	if proxyAddr != "" {
+		overlay = append(overlay, "ANTHROPIC_BASE_URL="+proxyAddr)
+	}
+	return append(env, overlay...)
 }
 
 // RunJob executes a single job using the Claude Code CLI and streams results
@@ -49,10 +111,18 @@ func RunJob(
 	cfg JobConfig,
 	onToken func(string) error,
 	onReasoningToken func(string) error,
-	// onBuiltinTool is called in real-time when a CLI-native tool completes (before text tokens).
-	// May be nil if the caller does not need real-time reporting.
+	// onBuiltinTool is called in real-time when a CLI-native tool starts or completes.
+	// May be nil if the caller does not need real-time progress events.
 	onBuiltinTool func(id, name, args, result string) error,
-	onComplete func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error,
+	// onComplete receives all completed CLI-native tool uses (builtinToolUses) alongside
+	// the MCP tool calls so the server can persist them as part of the same turn.
+	// preToolContent is the assistant text generated before any builtin tools ran
+	// (empty when the model goes straight to a tool call).
+	// postToolContent is the assistant text generated after builtin tools completed
+	// (empty when there were no builtin tools, or when the turn ended with MCP tools).
+	// The server uses pre/post to insert two separate assistant rows with tool_call
+	// rows in between, preserving the actual execution order in the database.
+	onComplete func(preToolContent, postToolContent, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error,
 	onError func(errMsg, details string) error,
 ) {
 	log := slog.Default()
@@ -60,6 +130,22 @@ func RunJob(
 	claudePath := cfg.ClaudePath
 	if claudePath == "" {
 		claudePath = "claude"
+	}
+
+	workDir := cfg.WorkDir
+	if workDir == "" {
+		workDir = DefaultWorkerDir
+	}
+	configDir := cfg.ConfigDir
+	if configDir == "" {
+		configDir = DefaultConfigDir
+	}
+	// Ensure both directories exist before launching the subprocess.
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		log.Warn("cliworker: could not create workDir", "path", workDir, "error", err)
+	}
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		log.Warn("cliworker: could not create configDir", "path", configDir, "error", err)
 	}
 
 	claudeCtx, cancelClaude := context.WithCancel(ctx)
@@ -71,16 +157,50 @@ func RunJob(
 	for _, t := range job.Tools {
 		mcpToolNames[t.Function.Name] = "mcp__auxot__" + t.Function.Name
 	}
-	systemPrompt, prompt := buildPrompt(job.Messages, mcpToolNames)
+	systemPrompt, historyBlob, currentPrompt := buildPrompt(job.Messages, mcpToolNames)
 
 	effectiveBuiltins := filterShadowedBuiltins(cfg.BuiltinTools, job.Tools)
 	toolsFlag := buildToolsFlag(effectiveBuiltins)
 	hasTools := len(job.Tools) > 0
 
+	// ── Session management ─────────────────────────────────────────────────────
+	// When the server supplies a CompactionSessionID we can reuse the CLI's
+	// native session file between turns, giving it proper conversation context
+	// (with cache-warm history) instead of a flat text blob every time.
+	//
+	//  Session file exists  →  --resume <id>    (CLI loads history, we send delta)
+	//  Session file missing →  --session-id <id> (CLI seeds new file, we send full blob)
+	//  No session ID given  →  --no-session-persistence (stateless, current default)
+	sessionID := job.CompactionSessionID
+	sessionFileExists := false
+	if sessionID != "" {
+		sfPath := sessionFilePath(configDir, workDir, sessionID)
+		if _, statErr := os.Stat(sfPath); statErr == nil {
+			sessionFileExists = true
+		}
+		log.Info("cliworker: session check",
+			"session_id", sessionID,
+			"path", sfPath,
+			"exists", sessionFileExists,
+		)
+	}
+
 	args := []string{
 		"--output-format", "stream-json",
 		"--verbose",
 		"--tools", toolsFlag,
+	}
+
+	// Session flags — mutually exclusive with --no-session-persistence.
+	switch {
+	case sessionID != "" && sessionFileExists:
+		args = append(args, "--resume", sessionID)
+	case sessionID != "":
+		args = append(args, "--session-id", sessionID)
+	default:
+		// No compaction session ID from server: run stateless.
+		// Sessions are written to CLAUDE_CONFIG_DIR but never resumed.
+		args = append(args, "--no-session-persistence")
 	}
 
 	if hasTools {
@@ -97,14 +217,26 @@ func RunJob(
 		args = append(args, "--dangerously-skip-permissions")
 	}
 
-	if cfg.Model != "" {
-		args = append(args, "--model", cfg.Model)
+	// Always pass --model explicitly so the claude CLI never silently falls back
+	// to the account's configured default (often claude-opus-4-6[1m] — the
+	// 1-million-token context variant billed at premium rates).
+	effectiveModel := cfg.Model
+	if effectiveModel == "" {
+		effectiveModel = "claude-sonnet-4-6"
 	}
+	args = append(args, "--model", effectiveModel)
 	if systemPrompt != "" {
 		args = append(args, "--system-prompt", systemPrompt)
 	}
 	if !hasTools {
-		args = append(args, "-p", prompt)
+		// No-tools path: pass the full prompt via -p. History is baked into the
+		// currentPrompt string (flat blob) since the -p flag takes a single
+		// string and has no content-block cache_control support.
+		fullPrompt := currentPrompt
+		if historyBlob != "" {
+			fullPrompt = historyBlob + "\n\n" + currentPrompt
+		}
+		args = append(args, "-p", fullPrompt)
 	}
 
 	// MCP setup stays — needed for tool schema (initialize + tools/list).
@@ -128,11 +260,13 @@ func RunJob(
 	}()
 
 	cmd := exec.CommandContext(claudeCtx, claudePath, args...)
-	// Run in a neutral directory so Claude Code does not discover CLAUDE.md
-	// files from the server process's working directory ancestry. The system
-	// prompt is provided explicitly via --system-prompt; project context files
-	// must not override it.
-	cmd.Dir = os.TempDir()
+	// Fixed working directory — prevents CLAUDE.md discovery from the server
+	// process's directory ancestry. System prompt is provided explicitly via
+	// --system-prompt; project context files must not override it.
+	cmd.Dir = workDir
+	// Isolated environment: CLAUDE_CONFIG_DIR pins sessions/memory/caches to
+	// a known path; the DISABLE_* vars strip all server-irrelevant behaviours.
+	cmd.Env = workerEnv(configDir, "")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = onError("failed to create stdout pipe", err.Error())
@@ -155,13 +289,36 @@ func RunJob(
 	}
 
 	if hasTools && stdinPipe != nil {
+		// Build content blocks. When there is prior conversation history we send
+		// it as a separate block with cache_control so the Anthropic API can
+		// cache it server-side. The current user message has no breakpoint —
+		// it changes every turn and must not anchor the cache.
+		//
+		// TTL note: we use the default ephemeral TTL (5m) rather than "1h".
+		// The API enforces that cache blocks must be ordered longest-TTL-first
+		// across tools → system → messages. The Claude CLI's system prompt blocks
+		// already use the 5m default, so any message-level block with ttl="1h"
+		// would violate that constraint and produce a 400 error.
+		var contentBlocks []map[string]any
+		if historyBlob != "" {
+			contentBlocks = append(contentBlocks, map[string]any{
+				"type": "text",
+				"text": historyBlob,
+				"cache_control": map[string]any{
+					"type": "ephemeral",
+				},
+			})
+		}
+		contentBlocks = append(contentBlocks, map[string]any{
+			"type": "text",
+			"text": currentPrompt,
+		})
+
 		userMsg := map[string]any{
 			"type": "user",
 			"message": map[string]any{
-				"role": "user",
-				"content": []map[string]any{
-					{"type": "text", "text": prompt},
-				},
+				"role":    "user",
+				"content": contentBlocks,
 			},
 		}
 		if err := json.NewEncoder(stdinPipe).Encode(userMsg); err != nil {
@@ -172,15 +329,18 @@ func RunJob(
 	}
 
 	var (
-		fullText       strings.Builder
-		preToolText    strings.Builder
-		fullReasoning  strings.Builder
-		inputTokens    int
-		outputTokens   int
-		toolCalls      []protocol.ToolCall
-		seenMCPTool    bool
-		batchComplete  bool // set true on rate_limit_event
-		pendingBuiltin = map[string]*protocol.BuiltinToolUse{}
+		fullText          strings.Builder
+		preToolText       strings.Builder // text before any builtin tool ran
+		postToolText      strings.Builder // text after builtin tools completed
+		fullReasoning     strings.Builder
+		inputTokens       int
+		outputTokens      int
+		toolCalls         []protocol.ToolCall
+		seenMCPTool       bool
+		seenBuiltinResult bool // true after first builtin tool_result received
+		batchComplete     bool // set true on rate_limit_event
+		pendingBuiltin    = map[string]*protocol.BuiltinToolUse{}
+		completedBuiltins []protocol.BuiltinToolUse
 	)
 
 	scanner := bufio.NewScanner(stdout)
@@ -208,14 +368,23 @@ func RunJob(
 
 			for _, block := range event.Message.Content {
 				switch block.Type {
-				case "text":
-					if block.Text != "" {
-						fullText.WriteString(block.Text)
-						if !seenMCPTool {
-							preToolText.WriteString(block.Text)
-							_ = onToken(block.Text)
-						}
+			case "text":
+				if block.Text != "" {
+					fullText.WriteString(block.Text)
+					switch {
+					case seenMCPTool:
+						// MCP turn: we killed Claude after collecting tool calls,
+						// so this text is from the (suppressed) retry turn — discard.
+					case seenBuiltinResult:
+						// Post-builtin response: the agent's reply after tool results.
+						postToolText.WriteString(block.Text)
+						_ = onToken(block.Text)
+					default:
+						// Pre-tool or no-tool text.
+						preToolText.WriteString(block.Text)
+						_ = onToken(block.Text)
 					}
+				}
 				case "thinking":
 					if block.Thinking != "" {
 						fullReasoning.WriteString(block.Thinking)
@@ -263,27 +432,45 @@ func RunJob(
 				if block.Type != "tool_result" || block.ToolUseID == "" {
 					continue
 				}
-				if pending, ok := pendingBuiltin[block.ToolUseID]; ok {
-					pending.Result = block.ResultContent
-					if onBuiltinTool != nil {
-						_ = onBuiltinTool(pending.ID, pending.Name, pending.Arguments, pending.Result)
-					}
-					delete(pendingBuiltin, block.ToolUseID)
-				}
+		if pending, ok := pendingBuiltin[block.ToolUseID]; ok {
+			pending.Result = block.ResultContent
+			if onBuiltinTool != nil {
+				_ = onBuiltinTool(pending.ID, pending.Name, pending.Arguments, pending.Result)
+			}
+			completedBuiltins = append(completedBuiltins, *pending)
+			delete(pendingBuiltin, block.ToolUseID)
+			// Any assistant text after this point is the post-tool response.
+			seenBuiltinResult = true
+			// If rate_limit_event already fired (MCP tools collected) and this was
+			// the last pending builtin, kill Claude now — we have everything we need.
+			if batchComplete && len(toolCalls) > 0 && len(pendingBuiltin) == 0 && stdinPipe != nil {
+				log.Info("batch_complete_builtins_done",
+					"mcp_tool_calls", len(toolCalls),
+					"completed_builtins", len(completedBuiltins))
+				stdinPipe.Close()
+				stdinPipe = nil
+				cancelClaude()
+			}
+		}
 			}
 
 		case "rate_limit_event":
 			batchComplete = true
-			// If we collected MCP tool calls, the model turn is done.
-			// Close stdin to prevent Claude from wasting tokens on a retry
-			// turn after the permission denials.
-			if len(toolCalls) > 0 && stdinPipe != nil {
+			// rate_limit_event fires immediately after the model finishes streaming,
+			// BEFORE the user event carrying builtin tool results.  Only kill Claude
+			// once all pending builtin tools have delivered their results — otherwise
+			// we'd discard the WebSearch / Bash result in a mixed turn.
+			if len(toolCalls) > 0 && len(pendingBuiltin) == 0 && stdinPipe != nil {
 				log.Info("batch_complete",
 					"mcp_tool_calls", len(toolCalls),
-					"builtin_pending", len(pendingBuiltin))
+					"builtin_pending", 0)
 				stdinPipe.Close()
 				stdinPipe = nil
 				cancelClaude()
+			} else if len(toolCalls) > 0 && len(pendingBuiltin) > 0 {
+				log.Info("batch_complete_waiting_for_builtins",
+					"mcp_tool_calls", len(toolCalls),
+					"builtin_pending", len(pendingBuiltin))
 			}
 
 		case "result":
@@ -372,11 +559,23 @@ func RunJob(
 	}
 
 complete:
-	responseText := fullText.String()
-	if len(toolCalls) > 0 {
-		responseText = preToolText.String()
+	var preToolContent, postToolContent string
+	switch {
+	case len(toolCalls) > 0:
+		// MCP turn: response is whatever the agent said before calling MCP tools.
+		// Claude is killed after we collect the tool calls, so there is no post-tool text.
+		preToolContent = preToolText.String()
+	case len(completedBuiltins) > 0:
+		// CLI-native builtin turn: separate the pre-tool preamble from the
+		// post-tool response so the server can insert them as two distinct
+		// assistant rows with the tool_call rows in between.
+		preToolContent = preToolText.String()
+		postToolContent = postToolText.String()
+	default:
+		// Plain text turn: no tools at all.
+		preToolContent = fullText.String()
 	}
-	_ = onComplete(responseText, fullReasoning.String(), 0, inputTokens, outputTokens, 0, 0, toolCalls)
+	_ = onComplete(preToolContent, postToolContent, fullReasoning.String(), 0, inputTokens, outputTokens, 0, 0, toolCalls, completedBuiltins)
 }
 
 // setupMCP writes the job tools to a temp file and creates an mcp-config JSON file
@@ -449,7 +648,15 @@ func setupMCP(tools []protocol.Tool) (args []string, cleanup func(), err error) 
 //
 // For tool result turns (role "tool"), the content is formatted so claude understands
 // it received the result of a tool call it previously requested.
-func buildPrompt(messages []protocol.ChatMessage, mcpToolNames map[string]string) (systemPrompt, prompt string) {
+// buildPrompt parses the stored message history into:
+//   - systemPrompt: the system message content (with parallel-tool instruction appended)
+//   - historyBlob: all prior turns formatted as a conversation transcript; empty
+//     when there is no prior history. Sent as a separate content block with a
+//     default ephemeral (5m) cache_control breakpoint so the Anthropic API can
+//     cache the history server-side between turns.
+//   - currentPrompt: the text of the final user message, sent without a cache
+//     breakpoint so it does not anchor the cache to a volatile position.
+func buildPrompt(messages []protocol.ChatMessage, mcpToolNames map[string]string) (systemPrompt, historyBlob, currentPrompt string) {
 	var turns []string
 
 	for _, msg := range messages {
@@ -493,13 +700,11 @@ func buildPrompt(messages []protocol.ChatMessage, mcpToolNames map[string]string
 	history := turns[:len(turns)-1]
 
 	if len(history) > 0 {
-		prompt = "<conversation_history>\n" +
+		historyBlob = "<conversation_history>\n" +
 			strings.Join(history, "\n\n") +
-			"\n</conversation_history>\n\n" +
-			stripRolePrefix(last)
-	} else {
-		prompt = stripRolePrefix(last)
+			"\n</conversation_history>"
 	}
+	currentPrompt = stripRolePrefix(last)
 	return
 }
 
