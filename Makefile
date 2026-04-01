@@ -1,5 +1,8 @@
 .PHONY: build test test-integration test-race vet lint check clean sync-registry tag tag-release test-router-url-flag
 
+WEB_REPO      := $(HOME)/src/auxot/auxot
+CHANGELOG_DIR := $(WEB_REPO)/apps/web/src/content/changelog/oss
+
 # Build all binaries to ./bin/
 build: bin/auxot-router bin/auxot-worker bin/auxot-tools bin/auxot-agent
 
@@ -100,7 +103,33 @@ tag:
 	echo "Latest: $$LATEST  →  $$NEXT"; \
 	git tag "$$NEXT" && \
 	git push origin "$$NEXT" && \
-	echo "✓ Tagged: $$NEXT — watch: https://github.com/auxothq/auxot/actions"
+	echo "✓ Tagged: $$NEXT — watch: https://github.com/auxothq/auxot/actions"; \
+	echo ""; \
+	echo "Generating changelog…"; \
+	COMMITS=$$(git log $$LATEST..$$NEXT --pretty=format:"- %s (%h)" --no-merges); \
+	DATE=$$(date -u +%Y-%m-%d); \
+	mkdir -p $(CHANGELOG_DIR); \
+	OUTFILE="$(CHANGELOG_DIR)/$${NEXT#v}.mdx"; \
+	claude --print -p "You are writing a changelog entry for Auxot (open-source edition), an AI agent orchestration platform — the OSS router, workers, and CLI. \
+Given these git commits from version $$NEXT ($$DATE), produce a complete MDX file with frontmatter and body. \
+\
+Frontmatter format (YAML between --- delimiters): \
+  product: oss \
+  version: \"$${NEXT#v}\" \
+  date: \"$$DATE\" \
+  title: (a short descriptive title for this release) \
+  summary: (one sentence summary) \
+\
+Body rules: \
+- Group changes under ## headings: Features, Improvements, Fixes, Internal (only include headings that have entries) \
+- Write in past tense, user-facing language \
+- Collapse related commits into single bullet points \
+- Skip trivial commits (typos, formatting) \
+- Keep it concise \
+\
+Commits: \
+$$COMMITS" > "$$OUTFILE"; \
+	echo "✓ Changelog: $$OUTFILE (unstaged — review and commit to web repo)"
 
 # Tag a release — triggers GoReleaser + Docker build via GitHub Actions.
 # Usage: make tag-release V=0.1.0
@@ -116,4 +145,30 @@ endif
 	echo "  ✓ Tagged: v$(V)" && \
 	echo "  GoReleaser + Docker build started." && \
 	echo "  Watch: https://github.com/auxothq/auxot/actions" && \
-	echo ""
+	echo ""; \
+	echo "Generating changelog…"; \
+	LATEST=$$(git describe --tags --abbrev=0 --match "v*" --exclude "v$(V)" 2>/dev/null || echo "v0.0.0"); \
+	COMMITS=$$(git log $$LATEST..v$(V) --pretty=format:"- %s (%h)" --no-merges); \
+	DATE=$$(date -u +%Y-%m-%d); \
+	mkdir -p $(CHANGELOG_DIR); \
+	OUTFILE="$(CHANGELOG_DIR)/$(V).mdx"; \
+	claude --print -p "You are writing a changelog entry for Auxot (open-source edition), an AI agent orchestration platform — the OSS router, workers, and CLI. \
+Given these git commits from version v$(V) ($$DATE), produce a complete MDX file with frontmatter and body. \
+\
+Frontmatter format (YAML between --- delimiters): \
+  product: oss \
+  version: \"$(V)\" \
+  date: \"$$DATE\" \
+  title: (a short descriptive title for this release) \
+  summary: (one sentence summary) \
+\
+Body rules: \
+- Group changes under ## headings: Features, Improvements, Fixes, Internal (only include headings that have entries) \
+- Write in past tense, user-facing language \
+- Collapse related commits into single bullet points \
+- Skip trivial commits (typos, formatting) \
+- Keep it concise \
+\
+Commits: \
+$$COMMITS" > "$$OUTFILE"; \
+	echo "✓ Changelog: $$OUTFILE (unstaged — review and commit to web repo)"

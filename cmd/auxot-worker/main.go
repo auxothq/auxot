@@ -35,6 +35,19 @@ import (
 	"github.com/auxothq/auxot/pkg/sdbin"
 )
 
+// appendErrorDetails appends truncated stderr or other detail text for job errors.
+func appendErrorDetails(errMsg, details string) string {
+	if details == "" {
+		return errMsg
+	}
+	const max = 800
+	d := strings.TrimSpace(details)
+	if len(d) > max {
+		d = d[:max] + "…"
+	}
+	return errMsg + " — " + d
+}
+
 func main() {
 	// MCP stdio mode: when spawned by the claude CLI as an MCP subprocess.
 	// The AUXOT_MCP_TOOLS_FILE env var is set by setupMCP() in cliworker/claude.go.
@@ -410,7 +423,7 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 				return conn.SendComplete(job.JobID, fullResponse, "", reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
 			},
 			func(errMsg, details string) error {
-				return conn.SendError(job.JobID, errMsg)
+				return conn.SendError(job.JobID, appendErrorDetails(errMsg, details))
 			},
 			func(total, cached, processed int) error {
 				return conn.SendPromptProgress(job.JobID, total, cached, processed)
@@ -565,15 +578,17 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 			},
 			func(token string) error { return conn.SendToken(job.JobID, token) },
 			func(token string) error { return conn.SendReasoningToken(job.JobID, token) },
-		func(id, name, args, result string) error {
-			return conn.SendBuiltinTool(job.JobID, id, name, args, result)
-		},
-		func(preToolContent, postToolContent, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error {
-			return conn.SendComplete(job.JobID, preToolContent, postToolContent, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, builtinToolUses)
-		},
-		func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
-	)
-})
+			func(id, name, args, result string) error {
+				return conn.SendBuiltinTool(job.JobID, id, name, args, result)
+			},
+			func(preToolContent, postToolContent, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error {
+				return conn.SendComplete(job.JobID, preToolContent, postToolContent, reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, builtinToolUses)
+			},
+			func(errMsg, details string) error {
+				return conn.SendError(job.JobID, appendErrorDetails(errMsg, details))
+			},
+		)
+	})
 
 	conn.OnCancel(func(jobID string) {
 		if cancel, ok := activeJobs.Load(jobID); ok {
@@ -727,7 +742,9 @@ func runWithStableDiffusion(ctx context.Context, cfg *worker.Config, conn *worke
 			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
 				return conn.SendComplete(job.JobID, fullResponse, "", reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
 			},
-			func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
+			func(errMsg, details string) error {
+				return conn.SendError(job.JobID, appendErrorDetails(errMsg, details))
+			},
 			nil,
 		)
 	})
@@ -841,7 +858,9 @@ func runWithExternalLlama(ctx context.Context, cfg *worker.Config, conn *worker.
 			func(fullResponse, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall) error {
 				return conn.SendComplete(job.JobID, fullResponse, "", reasoningContent, durationMS, cacheTokens, inputTokens, outputTokens, reasoningTokens, toolCalls, nil)
 			},
-			func(errMsg, details string) error { return conn.SendError(job.JobID, errMsg) },
+			func(errMsg, details string) error {
+				return conn.SendError(job.JobID, appendErrorDetails(errMsg, details))
+			},
 			func(total, cached, processed int) error {
 				return conn.SendPromptProgress(job.JobID, total, cached, processed)
 			},

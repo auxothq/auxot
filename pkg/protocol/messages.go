@@ -319,9 +319,9 @@ type JobMessage struct {
 	MaxTokens       *int           `json:"max_tokens,omitempty"`
 	ReasoningEffort string         `json:"reasoning_effort,omitempty"` // "none", "low", "medium", "high"
 	Data            map[string]any `json:"data,omitempty"`              // Optional: tool arguments (e.g. size, steps for image_gen)
-	// CompactionSessionID is the UUID of the last conversation-compaction
-	// breakpoint (or the thread ID if the thread has never been compacted).
-	// When non-empty the CLI worker uses this as the session ID:
+	// CompactionSessionID is the last conversation-compaction breakpoint: often
+	// the DB message id as a decimal string; may be a UUID. The CLI worker maps
+	// non-UUID values to a stable UUID for Claude Code. When non-empty:
 	//   - If the session file already exists on disk → --resume (send only delta)
 	//   - If the session file is missing            → --session-id (full seed)
 	// When empty the worker falls back to --no-session-persistence (stateless).

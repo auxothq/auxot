@@ -5,6 +5,7 @@ package cliworker
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,8 +15,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/auxothq/auxot/pkg/protocol"
+	"github.com/google/uuid"
 )
 
 const (
@@ -68,6 +71,22 @@ func sessionFilePath(configDir, workDir, sessionID string) string {
 	return filepath.Join(configDir, "projects", escapedCWD, sessionID+".jsonl")
 }
 
+// claudeSessionIDForCompactionKey returns an ID suitable for Claude Code's
+// --session-id / --resume flags, which require a valid RFC-4122 UUID.
+//
+// The server may send CompactionSessionID as the string form of a DB message
+// row id (e.g. "10218"); passing that through makes the CLI exit immediately
+// with status 1. Non-UUID keys are mapped to a stable UUIDv5-style SHA-1 name.
+func claudeSessionIDForCompactionKey(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if _, err := uuid.Parse(raw); err == nil {
+		return raw
+	}
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("auxot.compaction:"+raw)).String()
+}
+
 // workerEnv builds the subprocess environment for the claude CLI.
 // It inherits the current process environment and overlays the variables
 // that control claude's runtime behaviour in a server context.
@@ -92,6 +111,63 @@ func workerEnv(configDir, proxyAddr string) []string {
 	return append(env, overlay...)
 }
 
+// cleanupOldSessionFiles removes any .jsonl session files in the project
+// directory for workDir that do NOT match currentSessionID. This keeps the
+// project directory tidy when the CompactionSessionID rotates (new chunk boundary).
+func cleanupOldSessionFiles(configDir, workDir, currentSessionID string, log *slog.Logger) {
+	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
+		workDir = resolved
+	}
+	escapedCWD := strings.ReplaceAll(workDir, "/", "-")
+	projectDir := filepath.Join(configDir, "projects", escapedCWD)
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		return // directory may not exist yet
+	}
+	currentFile := currentSessionID + ".jsonl"
+	for _, e := range entries {
+		if e.IsDir() || e.Name() == currentFile {
+			continue
+		}
+		if !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		target := filepath.Join(projectDir, e.Name())
+		if rmErr := os.Remove(target); rmErr == nil {
+			log.Info("cliworker: removed stale session file", "path", target)
+		}
+	}
+}
+
+// CleanupStaleSessions removes session files older than maxAge from the CLI's
+// project directory for the given workDir. Intended to be called periodically
+// by a background goroutine to prevent unbounded growth of session files on
+// long-lived worker instances.
+func CleanupStaleSessions(configDir, workDir string, maxAge time.Duration) {
+	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
+		workDir = resolved
+	}
+	escapedCWD := strings.ReplaceAll(workDir, "/", "-")
+	projectDir := filepath.Join(configDir, "projects", escapedCWD)
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-maxAge)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(projectDir, e.Name()))
+		}
+	}
+}
+
 // RunJob executes a single job using the Claude Code CLI and streams results
 // via the provided callbacks.
 //
@@ -105,6 +181,10 @@ func workerEnv(configDir, proxyAddr string) []string {
 // blocks from a model turn have been streamed. Once we see it and have collected
 // MCP tool calls, we close stdin to prevent Claude from retrying after denials.
 // The caller (main.go) executes tools server-side and dispatches the next job.
+//
+// Read-repair: if Claude returns a 400 "maximum of 4 blocks with cache_control"
+// error and a session file exists, we delete the poisoned session .jsonl and
+// retry once with --session-id (full reseed) to recover from legacy bugs.
 func RunJob(
 	ctx context.Context,
 	job protocol.JobMessage,
@@ -125,6 +205,26 @@ func RunJob(
 	onComplete func(preToolContent, postToolContent, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error,
 	onError func(errMsg, details string) error,
 ) {
+	err := runJobOnce(ctx, job, cfg, onToken, onReasoningToken, onBuiltinTool, onComplete, onError, false)
+	if err == errCacheControlRetry {
+		slog.Default().Warn("cliworker: cache_control 400 detected, deleting session and retrying")
+		_ = runJobOnce(ctx, job, cfg, onToken, onReasoningToken, onBuiltinTool, onComplete, onError, true)
+	}
+}
+
+var errCacheControlRetry = fmt.Errorf("cache_control_400_retry")
+
+func runJobOnce(
+	ctx context.Context,
+	job protocol.JobMessage,
+	cfg JobConfig,
+	onToken func(string) error,
+	onReasoningToken func(string) error,
+	onBuiltinTool func(id, name, args, result string) error,
+	onComplete func(preToolContent, postToolContent, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error,
+	onError func(errMsg, details string) error,
+	forceReseed bool,
+) error {
 	log := slog.Default()
 
 	claudePath := cfg.ClaudePath
@@ -171,18 +271,35 @@ func RunJob(
 	//  Session file exists  →  --resume <id>    (CLI loads history, we send delta)
 	//  Session file missing →  --session-id <id> (CLI seeds new file, we send full blob)
 	//  No session ID given  →  --no-session-persistence (stateless, current default)
-	sessionID := job.CompactionSessionID
+	sessionID := claudeSessionIDForCompactionKey(job.CompactionSessionID)
 	sessionFileExists := false
+	var sfPath string
 	if sessionID != "" {
-		sfPath := sessionFilePath(configDir, workDir, sessionID)
+		sfPath = sessionFilePath(configDir, workDir, sessionID)
 		if _, statErr := os.Stat(sfPath); statErr == nil {
 			sessionFileExists = true
 		}
+		// forceReseed: delete the session file so we use --session-id (full seed)
+		// instead of --resume. Used on retry after a cache_control 400.
+		if forceReseed && sessionFileExists {
+			if rmErr := os.Remove(sfPath); rmErr == nil {
+				log.Info("cliworker: removed session file for reseed (cache_control read-repair)", "path", sfPath)
+				sessionFileExists = false
+			} else {
+				log.Warn("cliworker: could not remove session file", "path", sfPath, "error", rmErr)
+			}
+		}
 		log.Info("cliworker: session check",
-			"session_id", sessionID,
+			"compaction_session_id", job.CompactionSessionID,
+			"claude_session_id", sessionID,
 			"path", sfPath,
 			"exists", sessionFileExists,
+			"force_reseed", forceReseed,
 		)
+		// Remove any stale session files in the same project directory that
+		// don't match the current session ID. This happens when a new chunk
+		// compaction boundary is created and the CompactionSessionID rotates.
+		cleanupOldSessionFiles(configDir, workDir, sessionID, log)
 	}
 
 	args := []string{
@@ -267,10 +384,12 @@ func RunJob(
 	// Isolated environment: CLAUDE_CONFIG_DIR pins sessions/memory/caches to
 	// a known path; the DISABLE_* vars strip all server-irrelevant behaviours.
 	cmd.Env = workerEnv(configDir, "")
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = onError("failed to create stdout pipe", err.Error())
-		return
+		return nil
 	}
 
 	var stdinPipe io.WriteCloser
@@ -278,41 +397,46 @@ func RunJob(
 		stdinPipe, err = cmd.StdinPipe()
 		if err != nil {
 			_ = onError("failed to create stdin pipe", err.Error())
-			return
+			return nil
 		}
 	}
 
 	if startErr := cmd.Start(); startErr != nil {
 		log.Error("claude_start_failed", "error", startErr)
 		_ = onError("failed to start claude", startErr.Error())
-		return
+		return nil
 	}
 
 	if hasTools && stdinPipe != nil {
-		// Build content blocks. When there is prior conversation history we send
-		// it as a separate block with cache_control so the Anthropic API can
-		// cache it server-side. The current user message has no breakpoint —
-		// it changes every turn and must not anchor the cache.
+		// Build content blocks for stream-json stdin.
 		//
-		// TTL note: we use the default ephemeral TTL (5m) rather than "1h".
-		// The API enforces that cache blocks must be ordered longest-TTL-first
-		// across tools → system → messages. The Claude CLI's system prompt blocks
-		// already use the 5m default, so any message-level block with ttl="1h"
-		// would violate that constraint and produce a 400 error.
+		// Do not set cache_control here — Anthropic allows at most 4 breakpoints
+		// for the whole request (tools + system + messages), and Claude Code uses
+		// most of that budget internally.
+		//
+		// When --resume is used, the session .jsonl already holds prior turns.
+		// Sending historyBlob again duplicates the transcript and merges with
+		// session state in a way that can exceed the cache_control limit (400).
+		// On resume, send only the latest turn (true delta).
 		var contentBlocks []map[string]any
-		if historyBlob != "" {
+		if sessionFileExists {
+			log.Info("cliworker: stdin resume delta only", "blocks", 1)
 			contentBlocks = append(contentBlocks, map[string]any{
 				"type": "text",
-				"text": historyBlob,
-				"cache_control": map[string]any{
-					"type": "ephemeral",
-				},
+				"text": currentPrompt,
+			})
+		} else {
+			if historyBlob != "" {
+				contentBlocks = append(contentBlocks, map[string]any{
+					"type": "text",
+					"text": historyBlob,
+				})
+			}
+			contentBlocks = append(contentBlocks, map[string]any{
+				"type": "text",
+				"text": currentPrompt,
 			})
 		}
-		contentBlocks = append(contentBlocks, map[string]any{
-			"type": "text",
-			"text": currentPrompt,
-		})
 
 		userMsg := map[string]any{
 			"type": "user",
@@ -324,7 +448,7 @@ func RunJob(
 		if err := json.NewEncoder(stdinPipe).Encode(userMsg); err != nil {
 			log.Error("stdin_write_failed", "error", err)
 			_ = onError("failed to write user message", err.Error())
-			return
+			return nil
 		}
 	}
 
@@ -368,23 +492,23 @@ func RunJob(
 
 			for _, block := range event.Message.Content {
 				switch block.Type {
-			case "text":
-				if block.Text != "" {
-					fullText.WriteString(block.Text)
-					switch {
-					case seenMCPTool:
-						// MCP turn: we killed Claude after collecting tool calls,
-						// so this text is from the (suppressed) retry turn — discard.
-					case seenBuiltinResult:
-						// Post-builtin response: the agent's reply after tool results.
-						postToolText.WriteString(block.Text)
-						_ = onToken(block.Text)
-					default:
-						// Pre-tool or no-tool text.
-						preToolText.WriteString(block.Text)
-						_ = onToken(block.Text)
+				case "text":
+					if block.Text != "" {
+						fullText.WriteString(block.Text)
+						switch {
+						case seenMCPTool:
+							// MCP turn: we killed Claude after collecting tool calls,
+							// so this text is from the (suppressed) retry turn — discard.
+						case seenBuiltinResult:
+							// Post-builtin response: the agent's reply after tool results.
+							postToolText.WriteString(block.Text)
+							_ = onToken(block.Text)
+						default:
+							// Pre-tool or no-tool text.
+							preToolText.WriteString(block.Text)
+							_ = onToken(block.Text)
+						}
 					}
-				}
 				case "thinking":
 					if block.Thinking != "" {
 						fullReasoning.WriteString(block.Thinking)
@@ -432,26 +556,26 @@ func RunJob(
 				if block.Type != "tool_result" || block.ToolUseID == "" {
 					continue
 				}
-		if pending, ok := pendingBuiltin[block.ToolUseID]; ok {
-			pending.Result = block.ResultContent
-			if onBuiltinTool != nil {
-				_ = onBuiltinTool(pending.ID, pending.Name, pending.Arguments, pending.Result)
-			}
-			completedBuiltins = append(completedBuiltins, *pending)
-			delete(pendingBuiltin, block.ToolUseID)
-			// Any assistant text after this point is the post-tool response.
-			seenBuiltinResult = true
-			// If rate_limit_event already fired (MCP tools collected) and this was
-			// the last pending builtin, kill Claude now — we have everything we need.
-			if batchComplete && len(toolCalls) > 0 && len(pendingBuiltin) == 0 && stdinPipe != nil {
-				log.Info("batch_complete_builtins_done",
-					"mcp_tool_calls", len(toolCalls),
-					"completed_builtins", len(completedBuiltins))
-				stdinPipe.Close()
-				stdinPipe = nil
-				cancelClaude()
-			}
-		}
+				if pending, ok := pendingBuiltin[block.ToolUseID]; ok {
+					pending.Result = block.ResultContent
+					if onBuiltinTool != nil {
+						_ = onBuiltinTool(pending.ID, pending.Name, pending.Arguments, pending.Result)
+					}
+					completedBuiltins = append(completedBuiltins, *pending)
+					delete(pendingBuiltin, block.ToolUseID)
+					// Any assistant text after this point is the post-tool response.
+					seenBuiltinResult = true
+					// If rate_limit_event already fired (MCP tools collected) and this was
+					// the last pending builtin, kill Claude now — we have everything we need.
+					if batchComplete && len(toolCalls) > 0 && len(pendingBuiltin) == 0 && stdinPipe != nil {
+						log.Info("batch_complete_builtins_done",
+							"mcp_tool_calls", len(toolCalls),
+							"completed_builtins", len(completedBuiltins))
+						stdinPipe.Close()
+						stdinPipe = nil
+						cancelClaude()
+					}
+				}
 			}
 
 		case "rate_limit_event":
@@ -549,12 +673,22 @@ func RunJob(
 			if len(toolCalls) > 0 || fullText.Len() > 0 {
 				goto complete
 			}
-			return
+			return nil
 		}
 		if fullText.Len() == 0 && len(toolCalls) == 0 {
-			log.Error("claude_exited_with_error", "error", err)
-			_ = onError(fmt.Sprintf("claude exited: %v", err), "")
-			return
+			stderr := strings.TrimSpace(stderrBuf.String())
+			if len(stderr) > 4096 {
+				stderr = stderr[:4096] + "...(truncated)"
+			}
+			// Read-repair: if we see cache_control 400 and we used --resume,
+			// signal the caller to delete the session file and retry once.
+			if sessionFileExists && strings.Contains(stderr, "cache_control") && strings.Contains(stderr, "maximum of 4") {
+				log.Warn("cliworker: cache_control limit error detected with session file", "path", sfPath)
+				return errCacheControlRetry
+			}
+			log.Error("claude_exited_with_error", "error", err, "stderr", stderr)
+			_ = onError(fmt.Sprintf("claude exited: %v", err), stderr)
+			return nil
 		}
 	}
 
@@ -576,6 +710,7 @@ complete:
 		preToolContent = fullText.String()
 	}
 	_ = onComplete(preToolContent, postToolContent, fullReasoning.String(), 0, inputTokens, outputTokens, 0, 0, toolCalls, completedBuiltins)
+	return nil
 }
 
 // setupMCP writes the job tools to a temp file and creates an mcp-config JSON file
@@ -651,11 +786,9 @@ func setupMCP(tools []protocol.Tool) (args []string, cleanup func(), err error) 
 // buildPrompt parses the stored message history into:
 //   - systemPrompt: the system message content (with parallel-tool instruction appended)
 //   - historyBlob: all prior turns formatted as a conversation transcript; empty
-//     when there is no prior history. Sent as a separate content block with a
-//     default ephemeral (5m) cache_control breakpoint so the Anthropic API can
-//     cache the history server-side between turns.
-//   - currentPrompt: the text of the final user message, sent without a cache
-//     breakpoint so it does not anchor the cache to a volatile position.
+//     when there is no prior history. Sent as plain text (no cache_control) so we
+//     stay under Anthropic's 4-breakpoint limit once CLI system/tools are counted.
+//   - currentPrompt: the text of the final user message.
 func buildPrompt(messages []protocol.ChatMessage, mcpToolNames map[string]string) (systemPrompt, historyBlob, currentPrompt string) {
 	var turns []string
 
@@ -762,8 +895,9 @@ func buildToolsFlag(tools []string) string {
 
 // stripMCPPrefix removes the "mcp__<server>__" prefix that claude CLI adds to MCP tool names.
 // e.g. "mcp__auxot__get_license_status" → "get_license_status"
-//      "mcp__auxot__auxot"              → "auxot"
-//      "my_tool"                        → "my_tool" (unchanged)
+//
+//	"mcp__auxot__auxot"              → "auxot"
+//	"my_tool"                        → "my_tool" (unchanged)
 func stripMCPPrefix(name string) string {
 	// Format is mcp__<server>__<tool> — find the second "__" and take everything after.
 	if !strings.HasPrefix(name, "mcp__") {
@@ -796,7 +930,7 @@ type claudeEvent struct {
 	Message *claudeMessage `json:"message,omitempty"`
 	Usage   *claudeUsage   `json:"usage,omitempty"`
 	// control_request fields (permission-prompt-tool stdio protocol)
-	RequestID string               `json:"request_id,omitempty"`
+	RequestID string                `json:"request_id,omitempty"`
 	Request   *claudeControlRequest `json:"request,omitempty"`
 }
 
@@ -815,9 +949,9 @@ type claudeMessage struct {
 }
 
 type claudeBlock struct {
-	Type     string          `json:"type"`
-	Text     string          `json:"text,omitempty"`
-	Thinking string          `json:"thinking,omitempty"`
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	Thinking string `json:"thinking,omitempty"`
 	// tool_use fields (assistant → MCP or builtin)
 	ID    string          `json:"id,omitempty"`
 	Name  string          `json:"name,omitempty"`
