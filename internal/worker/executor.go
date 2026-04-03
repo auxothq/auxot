@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -25,15 +26,18 @@ type Executor struct {
 	llamaURL   string
 	logger     *slog.Logger
 	jobTimeout time.Duration
+	hasVision  bool
 }
 
 // NewExecutor creates an Executor that sends inference requests to the
-// llama.cpp server at the given URL.
-func NewExecutor(llamaURL string, jobTimeout time.Duration, logger *slog.Logger) *Executor {
+// llama.cpp server at the given URL. Set hasVision when mmproj is loaded
+// so the executor can inform the model about native vision capability.
+func NewExecutor(llamaURL string, jobTimeout time.Duration, hasVision bool, logger *slog.Logger) *Executor {
 	return &Executor{
 		llamaURL:   llamaURL,
 		logger:     logger,
 		jobTimeout: jobTimeout,
+		hasVision:  hasVision,
 	}
 }
 
@@ -136,9 +140,10 @@ func (e *Executor) Execute(
 		if content == nil {
 			content = json.RawMessage(`""`)
 		}
+		content = openai.NormalizeVisionContent(append(json.RawMessage(nil), content...))
 		msg := openai.Message{
 			Role:       m.Role,
-			Content:    append(json.RawMessage(nil), content...),
+			Content:    content,
 			ToolCallID: m.ToolCallID,
 		}
 		for _, tc := range m.ToolCalls {
@@ -152,6 +157,13 @@ func (e *Executor) Execute(
 			})
 		}
 		messages[i] = msg
+	}
+
+	// When mmproj is loaded, check whether any message carries image content.
+	// If so, append a vision capability note to the system message so the model
+	// doesn't infer "no vision" from the tool list alone.
+	if e.hasVision && messagesContainImage(messages) {
+		appendVisionNote(messages)
 	}
 
 	// Convert tools — pass through the full definition (name, description, parameters schema).
@@ -430,4 +442,37 @@ func logJobCompleted(logger *slog.Logger, jobID, finishReason string, cacheToken
 	}
 
 	logger.Info("job completed", attrs...)
+}
+
+// messagesContainImage returns true if any message has image_url content parts.
+func messagesContainImage(msgs []openai.Message) bool {
+	for _, m := range msgs {
+		if len(m.Content) > 0 && m.Content[0] == '[' {
+			if bytes.Contains(m.Content, []byte(`"image_url"`)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+const visionNote = "\n\nYou have native vision — images in user messages are visible to you. Incorporate what you see into your response."
+
+// appendVisionNote appends a vision capability note to the first system
+// message. This is a product-level injection (not an agent config change)
+// so the model knows mmproj is active and doesn't deny its own perception
+// based on the tool list.
+func appendVisionNote(msgs []openai.Message) {
+	for i := range msgs {
+		if msgs[i].Role != "system" {
+			continue
+		}
+		var s string
+		if err := json.Unmarshal(msgs[i].Content, &s); err != nil {
+			continue
+		}
+		updated, _ := json.Marshal(s + visionNote)
+		msgs[i].Content = updated
+		return
+	}
 }

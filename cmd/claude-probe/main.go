@@ -581,6 +581,7 @@ func main() {
 	// Defaults to a minimal sentinel so we can confirm --system-prompt replaces
 	// (not appends to) the CLI's default coding-agent system prompt.
 	systemPrompt := flag.String("system-prompt", "You are a helpful assistant. This is a probe test system prompt.", "System prompt passed to claude via --system-prompt (replaces default)")
+	systemPromptFile := flag.String("system-prompt-file", "", "Path to a file whose contents are passed via --system-prompt-file instead of --system-prompt (mutually exclusive with -system-prompt)")
 	respondDelay := flag.Duration("respond-delay", 0, "Delay before sending control responses")
 	denyAll := flag.Bool("deny-all", true, "Deny all MCP tool permission requests (default)")
 	ignoreControl := flag.Bool("ignore-control", false, "Don't respond to any control_request")
@@ -589,6 +590,12 @@ func main() {
 	resumeID := flag.String("resume", "", "Resume this session ID instead of starting fresh")
 	deleteSession := flag.Bool("delete-session", false, "Delete the session file after the run (simulates missing-session fallback)")
 	flag.Parse()
+
+	// -system-prompt-file and -system-prompt are mutually exclusive.
+	// When -system-prompt-file is set it takes precedence; clear the inline value.
+	if *systemPromptFile != "" {
+		*systemPrompt = ""
+	}
 
 	// Multi-turn session scenarios are handled by runMultiTurn.
 	switch *scenario {
@@ -642,7 +649,7 @@ func main() {
 		defer os.Remove(mcpConfigFile)
 	}
 
-	args := buildArgs(*scenario, *prompt, *model, *systemPrompt, mcpConfigFile)
+	args := buildArgs(*scenario, *prompt, *model, *systemPrompt, *systemPromptFile, mcpConfigFile)
 	fmt.Fprintf(os.Stderr, "cmd: %s %s\n\n", *claudePath, strings.Join(args, " "))
 
 	_ = os.MkdirAll(probeWorkDir, 0o755)
@@ -853,7 +860,7 @@ func main() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-func buildArgs(scenario, prompt, model, systemPrompt, mcpConfigFile string) []string {
+func buildArgs(scenario, prompt, model, systemPrompt, systemPromptFile, mcpConfigFile string) []string {
 	args := []string{
 		"--output-format", "stream-json",
 		"--verbose",
@@ -861,10 +868,13 @@ func buildArgs(scenario, prompt, model, systemPrompt, mcpConfigFile string) []st
 		"--no-session-persistence",
 	}
 
-	// --system-prompt REPLACES (not appends to) the CLI's default coding-agent
-	// system prompt. Confirm in wire captures that block 3 becomes our content,
-	// not the full Claude Code instructions.
-	if systemPrompt != "" {
+	// --system-prompt-file and --system-prompt both replace (or append to?) the
+	// CLI's default coding-agent system prompt. The intercept probe lets us
+	// confirm which behaviour applies on the wire.
+	switch {
+	case systemPromptFile != "":
+		args = append(args, "--system-prompt-file", systemPromptFile)
+	case systemPrompt != "":
 		args = append(args, "--system-prompt", systemPrompt)
 	}
 

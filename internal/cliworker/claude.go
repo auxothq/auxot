@@ -257,7 +257,7 @@ func runJobOnce(
 	for _, t := range job.Tools {
 		mcpToolNames[t.Function.Name] = "mcp__auxot__" + t.Function.Name
 	}
-	systemPrompt, historyBlob, currentPrompt := buildPrompt(job.Messages, mcpToolNames)
+	systemPrompt, historyBlob, currentPrompt, currentImageBlocks := buildPrompt(job.Messages, mcpToolNames)
 
 	effectiveBuiltins := filterShadowedBuiltins(cfg.BuiltinTools, job.Tools)
 	toolsFlag := buildToolsFlag(effectiveBuiltins)
@@ -320,16 +320,16 @@ func runJobOnce(
 		args = append(args, "--no-session-persistence")
 	}
 
+	// Always use stream-json stdin so the conversation never touches the argv.
+	// On the tools path, --permission-prompt-tool stdio lets us intercept MCP
+	// permission requests; on the no-tools path, --dangerously-skip-permissions
+	// is equivalent (no permission events will be emitted anyway).
+	args = append(args,
+		"--print",
+		"--input-format", "stream-json",
+	)
 	if hasTools {
-		// Permission-based interception: claude emits control_request events
-		// on stdout before calling MCP tools. We deny them via stdin and
-		// capture tool calls from assistant events — MCP stub never receives
-		// tools/call.
-		args = append(args,
-			"--print",
-			"--input-format", "stream-json",
-			"--permission-prompt-tool", "stdio",
-		)
+		args = append(args, "--permission-prompt-tool", "stdio")
 	} else {
 		args = append(args, "--dangerously-skip-permissions")
 	}
@@ -342,20 +342,36 @@ func runJobOnce(
 		effectiveModel = "claude-sonnet-4-6"
 	}
 	args = append(args, "--model", effectiveModel)
+	var sysPromptTempFile string
 	if systemPrompt != "" {
-		args = append(args, "--system-prompt", systemPrompt)
-	}
-	if !hasTools {
-		// No-tools path: pass the full prompt via -p. History is baked into the
-		// currentPrompt string (flat blob) since the -p flag takes a single
-		// string and has no content-block cache_control support.
-		fullPrompt := currentPrompt
-		if historyBlob != "" {
-			fullPrompt = historyBlob + "\n\n" + currentPrompt
+		// Write system prompt to a temp file and pass --system-prompt-file so the
+		// content never appears on the process argv. Long system prompts passed
+		// inline via --system-prompt can exceed the OS ARG_MAX limit
+		// ("argument list too long"), killing the subprocess before it starts.
+		// Wire behavior is identical: both flags append our content as the third
+		// system block after the CLI's billing header and base identity sentence.
+		spFile, spErr := os.CreateTemp("", "auxot-sysprompt-*.txt")
+		if spErr != nil {
+			log.Error("cliworker: failed to create system-prompt temp file", "error", spErr)
+			_ = onError("failed to create system-prompt temp file", spErr.Error())
+			return nil
 		}
-		args = append(args, "-p", fullPrompt)
+		if _, spErr = spFile.WriteString(systemPrompt); spErr != nil {
+			spFile.Close()
+			os.Remove(spFile.Name())
+			log.Error("cliworker: failed to write system-prompt temp file", "error", spErr)
+			_ = onError("failed to write system-prompt temp file", spErr.Error())
+			return nil
+		}
+		spFile.Close()
+		sysPromptTempFile = spFile.Name()
+		args = append(args, "--system-prompt-file", sysPromptTempFile)
 	}
-
+	defer func() {
+		if sysPromptTempFile != "" {
+			os.Remove(sysPromptTempFile)
+		}
+	}()
 	// MCP setup stays — needed for tool schema (initialize + tools/list).
 	// With permission-based interception, tools/call is never reached.
 	var mcpCleanup func()
@@ -392,13 +408,10 @@ func runJobOnce(
 		return nil
 	}
 
-	var stdinPipe io.WriteCloser
-	if hasTools {
-		stdinPipe, err = cmd.StdinPipe()
-		if err != nil {
-			_ = onError("failed to create stdin pipe", err.Error())
-			return nil
-		}
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		_ = onError("failed to create stdin pipe", err.Error())
+		return nil
 	}
 
 	if startErr := cmd.Start(); startErr != nil {
@@ -407,8 +420,9 @@ func runJobOnce(
 		return nil
 	}
 
-	if hasTools && stdinPipe != nil {
-		// Build content blocks for stream-json stdin.
+	{
+		// Build content blocks for stream-json stdin — always, regardless of
+		// whether tools are present. This keeps the conversation off the argv.
 		//
 		// Do not set cache_control here — Anthropic allows at most 4 breakpoints
 		// for the whole request (tools + system + messages), and Claude Code uses
@@ -437,6 +451,11 @@ func runJobOnce(
 				"text": currentPrompt,
 			})
 		}
+		// Append native image blocks for the current turn.
+		// Claude Code's stream-json stdin accepts Anthropic image content blocks
+		// ({ "type": "image", "source": { "type": "base64", ... } }), so we can
+		// pass images directly without the data: URI wrapper.
+		contentBlocks = append(contentBlocks, currentImageBlocks...)
 
 		userMsg := map[string]any{
 			"type": "user",
@@ -789,7 +808,7 @@ func setupMCP(tools []protocol.Tool) (args []string, cleanup func(), err error) 
 //     when there is no prior history. Sent as plain text (no cache_control) so we
 //     stay under Anthropic's 4-breakpoint limit once CLI system/tools are counted.
 //   - currentPrompt: the text of the final user message.
-func buildPrompt(messages []protocol.ChatMessage, mcpToolNames map[string]string) (systemPrompt, historyBlob, currentPrompt string) {
+func buildPrompt(messages []protocol.ChatMessage, mcpToolNames map[string]string) (systemPrompt, historyBlob, currentPrompt string, imageBlocks []map[string]any) {
 	var turns []string
 
 	for _, msg := range messages {
@@ -833,12 +852,98 @@ func buildPrompt(messages []protocol.ChatMessage, mcpToolNames map[string]string
 	history := turns[:len(turns)-1]
 
 	if len(history) > 0 {
+		// Hard-cap the history blob to avoid "Prompt is too long" from Claude.
+		// Chunk summaries are already folded into the system prompt by ComputeWindow,
+		// so dropping the oldest raw turns here is safe — they are covered by that
+		// summary. We keep dropping from the front until we're under the limit.
+		const maxHistoryBytes = 80_000
+		for len(history) > 1 {
+			candidate := "<conversation_history>\n" +
+				strings.Join(history, "\n\n") +
+				"\n</conversation_history>"
+			if len(candidate) <= maxHistoryBytes {
+				break
+			}
+			history = history[1:] // drop oldest turn
+		}
+		dropped := len(turns) - 1 - len(history) // turns-1 == original history len
+		if dropped > 0 {
+			slog.Default().Warn("cliworker: historyBlob too large, dropped oldest turns",
+				"dropped", dropped, "remaining", len(history))
+		}
 		historyBlob = "<conversation_history>\n" +
 			strings.Join(history, "\n\n") +
 			"\n</conversation_history>"
 	}
 	currentPrompt = stripRolePrefix(last)
+
+	// Extract image blocks from the last user message for native rendering.
+	// Claude Code's stream-json stdin accepts Anthropic image content blocks;
+	// we pass images here rather than embedding data: URIs in the text prompt.
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" {
+			imageBlocks = extractImageBlocks(messages[i].Content)
+			break
+		}
+	}
 	return
+}
+
+// extractImageBlocks converts OpenAI-style image_url parts from a message's
+// RawMessage content into Anthropic-native image content blocks for Claude CLI
+// stream-json stdin. data: URIs are decoded; https:// URLs use the "url" source type.
+func extractImageBlocks(content json.RawMessage) []map[string]any {
+	if len(content) == 0 || content[0] != '[' {
+		return nil
+	}
+	var parts []struct {
+		Type     string `json:"type"`
+		ImageURL *struct {
+			URL string `json:"url"`
+		} `json:"image_url,omitempty"`
+	}
+	if err := json.Unmarshal(content, &parts); err != nil {
+		return nil
+	}
+	var blocks []map[string]any
+	for _, p := range parts {
+		if p.Type != "image_url" || p.ImageURL == nil || p.ImageURL.URL == "" {
+			continue
+		}
+		url := p.ImageURL.URL
+		if strings.HasPrefix(url, "data:") {
+			// Parse data:<mediaType>;base64,<data>
+			rest := strings.TrimPrefix(url, "data:")
+			semi := strings.IndexByte(rest, ';')
+			comma := strings.IndexByte(rest, ',')
+			if semi < 0 || comma < 0 || comma <= semi {
+				continue
+			}
+			mediaType := rest[:semi]
+			encoding := rest[semi+1 : comma]
+			if encoding != "base64" {
+				continue
+			}
+			b64data := rest[comma+1:]
+			blocks = append(blocks, map[string]any{
+				"type": "image",
+				"source": map[string]any{
+					"type":       "base64",
+					"media_type": mediaType,
+					"data":       b64data,
+				},
+			})
+		} else {
+			blocks = append(blocks, map[string]any{
+				"type": "image",
+				"source": map[string]any{
+					"type": "url",
+					"url":  url,
+				},
+			})
+		}
+	}
+	return blocks
 }
 
 // reconstructAssistantTurn rebuilds an assistant message that may carry tool calls

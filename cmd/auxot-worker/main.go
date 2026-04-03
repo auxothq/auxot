@@ -396,7 +396,7 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 	// ----------------------------------------------------------------
 	// Phase 7: Process jobs
 	// ----------------------------------------------------------------
-	executor := worker.NewExecutor(llama.URL(), cfg.JobTimeout, logger)
+	executor := worker.NewExecutor(llama.URL(), cfg.JobTimeout, mmprojPath != "", logger)
 	activeJobs := &sync.Map{}
 
 	conn.OnJob(func(job protocol.JobMessage) {
@@ -838,7 +838,7 @@ func runWithExternalLlama(ctx context.Context, cfg *worker.Config, conn *worker.
 
 	logger.Info("worker ready (external llama)", "gpu_id", conn.GPUID())
 
-	executor := worker.NewExecutor(externalURL, cfg.JobTimeout, logger)
+	executor := worker.NewExecutor(externalURL, cfg.JobTimeout, false, logger)
 	activeJobs := &sync.Map{}
 
 	conn.OnJob(func(job protocol.JobMessage) {

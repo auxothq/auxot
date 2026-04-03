@@ -113,6 +113,8 @@ tag:
 	claude --print -p "You are writing a changelog entry for Auxot (open-source edition), an AI agent orchestration platform — the OSS router, workers, and CLI. \
 Given these git commits from version $$NEXT ($$DATE), produce a complete MDX file with frontmatter and body. \
 \
+IMPORTANT: Output raw MDX only. Do not wrap the response in markdown code fences. The file must start with the YAML frontmatter opening line (three hyphens) as the very first line. \
+\
 Frontmatter format (YAML between --- delimiters): \
   product: oss \
   version: \"$${NEXT#v}\" \
@@ -129,6 +131,7 @@ Body rules: \
 \
 Commits: \
 $$COMMITS" > "$$OUTFILE"; \
+	bash scripts/sanitize-changelog-mdx.sh "$$OUTFILE"; \
 	echo "✓ Changelog: $$OUTFILE (unstaged — review and commit to web repo)"
 
 # Tag a release — triggers GoReleaser + Docker build via GitHub Actions.
@@ -155,6 +158,8 @@ endif
 	claude --print -p "You are writing a changelog entry for Auxot (open-source edition), an AI agent orchestration platform — the OSS router, workers, and CLI. \
 Given these git commits from version v$(V) ($$DATE), produce a complete MDX file with frontmatter and body. \
 \
+IMPORTANT: Output raw MDX only. Do not wrap the response in markdown code fences. The file must start with the YAML frontmatter opening line (three hyphens) as the very first line. \
+\
 Frontmatter format (YAML between --- delimiters): \
   product: oss \
   version: \"$(V)\" \
@@ -171,4 +176,5 @@ Body rules: \
 \
 Commits: \
 $$COMMITS" > "$$OUTFILE"; \
+	bash scripts/sanitize-changelog-mdx.sh "$$OUTFILE"; \
 	echo "✓ Changelog: $$OUTFILE (unstaged — review and commit to web repo)"
