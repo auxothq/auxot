@@ -226,6 +226,10 @@ func (w *Worker) connectAndRun(ctx context.Context, onConnected func()) error {
 	}()
 	defer close(heartbeatStop)
 
+	watchCtx, watchCancel := context.WithCancel(ctx)
+	defer watchCancel()
+	go w.runPromptFileWatcher(watchCtx)
+
 	// Message loop — context provider model:
 	// - handle tool.execute from server (dispatch local tool, return result)
 	// - handle context_update (re-read SOUL.md and send updated context)
