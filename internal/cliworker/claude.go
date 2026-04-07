@@ -257,7 +257,6 @@ func runJobOnce(
 	for _, t := range job.Tools {
 		mcpToolNames[t.Function.Name] = "mcp__auxot__" + t.Function.Name
 	}
-	systemPrompt, historyBlob, currentPrompt, currentImageBlocks := buildPrompt(job.Messages, mcpToolNames)
 
 	effectiveBuiltins := filterShadowedBuiltins(cfg.BuiltinTools, job.Tools)
 	toolsFlag := buildToolsFlag(effectiveBuiltins)
@@ -301,6 +300,10 @@ func runJobOnce(
 		// compaction boundary is created and the CompactionSessionID rotates.
 		cleanupOldSessionFiles(configDir, workDir, sessionID, log)
 	}
+
+	// Build prompt after session management so sessionFileExists is known.
+	// Compaction is skipped in session-resume mode (historyBlob is not sent).
+	systemPrompt, historyBlob, currentPrompt, currentImageBlocks := buildPrompt(job.Messages, mcpToolNames, sessionFileExists)
 
 	args := []string{
 		"--output-format", "stream-json",
@@ -563,7 +566,7 @@ func runJobOnce(
 			}
 
 			if event.Message.Usage != nil {
-				inputTokens = event.Message.Usage.InputTokens
+				inputTokens = event.Message.Usage.totalInputTokens()
 				outputTokens = event.Message.Usage.OutputTokens
 			}
 
@@ -616,15 +619,15 @@ func runJobOnce(
 					"builtin_pending", len(pendingBuiltin))
 			}
 
-		case "result":
-			if event.Usage != nil {
-				if event.Usage.InputTokens > inputTokens {
-					inputTokens = event.Usage.InputTokens
-				}
-				if event.Usage.OutputTokens > outputTokens {
-					outputTokens = event.Usage.OutputTokens
-				}
+	case "result":
+		if event.Usage != nil {
+			if t := event.Usage.totalInputTokens(); t > inputTokens {
+				inputTokens = t
 			}
+			if event.Usage.OutputTokens > outputTokens {
+				outputTokens = event.Usage.OutputTokens
+			}
+		}
 			if stdinPipe != nil {
 				stdinPipe.Close()
 				stdinPipe = nil
@@ -797,6 +800,124 @@ func setupMCP(tools []protocol.Tool) (args []string, cleanup func(), err error) 
 	return args, cleanup, nil
 }
 
+// estimateTokens approximates the token count of s using the standard 1 token ≈ 4 bytes heuristic.
+func estimateTokens(s string) int { return (len(s) + 3) / 4 }
+
+const (
+	maxHistoryTokens = 128_000 // authoritative token budget for the history blob
+	inlineByteLimit  = 1_024   // tool_result bodies over this are eligible for compaction
+)
+
+// extractToolCallID parses the tool call ID from a tool_result header line such as
+// "[tool_result (id: toolu_xxx)]". Returns empty string if no ID is present.
+func extractToolCallID(headerLine string) string {
+	const prefix = "(id: "
+	start := strings.Index(headerLine, prefix)
+	if start < 0 {
+		return ""
+	}
+	start += len(prefix)
+	end := strings.IndexByte(headerLine[start:], ')')
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(headerLine[start : start+end])
+}
+
+// compactHistory applies a two-pass compaction algorithm to history turns,
+// keeping the protected current agentic turn (from the last [user] turn onward)
+// completely untouched.
+//
+// Pass 1 redacts tool_result bodies in the compactable zone, oldest first.
+// Pass 2 drops complete turns from the oldest, only if Pass 1 is insufficient.
+//
+// Returns the (possibly modified) combined history, plus diagnostic counts.
+func compactHistory(history []string) (result []string, redactedCount, droppedCount, tokensBefore, tokensAfter int) {
+	if len(history) == 0 {
+		return history, 0, 0, 0, 0
+	}
+
+	// Identify the protected boundary: last [user] turn and everything after it.
+	lastUserIdx := -1
+	for i := len(history) - 1; i >= 0; i-- {
+		if strings.HasPrefix(history[i], "[user]") {
+			lastUserIdx = i
+			break
+		}
+	}
+
+	// Nothing to compact: either no [user] turn found, or the very first element
+	// is already the current user turn (no older turns to touch).
+	if lastUserIdx <= 0 {
+		blob := strings.Join(history, "\n\n")
+		t := estimateTokens(blob)
+		return history, 0, 0, t, t
+	}
+
+	// Work on copies so the caller's slice is not mutated in place.
+	compactable := make([]string, lastUserIdx)
+	copy(compactable, history[:lastUserIdx])
+	protected := history[lastUserIdx:]
+
+	joinAll := func() string {
+		combined := make([]string, 0, len(compactable)+len(protected))
+		combined = append(combined, compactable...)
+		combined = append(combined, protected...)
+		return strings.Join(combined, "\n\n")
+	}
+
+	blob := joinAll()
+	tokensBefore = estimateTokens(blob)
+
+	if tokensBefore <= maxHistoryTokens {
+		result = append(compactable, protected...)
+		return result, 0, 0, tokensBefore, tokensBefore
+	}
+
+	// Pass 1: redact tool_result bodies in compactable, oldest-first.
+	for estimateTokens(joinAll()) > maxHistoryTokens {
+		found := false
+		for i, turn := range compactable {
+			if !strings.HasPrefix(turn, "[tool_result") {
+				continue
+			}
+			nlIdx := strings.IndexByte(turn, '\n')
+			if nlIdx < 0 {
+				// No body — nothing to redact.
+				continue
+			}
+			headerLine := turn[:nlIdx]
+			body := turn[nlIdx+1:]
+			if strings.HasPrefix(body, "[output redacted") {
+				continue // already redacted
+			}
+			callID := extractToolCallID(headerLine)
+			redactMsg := fmt.Sprintf("[output redacted — call tool_recall(%q, offset_byte=0) to retrieve]", callID)
+			compactable[i] = headerLine + "\n" + redactMsg
+			redactedCount++
+			found = true
+			break
+		}
+		if !found {
+			break // no more unredacted tool_results — proceed to Pass 2
+		}
+	}
+
+	// Pass 2: drop complete turns from oldest if still over budget.
+	for estimateTokens(joinAll()) > maxHistoryTokens && len(compactable) > 0 {
+		compactable = compactable[1:]
+		droppedCount++
+	}
+	if droppedCount > 0 {
+		synthetic := fmt.Sprintf("[user]\n[%d turns omitted — history was too large to include in full]", droppedCount)
+		compactable = append([]string{synthetic}, compactable...)
+	}
+
+	result = append(compactable, protected...)
+	tokensAfter = estimateTokens(strings.Join(result, "\n\n"))
+	return result, redactedCount, droppedCount, tokensBefore, tokensAfter
+}
+
 // buildPrompt extracts the system message and formats the conversation history
 // into a single prompt string for claude's --print mode.
 //
@@ -808,7 +929,11 @@ func setupMCP(tools []protocol.Tool) (args []string, cleanup func(), err error) 
 //     when there is no prior history. Sent as plain text (no cache_control) so we
 //     stay under Anthropic's 4-breakpoint limit once CLI system/tools are counted.
 //   - currentPrompt: the text of the final user message.
-func buildPrompt(messages []protocol.ChatMessage, mcpToolNames map[string]string) (systemPrompt, historyBlob, currentPrompt string, imageBlocks []map[string]any) {
+//
+// sessionFileExists controls whether history compaction is skipped — when true,
+// the historyBlob is not sent to Claude (it uses --resume instead), so compaction
+// would be wasted work and would suppress spurious compaction warnings.
+func buildPrompt(messages []protocol.ChatMessage, mcpToolNames map[string]string, sessionFileExists bool) (systemPrompt, historyBlob, currentPrompt string, imageBlocks []map[string]any) {
 	var turns []string
 
 	for _, msg := range messages {
@@ -852,24 +977,21 @@ func buildPrompt(messages []protocol.ChatMessage, mcpToolNames map[string]string
 	history := turns[:len(turns)-1]
 
 	if len(history) > 0 {
-		// Hard-cap the history blob to avoid "Prompt is too long" from Claude.
-		// Chunk summaries are already folded into the system prompt by ComputeWindow,
-		// so dropping the oldest raw turns here is safe — they are covered by that
-		// summary. We keep dropping from the front until we're under the limit.
-		const maxHistoryBytes = 80_000
-		for len(history) > 1 {
-			candidate := "<conversation_history>\n" +
-				strings.Join(history, "\n\n") +
-				"\n</conversation_history>"
-			if len(candidate) <= maxHistoryBytes {
-				break
+		// In session-resume mode the historyBlob is never sent (Claude uses the
+		// on-disk session file instead), so skip compaction entirely to avoid
+		// spurious warnings and wasted work.
+		if !sessionFileExists {
+			var redacted, dropped, tokBefore, tokAfter int
+			history, redacted, dropped, tokBefore, tokAfter = compactHistory(history)
+			if redacted > 0 || dropped > 0 {
+				slog.Default().Warn("cliworker: history compacted",
+					"est_tokens_before", tokBefore,
+					"est_tokens_after", tokAfter,
+					"budget", maxHistoryTokens,
+					"pass1_redacted", redacted,
+					"pass2_dropped", dropped,
+				)
 			}
-			history = history[1:] // drop oldest turn
-		}
-		dropped := len(turns) - 1 - len(history) // turns-1 == original history len
-		if dropped > 0 {
-			slog.Default().Warn("cliworker: historyBlob too large, dropped oldest turns",
-				"dropped", dropped, "remaining", len(history))
 		}
 		historyBlob = "<conversation_history>\n" +
 			strings.Join(history, "\n\n") +
@@ -1067,6 +1189,14 @@ type claudeBlock struct {
 }
 
 type claudeUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+// totalInputTokens returns the normalized input token count: uncached tokens
+// plus cache-creation and cache-read tokens, matching how other providers report usage.
+func (u *claudeUsage) totalInputTokens() int {
+	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 }

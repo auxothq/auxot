@@ -22,7 +22,7 @@ import (
 )
 
 // Version of llama.cpp to download. Pinned for compatibility.
-const Version = "b8157"
+const Version = "b8662"
 
 const githubRepo = "ggml-org/llama.cpp"
 
