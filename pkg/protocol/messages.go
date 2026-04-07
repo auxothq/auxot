@@ -45,6 +45,19 @@ const (
 	// Agent worker → Server (local tool execution results)
 	TypeAgentLocalToolResult MessageType = "tool.result" // agent reports result of a local tool call
 	// TypeReloadPolicy (already defined above) is also used for agent system prompt reload.
+
+	// CLI worker ↔ Server (live MCP tool execution — path 2 / live-continuation mode)
+	//
+	// When a CLI worker runs Claude Code with live MCP enabled (--dangerously-skip-permissions
+	// instead of --permission-prompt-tool stdio), tool calls are executed in-band through
+	// the MCP connection rather than captured-and-killed. The worker's in-process HTTP proxy
+	// receives MCP tools/call requests and forwards them to the server for execution by the
+	// sentinel/agent-worker, then streams the result back to Claude via MCP.
+	//
+	// Worker → Server: "I need the server to execute this tool for my active job."
+	TypeJobToolCallRequest MessageType = "job.tool.call.request"
+	// Server → Worker: "Here is the result of the tool execution you requested."
+	TypeJobToolCallResult MessageType = "job.tool.call.result"
 )
 
 // Envelope is the first-pass parse of any WebSocket message.
@@ -479,6 +492,21 @@ func ParseMessage(data []byte) (any, error) {
 		}
 		return msg, nil
 
+	// Live-MCP tool execution (CLI worker ↔ server)
+	case TypeJobToolCallRequest:
+		var msg JobToolCallRequestMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing job.tool.call.request message: %w", err)
+		}
+		return msg, nil
+
+	case TypeJobToolCallResult:
+		var msg JobToolCallResultMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing job.tool.call.result message: %w", err)
+		}
+		return msg, nil
+
 	// Tools-worker messages (defined in tools_messages.go)
 	case TypeToolJob:
 		var msg ToolJobMessage
@@ -642,6 +670,28 @@ type AgentReloadPolicyMessage struct {
 	Type          MessageType       `json:"type"` // TypeReloadPolicy
 	SystemPrompt  string            `json:"system_prompt"`
 	ExternalTools []ExternalToolDef `json:"external_tools,omitempty"`
+}
+
+// JobToolCallRequestMessage is sent by a CLI worker to the server when Claude Code
+// (running in live-MCP mode) wants to execute a tool. The server routes the call to
+// the appropriate tool dispatcher (sentinel agent-worker) and replies with
+// JobToolCallResultMessage. This is the worker-side half of the live-continuation path.
+type JobToolCallRequestMessage struct {
+	Type      MessageType `json:"type"`    // TypeJobToolCallRequest
+	JobID     string      `json:"job_id"`  // the active inference job
+	CallID    string      `json:"call_id"` // MCP tool_use ID — matches the result reply
+	ToolName  string      `json:"tool_name"`
+	Arguments string      `json:"arguments"` // JSON-encoded tool input
+}
+
+// JobToolCallResultMessage is sent by the server back to the CLI worker after the
+// tool call requested via JobToolCallRequestMessage completes.
+type JobToolCallResultMessage struct {
+	Type    MessageType `json:"type"`    // TypeJobToolCallResult
+	JobID   string      `json:"job_id"`
+	CallID  string      `json:"call_id"` // matches JobToolCallRequestMessage.CallID
+	Result  string      `json:"result"`  // tool output (plain text or JSON)
+	IsError bool        `json:"is_error,omitempty"`
 }
 
 // MarshalMessage serializes a message to JSON bytes for sending over WebSocket.

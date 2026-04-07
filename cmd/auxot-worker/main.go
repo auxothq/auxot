@@ -35,6 +35,16 @@ import (
 	"github.com/auxothq/auxot/pkg/sdbin"
 )
 
+// pendingToolCall holds the result channel for an in-flight live-MCP tool call.
+type pendingToolCall struct {
+	ch chan liveToolResult
+}
+
+type liveToolResult struct {
+	Result  string
+	IsError bool
+}
+
 // appendErrorDetails appends truncated stderr or other detail text for job errors.
 func appendErrorDetails(errMsg, details string) string {
 	if details == "" {
@@ -51,9 +61,19 @@ func appendErrorDetails(errMsg, details string) string {
 func main() {
 	// MCP stdio mode: when spawned by the claude CLI as an MCP subprocess.
 	// The AUXOT_MCP_TOOLS_FILE env var is set by setupMCP() in cliworker/claude.go.
+	// AUXOT_MCP_TOOL_PROXY is set in live-continuation mode and routes tool calls
+	// to the in-worker HTTP proxy rather than returning stub errors.
 	if toolsFile := os.Getenv("AUXOT_MCP_TOOLS_FILE"); toolsFile != "" {
-		if err := cliworker.RunMCPStdio(toolsFile); err != nil {
-			fmt.Fprintf(os.Stderr, "mcp: %v\n", err)
+		proxyURL := os.Getenv("AUXOT_MCP_TOOL_PROXY")
+		jobID := os.Getenv("AUXOT_MCP_JOB_ID")
+		var mcpErr error
+		if proxyURL != "" && jobID != "" {
+			mcpErr = cliworker.RunMCPStdioLive(toolsFile, proxyURL, jobID)
+		} else {
+			mcpErr = cliworker.RunMCPStdio(toolsFile)
+		}
+		if mcpErr != nil {
+			fmt.Fprintf(os.Stderr, "mcp: %v\n", mcpErr)
 			os.Exit(1)
 		}
 		return
@@ -544,6 +564,26 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 
 	logger.Info("cli worker connected", "gpu_id", conn.GPUID())
 
+	// pendingLiveTools maps callID → pendingToolCall for live-MCP tool execution.
+	// When a tool call arrives from the MCP subprocess via the live proxy, we
+	// send it to the server and park a channel here; when the server replies with
+	// the result, we deliver it to the waiting HTTP proxy handler.
+	var pendingLiveTools sync.Map
+
+	// Route TypeJobToolCallResult messages from the server to the waiting channel.
+	conn.OnToolCallResult(func(msg protocol.JobToolCallResultMessage) {
+		logger.Info("live_tool_result_received",
+			"job_id", msg.JobID,
+			"call_id", msg.CallID,
+			"is_error", msg.IsError)
+		if v, ok := pendingLiveTools.LoadAndDelete(msg.CallID); ok {
+			pending := v.(pendingToolCall)
+			pending.ch <- liveToolResult{Result: msg.Result, IsError: msg.IsError}
+		} else {
+			logger.Warn("live_tool_result_no_waiter", "call_id", msg.CallID)
+		}
+	})
+
 	activeJobs := &sync.Map{}
 
 	conn.OnJob(func(job protocol.JobMessage) {
@@ -568,6 +608,26 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 			cancel()
 		}()
 
+		// onToolCall bridges live-MCP tool execution between the in-process proxy
+		// and the server. It sends TypeJobToolCallRequest to the server via WebSocket
+		// and blocks until TypeJobToolCallResult arrives (via OnToolCallResult above).
+		onToolCall := func(jobID, callID, toolName, arguments string) (result string, isError bool, err error) {
+			ch := make(chan liveToolResult, 1)
+			pendingLiveTools.Store(callID, pendingToolCall{ch: ch})
+			defer pendingLiveTools.Delete(callID)
+
+			if sendErr := conn.SendToolCallRequest(jobID, callID, toolName, arguments); sendErr != nil {
+				return "", false, fmt.Errorf("sending tool call request: %w", sendErr)
+			}
+
+			select {
+			case res := <-ch:
+				return res.Result, res.IsError, nil
+			case <-abortCtx.Done():
+				return "", false, abortCtx.Err()
+			}
+		}
+
 		cliworker.RunJob(
 			abortCtx,
 			job,
@@ -575,6 +635,8 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 				ClaudePath:   claudePath,
 				Model:        modelName,
 				BuiltinTools: builtinTools,
+				LiveMCP:      len(job.Tools) > 0, // enable live mode whenever tools are present
+				OnToolCall:   onToolCall,
 			},
 			func(token string) error { return conn.SendToken(job.JobID, token) },
 			func(token string) error { return conn.SendReasoningToken(job.JobID, token) },

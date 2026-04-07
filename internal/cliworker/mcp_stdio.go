@@ -2,8 +2,10 @@ package cliworker
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/auxothq/auxot/pkg/protocol"
@@ -31,19 +33,7 @@ func RunMCPStdio(toolsFile string) error {
 		return fmt.Errorf("parsing tools: %w", err)
 	}
 
-	// Convert from OpenAI tool format to MCP tool format.
-	mcpTools := make([]map[string]any, 0, len(tools))
-	for _, t := range tools {
-		entry := map[string]any{
-			"name":        t.Function.Name,
-			"description": t.Function.Description,
-		}
-		if len(t.Function.Parameters) > 0 {
-			entry["inputSchema"] = json.RawMessage(t.Function.Parameters)
-		}
-		mcpTools = append(mcpTools, entry)
-	}
-
+	mcpTools := buildMCPTools(tools)
 	reader := bufio.NewReader(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
 
@@ -56,29 +46,18 @@ func RunMCPStdio(toolsFile string) error {
 			continue
 		}
 
-		var req struct {
-			JSONRPC string           `json:"jsonrpc"`
-			Method  string           `json:"method"`
-			Params  json.RawMessage  `json:"params,omitempty"`
-			ID      *json.RawMessage `json:"id,omitempty"`
-		}
+		var req mcpRequest
 		if err := json.Unmarshal([]byte(line), &req); err != nil {
 			continue
 		}
-
-		// Notifications (no ID) don't need a response.
 		if req.ID == nil {
-			continue
+			continue // notification — no response needed
 		}
 
 		var result any
 		switch req.Method {
 		case "initialize":
-			result = map[string]any{
-				"protocolVersion": "2024-11-05",
-				"capabilities":    map[string]any{"tools": map[string]any{}},
-				"serverInfo":      map[string]any{"name": "auxot", "version": "1.0.0"},
-			}
+			result = mcpInitResult()
 		case "tools/list":
 			result = map[string]any{"tools": mcpTools}
 
@@ -100,7 +79,6 @@ func RunMCPStdio(toolsFile string) error {
 			continue
 
 		default:
-			// Unknown method — return empty result to avoid breaking the handshake.
 			result = map[string]any{}
 		}
 
@@ -110,4 +88,179 @@ func RunMCPStdio(toolsFile string) error {
 			"result":  result,
 		})
 	}
+}
+
+// RunMCPStdioLive implements the MCP stdio transport protocol for live-continuation
+// mode. Unlike RunMCPStdio, this mode actually executes tool calls by forwarding
+// them to the in-worker HTTP proxy (started by RunJob in live mode). The proxy
+// routes them to the server via WebSocket for execution on the sentinel agent VM.
+//
+// Environment variables set by RunJob's setupMCP (live mode):
+//
+//	AUXOT_MCP_TOOL_PROXY  — HTTP URL of the in-worker tool proxy (e.g. http://127.0.0.1:12345)
+//	AUXOT_MCP_JOB_ID      — the active job ID for correlation
+//	AUXOT_MCP_TOOLS_FILE  — path to the JSON tools file (same as non-live mode)
+func RunMCPStdioLive(toolsFile, proxyURL, jobID string) error {
+	data, err := os.ReadFile(toolsFile)
+	if err != nil {
+		return fmt.Errorf("reading tools file: %w", err)
+	}
+	var tools []protocol.Tool
+	if err := json.Unmarshal(data, &tools); err != nil {
+		return fmt.Errorf("parsing tools: %w", err)
+	}
+
+	mcpTools := buildMCPTools(tools)
+	reader := bufio.NewReader(os.Stdin)
+	encoder := json.NewEncoder(os.Stdout)
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return nil // stdin closed — session ended
+		}
+		if line == "" || line == "\n" {
+			continue
+		}
+
+		var req mcpRequest
+		if err := json.Unmarshal([]byte(line), &req); err != nil {
+			continue
+		}
+		if req.ID == nil {
+			continue
+		}
+
+		var result any
+		switch req.Method {
+		case "initialize":
+			result = mcpInitResult()
+		case "tools/list":
+			result = map[string]any{"tools": mcpTools}
+
+		case "tools/call":
+			// Parse the call params to extract name, id, and arguments.
+			var params struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				_ = encoder.Encode(mcpErrorResp(req.ID, -32602, "invalid params: "+err.Error()))
+				continue
+			}
+
+			// The MCP call ID is embedded in the JSON-RPC request ID.
+			// We use it as the callID for correlation on the server side.
+			callIDBytes, _ := json.Marshal(req.ID)
+			callID := string(callIDBytes)
+
+			argsStr := string(params.Arguments)
+			if argsStr == "" {
+				argsStr = "{}"
+			}
+
+			// Forward to the in-worker HTTP proxy. This call blocks until the
+			// server has executed the tool and returned the result.
+			toolResult, isError, proxyErr := callToolProxy(proxyURL, jobID, callID, params.Name, argsStr)
+			if proxyErr != nil {
+				_ = encoder.Encode(mcpErrorResp(req.ID, -32603,
+					fmt.Sprintf("tool proxy error: %v", proxyErr)))
+				continue
+			}
+
+			// MCP result: either content (success) or error.
+			if isError {
+				result = map[string]any{
+					"isError": true,
+					"content": []map[string]any{
+						{"type": "text", "text": toolResult},
+					},
+				}
+			} else {
+				result = map[string]any{
+					"content": []map[string]any{
+						{"type": "text", "text": toolResult},
+					},
+				}
+			}
+
+		default:
+			result = map[string]any{}
+		}
+
+		_ = encoder.Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      req.ID,
+			"result":  result,
+		})
+	}
+}
+
+// callToolProxy sends a tool call to the in-worker HTTP proxy and blocks until
+// the result is available. The proxy forwards the call to the server via WebSocket.
+func callToolProxy(proxyURL, jobID, callID, toolName, arguments string) (result string, isError bool, err error) {
+	body, _ := json.Marshal(map[string]any{
+		"job_id":     jobID,
+		"call_id":    callID,
+		"tool_name":  toolName,
+		"arguments":  arguments,
+	})
+	resp, err := http.Post(proxyURL+"/tool-call", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "", false, fmt.Errorf("posting to proxy: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result2 struct {
+		Result  string `json:"result"`
+		IsError bool   `json:"is_error"`
+		Error   string `json:"error,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result2); err != nil {
+		return "", false, fmt.Errorf("decoding proxy response: %w", err)
+	}
+	if result2.Error != "" {
+		return result2.Error, true, nil
+	}
+	return result2.Result, result2.IsError, nil
+}
+
+// ── shared MCP helpers ────────────────────────────────────────────────────────
+
+type mcpRequest struct {
+	JSONRPC string          `json:"jsonrpc"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+	ID      any             `json:"id,omitempty"`
+}
+
+func mcpInitResult() map[string]any {
+	return map[string]any{
+		"protocolVersion": "2024-11-05",
+		"capabilities":    map[string]any{"tools": map[string]any{}},
+		"serverInfo":      map[string]any{"name": "auxot", "version": "1.0.0"},
+	}
+}
+
+func mcpErrorResp(id any, code int, msg string) map[string]any {
+	return map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"error":   map[string]any{"code": code, "message": msg},
+	}
+}
+
+func buildMCPTools(tools []protocol.Tool) []map[string]any {
+	mcpTools := make([]map[string]any, 0, len(tools))
+	for _, t := range tools {
+		entry := map[string]any{
+			"name":        t.Function.Name,
+			"description": t.Function.Description,
+		}
+		if len(t.Function.Parameters) > 0 {
+			entry["inputSchema"] = json.RawMessage(t.Function.Parameters)
+		}
+		mcpTools = append(mcpTools, entry)
+	}
+	return mcpTools
 }

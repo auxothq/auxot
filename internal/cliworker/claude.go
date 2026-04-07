@@ -51,6 +51,19 @@ type JobConfig struct {
 	// ConfigDir is the CLAUDE_CONFIG_DIR env var for the claude subprocess.
 	// Defaults to DefaultConfigDir if empty.
 	ConfigDir string
+	// LiveMCP enables live-continuation mode: instead of deny-and-kill, tool calls
+	// are executed in-band through the MCP connection. Claude runs to natural
+	// completion, emitting a final result event. This eliminates the session-file
+	// delta bug where only the last tool result was sent to Claude in multi-tool turns.
+	//
+	// Requires OnToolCall to be set.
+	LiveMCP bool
+	// OnToolCall is the bridge between the in-process live tool proxy and the server.
+	// It is called by the HTTP proxy when the MCP subprocess forwards a tool call.
+	// The implementation should send TypeJobToolCallRequest to the server via WebSocket
+	// and block until TypeJobToolCallResult is received, then return the result.
+	// Required when LiveMCP is true; ignored otherwise.
+	OnToolCall func(jobID, callID, toolName, arguments string) (result string, isError bool, err error)
 }
 
 // sessionFilePath returns the path where the Claude CLI persists conversation
@@ -324,14 +337,17 @@ func runJobOnce(
 	}
 
 	// Always use stream-json stdin so the conversation never touches the argv.
-	// On the tools path, --permission-prompt-tool stdio lets us intercept MCP
-	// permission requests; on the no-tools path, --dangerously-skip-permissions
-	// is equivalent (no permission events will be emitted anyway).
+	// On the live-MCP path, --dangerously-skip-permissions lets Claude execute
+	// tools via the MCP connection without permission prompts (the MCP server
+	// subprocess forwards calls to our live proxy, which routes to the server).
+	// On the deny-kill path, --permission-prompt-tool stdio intercepts MCP
+	// permission requests so we can deny them after collecting tool_use blocks.
+	// No-tools path: --dangerously-skip-permissions (no permission events anyway).
 	args = append(args,
 		"--print",
 		"--input-format", "stream-json",
 	)
-	if hasTools {
+	if hasTools && !cfg.LiveMCP {
 		args = append(args, "--permission-prompt-tool", "stdio")
 	} else {
 		args = append(args, "--dangerously-skip-permissions")
@@ -375,15 +391,29 @@ func runJobOnce(
 			os.Remove(sysPromptTempFile)
 		}
 	}()
-	// MCP setup stays — needed for tool schema (initialize + tools/list).
-	// With permission-based interception, tools/call is never reached.
+	// MCP setup — needed for tool schema (initialize + tools/list).
+	// In live mode, the MCP subprocess also executes tool calls by forwarding
+	// them to the in-worker HTTP proxy. In deny-kill mode, tools/call responses
+	// are stub errors; the actual execution happens server-side after the turn.
 	var mcpCleanup func()
 	if hasTools {
 		var mcpArgs []string
-		var err error
-		mcpArgs, mcpCleanup, err = setupMCP(job.Tools)
-		if err != nil {
-			log.Error("mcp_setup_failed", "error", err)
+		var setupErr error
+		if cfg.LiveMCP && cfg.OnToolCall != nil {
+			// Start the live tool proxy first so we have its address for the MCP config.
+			proxy, proxyErr := startLiveToolProxy(claudeCtx, cfg.OnToolCall)
+			if proxyErr != nil {
+				log.Error("liveproxy_start_failed", "error", proxyErr)
+				_ = onError("failed to start live tool proxy", proxyErr.Error())
+				return nil
+			}
+			log.Info("cliworker: live tool proxy started", "addr", proxy.Addr())
+			mcpArgs, mcpCleanup, setupErr = setupMCPLive(job.Tools, proxy.Addr(), job.JobID)
+		} else {
+			mcpArgs, mcpCleanup, setupErr = setupMCP(job.Tools)
+		}
+		if setupErr != nil {
+			log.Error("mcp_setup_failed", "error", setupErr)
 		} else {
 			args = append(args, "--strict-mcp-config")
 			args = append(args, mcpArgs...)
@@ -514,14 +544,14 @@ func runJobOnce(
 
 			for _, block := range event.Message.Content {
 				switch block.Type {
-				case "text":
-					if block.Text != "" {
-						fullText.WriteString(block.Text)
-						switch {
-						case seenMCPTool:
-							// MCP turn: we killed Claude after collecting tool calls,
-							// so this text is from the (suppressed) retry turn — discard.
-						case seenBuiltinResult:
+			case "text":
+				if block.Text != "" {
+					fullText.WriteString(block.Text)
+					switch {
+					case seenMCPTool && !cfg.LiveMCP:
+						// Deny-kill path: we killed Claude after collecting tool calls,
+						// so this text is from the (suppressed) retry turn — discard.
+					case seenBuiltinResult:
 							// Post-builtin response: the agent's reply after tool results.
 							postToolText.WriteString(block.Text)
 							_ = onToken(block.Text)
@@ -601,6 +631,15 @@ func runJobOnce(
 			}
 
 		case "rate_limit_event":
+			// In live-MCP mode, rate_limit_event just signals the end of one
+			// inference batch. Claude is still running (waiting for tool results
+			// from the MCP subprocess) — do NOT kill it. It will emit a `result`
+			// event when it reaches natural completion.
+			if cfg.LiveMCP {
+				log.Info("cliworker: live-MCP rate_limit_event — Claude still running")
+				break
+			}
+
 			batchComplete = true
 			// rate_limit_event fires immediately after the model finishes streaming,
 			// BEFORE the user event carrying builtin tool results.  Only kill Claude
@@ -717,16 +756,26 @@ func runJobOnce(
 complete:
 	var preToolContent, postToolContent string
 	switch {
+	case cfg.LiveMCP:
+		// Live-continuation mode: Claude ran to natural completion, executing all
+		// tool calls in-band via MCP. The full accumulated text is the response;
+		// there are no pending server-side tool calls to dispatch.
+		preToolContent = fullText.String()
+		// toolCalls and completedBuiltins are both empty in live mode.
+
 	case len(toolCalls) > 0:
-		// MCP turn: response is whatever the agent said before calling MCP tools.
-		// Claude is killed after we collect the tool calls, so there is no post-tool text.
+		// Deny-kill mode MCP turn: response is whatever the agent said before
+		// calling MCP tools. Claude is killed after we collect the tool calls,
+		// so there is no post-tool text from this run.
 		preToolContent = preToolText.String()
+
 	case len(completedBuiltins) > 0:
 		// CLI-native builtin turn: separate the pre-tool preamble from the
 		// post-tool response so the server can insert them as two distinct
 		// assistant rows with the tool_call rows in between.
 		preToolContent = preToolText.String()
 		postToolContent = postToolText.String()
+
 	default:
 		// Plain text turn: no tools at all.
 		preToolContent = fullText.String()
@@ -780,6 +829,72 @@ func setupMCP(tools []protocol.Tool) (args []string, cleanup func(), err error) 
 	}
 
 	configFile, err := os.CreateTemp("", "auxot-mcp-*.json")
+	if err != nil {
+		os.Remove(toolsFile.Name())
+		return nil, nil, err
+	}
+	if _, err := configFile.Write(configData); err != nil {
+		configFile.Close()
+		os.Remove(toolsFile.Name())
+		os.Remove(configFile.Name())
+		return nil, nil, err
+	}
+	configFile.Close()
+
+	cleanup = func() {
+		os.Remove(toolsFile.Name())
+		os.Remove(configFile.Name())
+	}
+	args = []string{"--mcp-config", configFile.Name()}
+	return args, cleanup, nil
+}
+
+// setupMCPLive is like setupMCP but for live-continuation mode. It sets two
+// additional env vars in the MCP subprocess so that tools/call is forwarded to
+// the in-worker HTTP proxy instead of returning a stub error.
+func setupMCPLive(tools []protocol.Tool, proxyURL, jobID string) (args []string, cleanup func(), err error) {
+	toolsData, err := json.Marshal(tools)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshaling tools: %w", err)
+	}
+
+	toolsFile, err := os.CreateTemp("", "auxot-tools-*.json")
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating tools temp file: %w", err)
+	}
+	if _, err := toolsFile.Write(toolsData); err != nil {
+		toolsFile.Close()
+		os.Remove(toolsFile.Name())
+		return nil, nil, err
+	}
+	toolsFile.Close()
+
+	workerBin, err := os.Executable()
+	if err != nil {
+		os.Remove(toolsFile.Name())
+		return nil, nil, fmt.Errorf("resolving executable path: %w", err)
+	}
+
+	mcpConfig := map[string]any{
+		"mcpServers": map[string]any{
+			"auxot": map[string]any{
+				"command": workerBin,
+				"args":    []string{},
+				"env": map[string]string{
+					"AUXOT_MCP_TOOLS_FILE":  toolsFile.Name(),
+					"AUXOT_MCP_TOOL_PROXY":  proxyURL,
+					"AUXOT_MCP_JOB_ID":      jobID,
+				},
+			},
+		},
+	}
+	configData, err := json.Marshal(mcpConfig)
+	if err != nil {
+		os.Remove(toolsFile.Name())
+		return nil, nil, err
+	}
+
+	configFile, err := os.CreateTemp("", "auxot-mcp-live-*.json")
 	if err != nil {
 		os.Remove(toolsFile.Name())
 		return nil, nil, err
@@ -962,7 +1077,14 @@ func buildPrompt(messages []protocol.ChatMessage, mcpToolNames map[string]string
 
 	// Encourage the model to emit multiple tool_use blocks in a single response
 	// when tool results are independent, enabling parallel execution.
-	const parallelInstr = "When you need to call multiple tools and their results are independent of each other, include ALL of the tool_use blocks in a single response rather than calling them one at a time. This enables parallel execution and faster responses."
+	// Also explicitly forbid narration-without-action: Claude Code runs in an
+	// MCP-only environment where every action MUST be a tool call. If it
+	// describes what it's about to do without including the tool_use block,
+	// nothing happens — there is no mechanism to act outside of tool calls.
+	const parallelInstr = "IMPORTANT: You are operating in an environment where ALL actions must be performed via tool calls. " +
+		"Never describe what you are about to do without also including the tool_use block in the same response — narrating an action is not the same as performing it. " +
+		"If you intend to run a command, read a file, search the web, or take any other action, include the tool_use block immediately in your current response. " +
+		"When you need to call multiple tools and their results are independent of each other, include ALL of the tool_use blocks in a single response rather than calling them one at a time. This enables parallel execution and faster responses."
 	if systemPrompt != "" {
 		systemPrompt = systemPrompt + "\n\n" + parallelInstr
 	} else {

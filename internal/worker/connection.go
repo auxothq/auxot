@@ -24,8 +24,9 @@ type Connection struct {
 	gpuID string
 
 	// Callbacks
-	onJob    func(job protocol.JobMessage)
-	onCancel func(jobID string)
+	onJob            func(job protocol.JobMessage)
+	onCancel         func(jobID string)
+	onToolCallResult func(msg protocol.JobToolCallResultMessage)
 }
 
 // NewConnection creates a Connection to the router.
@@ -46,6 +47,12 @@ func (c *Connection) OnJob(fn func(job protocol.JobMessage)) {
 // OnCancel registers a callback invoked when the router cancels a job.
 func (c *Connection) OnCancel(fn func(jobID string)) {
 	c.onCancel = fn
+}
+
+// OnToolCallResult registers a callback invoked when the server sends the result
+// of a tool call requested via SendToolCallRequest (live-continuation mode).
+func (c *Connection) OnToolCallResult(fn func(msg protocol.JobToolCallResultMessage)) {
+	c.onToolCallResult = fn
 }
 
 // GPUID returns the server-assigned GPU ID.
@@ -236,10 +243,27 @@ func (c *Connection) RunMessageLoop() error {
 			} else {
 				c.logger.Error("config rejected by router", "error", m.Error)
 			}
+		case protocol.JobToolCallResultMessage:
+			if c.onToolCallResult != nil {
+				c.onToolCallResult(m)
+			}
 		default:
 			c.logger.Warn("unexpected message from router", "type", fmt.Sprintf("%T", m))
 		}
 	}
+}
+
+// SendToolCallRequest sends a live-MCP tool call request to the server.
+// The server will execute the tool (via the sentinel agent-worker) and reply
+// with a TypeJobToolCallResult message, which is dispatched via OnToolCallResult.
+func (c *Connection) SendToolCallRequest(jobID, callID, toolName, arguments string) error {
+	return c.sendJSON(protocol.JobToolCallRequestMessage{
+		Type:      protocol.TypeJobToolCallRequest,
+		JobID:     jobID,
+		CallID:    callID,
+		ToolName:  toolName,
+		Arguments: arguments,
+	})
 }
 
 // SendToolGenerating notifies the router that the model has started
