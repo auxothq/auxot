@@ -44,6 +44,7 @@ const COLLECTIONS: Collection[] = [
   { owner: 'unsloth', collection: 'Qwen3-Coder' },
   { owner: 'unsloth', collection: 'Gemma-3' },
   { owner: 'unsloth', collection: 'Gemma-3n' },
+  { owner: 'unsloth', collection: 'Gemma-4' },
   { owner: 'unsloth', collection: 'Llama-4' },
   { owner: 'unsloth', collection: 'Llama-3.3' },
   { owner: 'unsloth', collection: 'gpt-oss' },
@@ -57,6 +58,7 @@ const COLLECTIONS: Collection[] = [
   { owner: 'mistralai', collection: 'Devstral-2' },
   { owner: 'deepseek-ai', collection: 'DeepSeek-V3' },
   { owner: 'google', collection: 'Gemma-3' },
+  { owner: 'google', collection: 'Gemma-4' },
 ];
 
 /**
@@ -169,7 +171,7 @@ const ALLOWED_MODEL_FAMILIES: ModelFamilyConfig[] = [
   },
   {
     name: 'Gemma',
-    versions: ['3', '3n'],
+    versions: ['3', '3n', '4'],
     variants: ['Instruct'],
     providers: ['google', 'unsloth'],
   },
@@ -546,7 +548,11 @@ function isModelAllowed(repoId: string, modelName: string, provider: string): { 
                      /Ministral[_-]?Large[_-]?3/i.test(modelName) ||
                      /Devstral[_-]?2/i.test(modelName);
     } else if (familyConfig.name === 'Gemma') {
-      versionMatch = /Gemma[_-]?3(?:n)?/i.test(modelName);
+      // Gemma-4 first; then 3n; then 3 — avoid treating gemma-3-4b (Gemma 3 4B) as Gemma 4.
+      versionMatch =
+        /Gemma[_-]?4(?:[^0-9]|$)/i.test(modelName) ||
+        /Gemma[_-]?3n/i.test(modelName) ||
+        /Gemma[_-]?3(?:[^0-9n]|$)/i.test(modelName);
     } else if (familyConfig.name === 'GPT-OSS') {
       versionMatch = true;
     } else if (familyConfig.name === 'Granite') {
@@ -655,6 +661,7 @@ function getDefaultContextSize(modelName: string): number {
   if (name.includes('mistral')) return 32768;
   if (name.includes('minimax')) return 8192;
   if (name.includes('kimi')) return 131072;
+  if (name.includes('gemma-4')) return 131072;
   return 8192;
 }
 

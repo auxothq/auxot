@@ -1,6 +1,6 @@
 {
   "version": "0.1.0",
-  "generated_at": "2026-02-27T14:26:14.730Z",
+  "generated_at": "2026-04-07T16:12:20.663Z",
   "models": [
     {
       "id": "kimi-k2-5-f16",
@@ -4746,6 +4746,125 @@
       "file_name": "Qwen3-Coder-30B-A3B-Instruct-1M-UD-Q8_K_XL.gguf"
     },
     {
+      "id": "gemma-4-31b-it-f16",
+      "model_name": "gemma-4-31B-it",
+      "huggingface_id": "unsloth/gemma-4-31B-it-GGUF",
+      "quantization": "F16",
+      "family": "Dense",
+      "parameters": "31B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 62,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "BF16/gemma-4-31B-it-BF16-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-31b-it-q3-k-s",
+      "model_name": "gemma-4-31B-it",
+      "huggingface_id": "unsloth/gemma-4-31B-it-GGUF",
+      "quantization": "Q3_K_S",
+      "family": "Dense",
+      "parameters": "31B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 9.7,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-31B-it-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-31b-it-q4-k-s",
+      "model_name": "gemma-4-31B-it",
+      "huggingface_id": "unsloth/gemma-4-31B-it-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "Dense",
+      "parameters": "31B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 15.5,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-31B-it-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-31b-it-q5-k-s",
+      "model_name": "gemma-4-31B-it",
+      "huggingface_id": "unsloth/gemma-4-31B-it-GGUF",
+      "quantization": "Q5_K_S",
+      "family": "Dense",
+      "parameters": "31B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 19.4,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-31B-it-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-31b-it-q6-k",
+      "model_name": "gemma-4-31B-it",
+      "huggingface_id": "unsloth/gemma-4-31B-it-GGUF",
+      "quantization": "Q6_K",
+      "family": "Dense",
+      "parameters": "31B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 23.3,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-31B-it-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-31b-it-q8-0",
+      "model_name": "gemma-4-31B-it",
+      "huggingface_id": "unsloth/gemma-4-31B-it-GGUF",
+      "quantization": "Q8_0",
+      "family": "Dense",
+      "parameters": "31B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 31,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-31B-it-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-31b-it-q8-k",
+      "model_name": "gemma-4-31B-it",
+      "huggingface_id": "unsloth/gemma-4-31B-it-GGUF",
+      "quantization": "Q8_K",
+      "family": "Dense",
+      "parameters": "31B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 31,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-31B-it-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
       "id": "qwen3-5-27b-f16",
       "model_name": "Qwen3.5-27B",
       "huggingface_id": "unsloth/Qwen3.5-27B-GGUF",
@@ -5083,6 +5202,125 @@
         "vision"
       ],
       "file_name": "gemma-3-27b-it-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-26b-a4b-it-f16",
+      "model_name": "gemma-4-26B-A4B-it",
+      "huggingface_id": "unsloth/gemma-4-26B-A4B-it-GGUF",
+      "quantization": "F16",
+      "family": "MoE",
+      "parameters": "25B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 50,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "BF16/gemma-4-26B-A4B-it-BF16-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-26b-a4b-it-q8-0",
+      "model_name": "gemma-4-26B-A4B-it",
+      "huggingface_id": "unsloth/gemma-4-26B-A4B-it-GGUF",
+      "quantization": "Q8_0",
+      "family": "MoE",
+      "parameters": "25B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 25,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-26B-A4B-it-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-26b-a4b-it-q3-k-s",
+      "model_name": "gemma-4-26B-A4B-it",
+      "huggingface_id": "unsloth/gemma-4-26B-A4B-it-GGUF",
+      "quantization": "Q3_K_S",
+      "family": "MoE",
+      "parameters": "25B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 7.9,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-26B-A4B-it-UD-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-26b-a4b-it-q4-k-s",
+      "model_name": "gemma-4-26B-A4B-it",
+      "huggingface_id": "unsloth/gemma-4-26B-A4B-it-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "MoE",
+      "parameters": "25B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 12.5,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-26B-A4B-it-UD-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-26b-a4b-it-q5-k-s",
+      "model_name": "gemma-4-26B-A4B-it",
+      "huggingface_id": "unsloth/gemma-4-26B-A4B-it-GGUF",
+      "quantization": "Q5_K_S",
+      "family": "MoE",
+      "parameters": "25B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 15.7,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-26B-A4B-it-UD-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-26b-a4b-it-q6-k",
+      "model_name": "gemma-4-26B-A4B-it",
+      "huggingface_id": "unsloth/gemma-4-26B-A4B-it-GGUF",
+      "quantization": "Q6_K",
+      "family": "MoE",
+      "parameters": "25B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 18.8,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-26B-A4B-it-UD-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-26b-a4b-it-q8-k",
+      "model_name": "gemma-4-26B-A4B-it",
+      "huggingface_id": "unsloth/gemma-4-26B-A4B-it-GGUF",
+      "quantization": "Q8_K",
+      "family": "MoE",
+      "parameters": "25B",
+      "default_context_size": 131072,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 25,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-26B-A4B-it-UD-Q8_K_XL.gguf",
       "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
@@ -7259,6 +7497,125 @@
       "file_name": "DeepSeek-R1-Distill-Qwen-7B-Q8_0.gguf"
     },
     {
+      "id": "gemma-4-e4b-it-f16",
+      "model_name": "gemma-4-E4B-it",
+      "huggingface_id": "unsloth/gemma-4-E4B-it-GGUF",
+      "quantization": "F16",
+      "family": "Dense",
+      "parameters": "8B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 16,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E4B-it-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-e4b-it-q3-k-s",
+      "model_name": "gemma-4-E4B-it",
+      "huggingface_id": "unsloth/gemma-4-E4B-it-GGUF",
+      "quantization": "Q3_K_S",
+      "family": "Dense",
+      "parameters": "8B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 2.5,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E4B-it-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-e4b-it-q4-k-s",
+      "model_name": "gemma-4-E4B-it",
+      "huggingface_id": "unsloth/gemma-4-E4B-it-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "Dense",
+      "parameters": "8B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 4,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E4B-it-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-e4b-it-q5-k-s",
+      "model_name": "gemma-4-E4B-it",
+      "huggingface_id": "unsloth/gemma-4-E4B-it-GGUF",
+      "quantization": "Q5_K_S",
+      "family": "Dense",
+      "parameters": "8B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 5,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E4B-it-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-e4b-it-q6-k",
+      "model_name": "gemma-4-E4B-it",
+      "huggingface_id": "unsloth/gemma-4-E4B-it-GGUF",
+      "quantization": "Q6_K",
+      "family": "Dense",
+      "parameters": "8B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 6,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E4B-it-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-e4b-it-q8-0",
+      "model_name": "gemma-4-E4B-it",
+      "huggingface_id": "unsloth/gemma-4-E4B-it-GGUF",
+      "quantization": "Q8_0",
+      "family": "Dense",
+      "parameters": "8B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 8,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E4B-it-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-e4b-it-q8-k",
+      "model_name": "gemma-4-E4B-it",
+      "huggingface_id": "unsloth/gemma-4-E4B-it-GGUF",
+      "quantization": "Q8_K",
+      "family": "Dense",
+      "parameters": "8B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 8,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E4B-it-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
       "id": "gemma-3n-e4b-it-f16",
       "model_name": "gemma-3n-E4B-it",
       "huggingface_id": "unsloth/gemma-3n-E4B-it-GGUF",
@@ -7467,6 +7824,125 @@
         "chat"
       ],
       "file_name": "granite-4.0-h-tiny-UD-Q8_K_XL.gguf"
+    },
+    {
+      "id": "gemma-4-e2b-it-f16",
+      "model_name": "gemma-4-E2B-it",
+      "huggingface_id": "unsloth/gemma-4-E2B-it-GGUF",
+      "quantization": "F16",
+      "family": "Dense",
+      "parameters": "5B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 10,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E2B-it-BF16.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-e2b-it-q3-k-s",
+      "model_name": "gemma-4-E2B-it",
+      "huggingface_id": "unsloth/gemma-4-E2B-it-GGUF",
+      "quantization": "Q3_K_S",
+      "family": "Dense",
+      "parameters": "5B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 1.6,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E2B-it-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-e2b-it-q4-k-s",
+      "model_name": "gemma-4-E2B-it",
+      "huggingface_id": "unsloth/gemma-4-E2B-it-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "Dense",
+      "parameters": "5B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 2.5,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E2B-it-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-e2b-it-q5-k-s",
+      "model_name": "gemma-4-E2B-it",
+      "huggingface_id": "unsloth/gemma-4-E2B-it-GGUF",
+      "quantization": "Q5_K_S",
+      "family": "Dense",
+      "parameters": "5B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 3.2,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E2B-it-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-e2b-it-q6-k",
+      "model_name": "gemma-4-E2B-it",
+      "huggingface_id": "unsloth/gemma-4-E2B-it-GGUF",
+      "quantization": "Q6_K",
+      "family": "Dense",
+      "parameters": "5B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 3.8,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E2B-it-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-e2b-it-q8-0",
+      "model_name": "gemma-4-E2B-it",
+      "huggingface_id": "unsloth/gemma-4-E2B-it-GGUF",
+      "quantization": "Q8_0",
+      "family": "Dense",
+      "parameters": "5B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 5,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E2B-it-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "gemma-4-e2b-it-q8-k",
+      "model_name": "gemma-4-E2B-it",
+      "huggingface_id": "unsloth/gemma-4-E2B-it-GGUF",
+      "quantization": "Q8_K",
+      "family": "Dense",
+      "parameters": "5B",
+      "default_context_size": 131072,
+      "max_context_size": 131072,
+      "vram_requirements_gb": 5,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "gemma-4-E2B-it-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
       "id": "qwen3-vl-4b-f16",
