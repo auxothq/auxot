@@ -110,6 +110,7 @@ tag:
 	DATE=$$(date -u +%Y-%m-%d); \
 	mkdir -p $(CHANGELOG_DIR); \
 	OUTFILE="$(CHANGELOG_DIR)/$${NEXT#v}.mdx"; \
+	TMPFILE=$$(mktemp); \
 	claude --print -p "You are writing a changelog entry for Auxot (open-source edition), an AI agent orchestration platform — the OSS router, workers, and CLI. \
 Given these git commits from version $$NEXT ($$DATE), produce a complete MDX file with frontmatter and body. \
 \
@@ -130,7 +131,12 @@ Body rules: \
 - Keep it concise \
 \
 Commits: \
-$$COMMITS" > "$$OUTFILE"; \
+$$COMMITS" > "$$TMPFILE" || { echo "✗ claude exited non-zero — aborting changelog"; rm -f "$$TMPFILE"; exit 1; }; \
+	if ! head -1 "$$TMPFILE" | grep -q '^---'; then \
+		echo "✗ claude output does not start with frontmatter (---). Aborting."; \
+		echo "  Output was:"; cat "$$TMPFILE"; rm -f "$$TMPFILE"; exit 1; \
+	fi; \
+	mv "$$TMPFILE" "$$OUTFILE"; \
 	bash scripts/sanitize-changelog-mdx.sh "$$OUTFILE"; \
 	echo "✓ Changelog: $$OUTFILE (unstaged — review and commit to web repo)"
 
@@ -155,6 +161,7 @@ endif
 	DATE=$$(date -u +%Y-%m-%d); \
 	mkdir -p $(CHANGELOG_DIR); \
 	OUTFILE="$(CHANGELOG_DIR)/$(V).mdx"; \
+	TMPFILE=$$(mktemp); \
 	claude --print -p "You are writing a changelog entry for Auxot (open-source edition), an AI agent orchestration platform — the OSS router, workers, and CLI. \
 Given these git commits from version v$(V) ($$DATE), produce a complete MDX file with frontmatter and body. \
 \
@@ -175,6 +182,11 @@ Body rules: \
 - Keep it concise \
 \
 Commits: \
-$$COMMITS" > "$$OUTFILE"; \
+$$COMMITS" > "$$TMPFILE" || { echo "✗ claude exited non-zero — aborting changelog"; rm -f "$$TMPFILE"; exit 1; }; \
+	if ! head -1 "$$TMPFILE" | grep -q '^---'; then \
+		echo "✗ claude output does not start with frontmatter (---). Aborting."; \
+		echo "  Output was:"; cat "$$TMPFILE"; rm -f "$$TMPFILE"; exit 1; \
+	fi; \
+	mv "$$TMPFILE" "$$OUTFILE"; \
 	bash scripts/sanitize-changelog-mdx.sh "$$OUTFILE"; \
 	echo "✓ Changelog: $$OUTFILE (unstaged — review and commit to web repo)"
