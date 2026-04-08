@@ -85,6 +85,61 @@ func TestExecuteBashSeesToolEnv(t *testing.T) {
 	}
 }
 
+func TestExecuteBashInlineTruncation_LargeOutput(t *testing.T) {
+	wd := t.TempDir()
+	// Command emits slightly more than 1 KB (10 KB of 'A's).
+	raw, _ := json.Marshal(map[string]string{
+		"command": "python3 -c \"print('A' * 10240, end='')\"",
+	})
+	out, err := executeBash(context.Background(), wd, nil, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) > bashInlineBytes+200 {
+		t.Fatalf("inline output too large: %d bytes (want ≤ ~%d)", len(out), bashInlineBytes+200)
+	}
+	if !strings.Contains(out, "output truncated") {
+		t.Fatalf("expected truncation header, got: %q", out[:min(len(out), 200)])
+	}
+	// The tail must end with 'A's (the last chars of the 10 KB run).
+	if !strings.HasSuffix(strings.TrimRight(out, "\n"), "AAAA") {
+		t.Fatalf("expected tail to end with 'A's, got suffix: %q", out[max(0, len(out)-20):])
+	}
+}
+
+func TestExecuteBashInlineTruncation_SmallOutput(t *testing.T) {
+	wd := t.TempDir()
+	// Command emits 500 bytes — fits within bashInlineBytes, returned as-is.
+	raw, _ := json.Marshal(map[string]string{
+		"command": "python3 -c \"print('B' * 499, end='')\"",
+	})
+	out, err := executeBash(context.Background(), wd, nil, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "output truncated") {
+		t.Fatalf("unexpected truncation header for small output: %q", out[:min(len(out), 200)])
+	}
+	if !strings.Contains(out, "BBBB") {
+		t.Fatalf("expected raw output, got: %q", out[:min(len(out), 200)])
+	}
+}
+
+func TestExecuteBashInlineTruncation_UsesCallID(t *testing.T) {
+	wd := t.TempDir()
+	raw, _ := json.Marshal(map[string]string{
+		"command": "python3 -c \"print('C' * 10240, end='')\"",
+	})
+	toolEnv := map[string]string{"_call_id": "call-abc-123"}
+	out, err := executeBash(context.Background(), wd, toolEnv, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "call-abc-123") {
+		t.Fatalf("expected call ID in truncation header, got: %q", out[:min(len(out), 300)])
+	}
+}
+
 func parseEnvSlice(env []string) map[string]string {
 	m := make(map[string]string, len(env))
 	for _, kv := range env {

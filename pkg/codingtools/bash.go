@@ -14,7 +14,8 @@ import (
 
 const (
 	defaultBashTimeoutSecs = 120
-	maxBashOutputBytes     = 100 * 1024 // 100 KB
+	bashInlineBytes        = 1_024          // returned inline to the LLM
+	maxBashOutputBytes     = 100 * 1024     // collected from subprocess, full result
 )
 
 // BashArgs are the arguments for the bash tool.
@@ -158,6 +159,17 @@ func executeBash(ctx context.Context, workDir string, toolEnv map[string]string,
 	}
 	if result == "" {
 		return "(no output)", nil
+	}
+
+	// Cap inline output to the LLM; return the tail (most recent output is most actionable).
+	if len(result) > bashInlineBytes {
+		callID := "<call_id>"
+		if id, ok := toolEnv["_call_id"]; ok && id != "" {
+			callID = id
+		}
+		header := fmt.Sprintf("[output truncated — showing last 1024 bytes; use tool_recall(%q, offset_byte=0) to read from the beginning]\n", callID)
+		tail := result[len(result)-bashInlineBytes:]
+		return header + tail, nil
 	}
 	return result, nil
 }
