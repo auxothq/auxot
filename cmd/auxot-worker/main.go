@@ -635,7 +635,14 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 				ClaudePath:   claudePath,
 				Model:        modelName,
 				BuiltinTools: builtinTools,
-				LiveMCP:      len(job.Tools) > 0, // enable live mode whenever tools are present
+				// Live-MCP mode executes server tools in-band via the MCP subprocess.
+			// Disabled when the job has caller-defined tools (API proxy jobs)
+			// because those tools have no server-side executor — they must be
+			// returned as unresolved tool_calls via the deny-kill path so the
+			// coordinator fan-in can route them back to the HTTP caller.
+			// API proxy jobs spawn a fresh Claude invocation per turn (no
+			// --resume), so the original deny-kill bug does not apply.
+			LiveMCP: len(job.Tools) > 0 && len(job.CallerTools) == 0,
 				OnToolCall:   onToolCall,
 			},
 			func(token string) error { return conn.SendToken(job.JobID, token) },

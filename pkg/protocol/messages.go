@@ -332,6 +332,21 @@ type JobMessage struct {
 	MaxTokens       *int           `json:"max_tokens,omitempty"`
 	ReasoningEffort string         `json:"reasoning_effort,omitempty"` // "none", "low", "medium", "high"
 	Data            map[string]any `json:"data,omitempty"`              // Optional: tool arguments (e.g. size, steps for image_gen)
+	// CallerTools is the subset of Tools[] that were declared by the API caller
+	// (via the OpenAI or Anthropic compatible endpoint) and must be returned to
+	// that caller as unresolved tool_calls rather than being executed server-side.
+	//
+	// When non-empty the CLI worker uses the old deny-kill path instead of
+	// live-MCP, because:
+	//   a) Caller tools cannot be dispatched via RunDirectToolCall — there is no
+	//      server-side executor for them.
+	//   b) API proxy jobs spawn a fresh Claude invocation per turn (no --resume),
+	//      so the deny-kill bug (dropping all but the last tool result) does not
+	//      apply.
+	// The coordinator fan-in already handles mixed turns: it runs server tools
+	// in-process (tool_recall, request_credential, etc.) or via the tools worker,
+	// and returns caller tools to the HTTP caller via EventCallerToolCalls.
+	CallerTools []string `json:"caller_tools,omitempty"`
 	// CompactionSessionID is the last conversation-compaction breakpoint: often
 	// the DB message id as a decimal string; may be a UUID. The CLI worker maps
 	// non-UUID values to a stable UUID for Claude Code. When non-empty:
@@ -339,6 +354,11 @@ type JobMessage struct {
 	//   - If the session file is missing            → --session-id (full seed)
 	// When empty the worker falls back to --no-session-persistence (stateless).
 	CompactionSessionID string `json:"compaction_session_id,omitempty"`
+
+	// Credentials holds resolved credential env vars for this job (e.g. GH_TOKEN).
+	// The CLI worker injects these into the subprocess environment so builtin
+	// tools (Bash, Read, etc.) see them as ordinary shell environment variables.
+	Credentials map[string]string `json:"credentials,omitempty"`
 }
 
 // CancelMessage tells the worker to stop processing a job.

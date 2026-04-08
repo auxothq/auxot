@@ -427,14 +427,8 @@ func logJobReceived(logger *slog.Logger, job protocol.JobMessage) {
 		attrs = append(attrs, "tools_size_kb", toolSizeKB)
 	}
 
-	// Level 1+: Add latest message content (full, no truncation) and tool names
+	// Level 1+: Add tool names (message content can be read from the session JSONL)
 	if level >= 1 {
-		if len(job.Messages) > 0 {
-			lastMsg := job.Messages[len(job.Messages)-1]
-			attrs = append(attrs, "latest_message_role", lastMsg.Role)
-			attrs = append(attrs, "latest_message_content", lastMsg.ContentString())
-		}
-
 		if len(job.Tools) > 0 {
 			toolNames := make([]string, len(job.Tools))
 			for i, t := range job.Tools {

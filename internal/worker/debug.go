@@ -13,7 +13,6 @@ package worker
 
 import (
 	"bytes"
-	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -25,10 +24,8 @@ import (
 )
 
 var (
-	debugLevel    int
-	debugMu       sync.Mutex
-	seenMessages  = make(map[string]bool) // Track message hashes we've already logged
-	seenMessageMu sync.Mutex
+	debugLevel int
+	debugMu    sync.Mutex
 )
 
 // SetDebugLevel sets the global debug verbosity (0, 1, or 2).
@@ -48,54 +45,33 @@ func DebugLevel() int {
 // --- Level 1: WebSocket messages ---
 
 // DebugServerToClient logs a message received from the router.
-// Level 1: Smart logging (collapsed tools, delta messages)
-// Level 2: Full logging (complete payloads)
+// All levels use smart filtering for JobMessages (full schemas are in the session JSONL).
+// Level 2 additionally logs llama.cpp request/response detail.
 func DebugServerToClient(msg any) {
-	level := DebugLevel()
-	if level < 1 {
+	if DebugLevel() < 1 {
 		return
 	}
-
-	// Level 2: Show everything
-	if level >= 2 {
-		writeDebugEntry("ws_recv", "router", "worker", msg)
-		return
-	}
-
-	// Level 1: Apply smart filtering for job messages
 	payload := buildSmartWebSocketPayload(msg)
 	writeDebugEntry("ws_recv", "router", "worker", payload)
 }
 
 // DebugClientToServer logs a message sent to the router.
-// Level 1: Smart logging - filter out noisy token messages, show summaries
-// Level 2: Full logging (complete payloads including every token)
+// Token and complete messages are suppressed (already covered by INFO logs).
+// Level 2 additionally logs llama.cpp request/response detail.
 func DebugClientToServer(msg any) {
-	level := DebugLevel()
-	if level < 1 {
+	if DebugLevel() < 1 {
 		return
 	}
 
-	// Level 2: Show everything (including per-token messages)
-	if level >= 2 {
-		writeDebugEntry("ws_send", "worker", "router", msg)
+	// Skip per-token messages — too noisy and already streamed by INFO logs.
+	if _, ok := msg.(protocol.TokenMessage); ok {
 		return
 	}
-
-	// Level 1: Filter out token messages (too noisy)
-	// Only show job control messages (complete, error, heartbeat, etc.)
-	if tokenMsg, ok := msg.(protocol.TokenMessage); ok {
-		// Skip individual token messages at level 1
-		_ = tokenMsg
-		return
-	}
-
-	// Level 1: Skip complete messages — already shown in "job completed" INFO log
+	// Skip complete messages — already shown in "job completed" INFO log.
 	if _, ok := msg.(protocol.CompleteMessage); ok {
 		return
 	}
 
-	// Level 1: Apply smart filtering for other messages
 	payload := buildSmartWebSocketPayload(msg)
 	writeDebugEntry("ws_send", "worker", "router", payload)
 }
@@ -159,61 +135,10 @@ func buildSmartWebSocketPayload(msg any) any {
 		payload["tools"] = toolNames
 	}
 
-	// Deduplicate messages using same hash approach
-	var newMessages []map[string]any
-	for _, msg := range jobMsg.Messages {
-		// Create hash for deduplication
-		msgHash := hashProtocolMessage(msg)
-
-		seenMessageMu.Lock()
-		alreadySeen := seenMessages[msgHash]
-		if !alreadySeen {
-			seenMessages[msgHash] = true
-		}
-		seenMessageMu.Unlock()
-
-		if !alreadySeen {
-			msgMap := map[string]any{
-				"role":    msg.Role,
-				"content": msg.ContentString(),
-			}
-			if msg.ToolCallID != "" {
-				msgMap["tool_call_id"] = msg.ToolCallID
-			}
-			if len(msg.ToolCalls) > 0 {
-				toolCallNames := make([]string, len(msg.ToolCalls))
-				for i, tc := range msg.ToolCalls {
-					toolCallNames[i] = fmt.Sprintf("%s(%s)", tc.Function.Name, tc.Function.Arguments)
-				}
-				msgMap["tool_calls"] = toolCallNames
-			}
-			newMessages = append(newMessages, msgMap)
-		}
-	}
-
-	if len(newMessages) > 0 {
-		payload["messages"] = newMessages
-	} else {
-		payload["messages"] = "(all messages previously shown)"
-	}
+	// Log message count only — content is in the session JSONL file.
+	payload["num_messages"] = len(jobMsg.Messages)
 
 	return payload
-}
-
-// hashProtocolMessage creates a hash for protocol.ChatMessage
-func hashProtocolMessage(msg protocol.ChatMessage) string {
-	h := md5.New()
-	h.Write([]byte(msg.Role))
-	h.Write(msg.Content)
-	if msg.ToolCallID != "" {
-		h.Write([]byte(msg.ToolCallID))
-	}
-	for _, tc := range msg.ToolCalls {
-		h.Write([]byte(tc.ID))
-		h.Write([]byte(tc.Function.Name))
-		h.Write([]byte(tc.Function.Arguments))
-	}
-	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 // debugEntry is the JSON envelope for debug log lines.

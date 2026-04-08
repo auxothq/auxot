@@ -26,6 +26,12 @@
 //                             when tool_use blocks appear, what user events carry tool
 //                             results, and when rate_limit_event fires relative to all of
 //                             the above. This is the ground-truth recon run.
+//   8. synthetic-session-resume – Write a synthetic JSONL session file containing a full
+//                             conversation (user ask → assistant tool_use → user tool_result
+//                             with image), then pass it to Claude CLI via --resume /path.jsonl.
+//                             The follow-up prompt is sent via stdin. If Claude synthesises
+//                             a response without re-executing the tool, the session file
+//                             approach is valid for history injection with tool results.
 //
 // Multi-turn session scenarios (verify --session-id / --resume behaviour):
 //   7. session-simple   – Turn 1: plain answer. Turn 2: follow-up referencing turn 1.
@@ -40,6 +46,7 @@
 //	go run ./cmd/claude-probe --scenario parallel-mcp-kill  # key regression test
 //	go run ./cmd/claude-probe --scenario mcp-live           # live continuation test
 //	go run ./cmd/claude-probe --scenario session-simple    # multi-turn session test
+//	go run ./cmd/claude-probe --scenario synthetic-session-resume  # key new test
 //	go run ./cmd/claude-probe --mcp-server                 # internal: MCP stdio mode
 //	go run ./cmd/claude-probe --proxy                      # internal: HTTP proxy mode
 package main
@@ -48,6 +55,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -520,6 +528,633 @@ func runTurn(label, claudePath, model, systemPrompt, sessionID, resumeID, prompt
 	return cliSessionID, true
 }
 
+// runSessionFileReplay is a two-phase test:
+//
+//  Phase 1 — run a live Read session WITH session persistence so Claude CLI
+//             writes a session JSONL file to disk. Capture the session ID.
+//
+//  Phase 2 — read the session file Claude wrote, then feed those exact NDJSON
+//             lines as stream-json stdin to a BRAND NEW subprocess (no --resume,
+//             no --tools Read). Ask the follow-up question. If the model knows
+//             the secret code without re-executing Read, the session file format
+//             is the correct history injection format — the one that bypasses
+//             Claude CLI's tool interception.
+func runSessionFileReplay(model, claudePath string) {
+	_ = os.MkdirAll(probeWorkDir, 0o755)
+	_ = os.MkdirAll(probeConfigDir, 0o755)
+
+	cliPath := claudePath
+	if cliPath == "" {
+		var err error
+		cliPath, err = exec.LookPath("claude")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "claude not found in PATH")
+			os.Exit(1)
+		}
+	}
+
+	// ── Phase 1: live Read session, session persistence ON ──────────────────
+	fmt.Fprintln(os.Stderr, "\n=== session-file-replay PHASE 1: live Read (session persisted) ===")
+
+	phase1Args := []string{
+		"--output-format", "stream-json",
+		"--input-format", "stream-json",
+		"--verbose",
+		"--print",
+		"--tools", "Read",
+		"--dangerously-skip-permissions",
+		// NO --no-session-persistence — we want the file written.
+	}
+	if model != "" {
+		phase1Args = append(phase1Args, "--model", model)
+	}
+	fmt.Fprintf(os.Stderr, "cmd: %s %s\n\n", cliPath, strings.Join(phase1Args, " "))
+
+	phase1 := exec.Command(cliPath, phase1Args...)
+	phase1.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	phase1.Dir = probeWorkDir
+	phase1.Env = probeEnv("")
+
+	p1stdin, _ := phase1.StdinPipe()
+	p1stdout, _ := phase1.StdoutPipe()
+	p1stderr, _ := phase1.StderrPipe()
+
+	if err := phase1.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "phase1 start: %v\n", err)
+		os.Exit(1)
+	}
+	go func() {
+		s := bufio.NewScanner(p1stderr)
+		for s.Scan() {
+		}
+	}()
+
+	// Send the prompt.
+	prompt1, _ := json.Marshal(map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"role":    "user",
+			"content": "Read the file /tmp/probe-test.txt using the Read tool. Tell me the secret code it contains.",
+		},
+	})
+	fmt.Fprintln(p1stdin, string(prompt1))
+
+	// Collect all output lines and extract session ID.
+	// Close stdin as soon as we see the "result" event — otherwise the CLI
+	// waits for more input forever (stream-json mode keeps stdin open).
+	var sessionID string
+	var phase1Lines []string
+	p1scanner := bufio.NewScanner(p1stdout)
+	p1scanner.Buffer(make([]byte, 10<<20), 10<<20)
+	for p1scanner.Scan() {
+		line := p1scanner.Text()
+		if line == "" {
+			continue
+		}
+		phase1Lines = append(phase1Lines, line)
+		// Extract session_id from any line that has it.
+		var probe struct {
+			Type      string  `json:"type"`
+			SessionID string  `json:"session_id"`
+			Result    *string `json:"result"`
+		}
+		if json.Unmarshal([]byte(line), &probe) == nil {
+			if probe.SessionID != "" {
+				sessionID = probe.SessionID
+			}
+			// Close stdin on result — signals CLI to exit.
+			if probe.Type == "result" {
+				_ = p1stdin.Close()
+			}
+		}
+		fmt.Fprintf(os.Stderr, "[p1] %s\n", line[:min(120, len(line))])
+	}
+	_ = phase1.Wait()
+
+	if sessionID == "" {
+		fmt.Fprintln(os.Stderr, "\nPhase 1 failed: no session_id captured")
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "\nPhase 1 complete. session_id=%s\n", sessionID)
+
+	// ── Read the session file Claude wrote ──────────────────────────────────
+	sfPath := sessionFilePath(probeConfigDir, probeWorkDir, sessionID)
+	fmt.Fprintf(os.Stderr, "\n=== session-file-replay: reading session file ===\n%s\n\n", sfPath)
+
+	sfBytes, err := os.ReadFile(sfPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cannot read session file: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Phase 1 subprocess may have used --no-session-persistence or wrong config dir.")
+		os.Exit(1)
+	}
+
+	sessionLines := strings.Split(strings.TrimSpace(string(sfBytes)), "\n")
+	fmt.Fprintf(os.Stderr, "Session file has %d lines. First 3:\n", len(sessionLines))
+	for i, l := range sessionLines {
+		if i >= 3 {
+			break
+		}
+		fmt.Fprintf(os.Stderr, "  [%d] %s\n", i, l[:min(200, len(l))])
+	}
+	fmt.Fprintln(os.Stderr)
+
+	// ── Phase 2: fresh session, replay session file lines as stream-json ─────
+	fmt.Fprintln(os.Stderr, "=== session-file-replay PHASE 2: fresh session, inject session file lines ===")
+
+	phase2Args := []string{
+		"--output-format", "stream-json",
+		"--input-format", "stream-json",
+		"--verbose",
+		"--print",
+		"--no-session-persistence",
+		// NO --tools Read — if it works without the tool registered, re-execution is impossible.
+		// NO --resume — we're testing whether the raw session file format works as stdin history.
+	}
+	if model != "" {
+		phase2Args = append(phase2Args, "--model", model)
+	}
+	fmt.Fprintf(os.Stderr, "cmd: %s %s\n\n", cliPath, strings.Join(phase2Args, " "))
+
+	phase2 := exec.Command(cliPath, phase2Args...)
+	phase2.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	phase2.Dir = probeWorkDir
+	phase2.Env = probeEnv("")
+
+	p2stdin, _ := phase2.StdinPipe()
+	p2stdout, _ := phase2.StdoutPipe()
+	p2stderr, _ := phase2.StderrPipe()
+
+	if err := phase2.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "phase2 start: %v\n", err)
+		os.Exit(1)
+	}
+	go func() {
+		s := bufio.NewScanner(p2stderr)
+		for s.Scan() {
+		}
+	}()
+
+	// Send every line from the session file as-is, then the follow-up prompt.
+	seq := 0
+	sendLine := func(label, line string) {
+		seq++
+		fmt.Fprintf(os.Stderr, "[p2 send %03d] %s: %s\n", seq, label, line[:min(120, len(line))])
+		fmt.Fprintln(p2stdin, line)
+	}
+
+	for i, line := range sessionLines {
+		if line == "" {
+			continue
+		}
+		sendLine(fmt.Sprintf("session line %d", i), line)
+	}
+
+	// Follow-up prompt that requires knowledge of the previous tool result.
+	followUp, _ := json.Marshal(map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"role":    "user",
+			"content": "What was the secret code in the file you just read?",
+		},
+	})
+	sendLine("follow-up prompt", string(followUp))
+	// Don't close stdin yet — we close it when we see the result event.
+
+	fmt.Fprintln(os.Stderr, "\n=== Phase 2 output ===")
+	p2scanner := bufio.NewScanner(p2stdout)
+	p2scanner.Buffer(make([]byte, 10<<20), 10<<20)
+	var resultText string
+	for p2scanner.Scan() {
+		line := p2scanner.Text()
+		if line == "" {
+			continue
+		}
+		// Pretty-print for inspection.
+		var pretty bytes.Buffer
+		if json.Indent(&pretty, []byte(line), "  ", "  ") == nil {
+			fmt.Fprintf(os.Stderr, "%s\n\n", pretty.String())
+		} else {
+			fmt.Fprintf(os.Stderr, "%s\n", line)
+		}
+		// Close stdin and capture result on the result event.
+		var probe struct {
+			Type   string  `json:"type"`
+			Result *string `json:"result"`
+		}
+		if json.Unmarshal([]byte(line), &probe) == nil && probe.Type == "result" {
+			if probe.Result != nil {
+				resultText = *probe.Result
+			}
+			_ = p2stdin.Close()
+		}
+	}
+	_ = phase2.Wait()
+
+	fmt.Fprintln(os.Stderr, "\n=== session-file-replay VERDICT ===")
+	if strings.Contains(resultText, "AUXOT-PROBE-42") {
+		fmt.Fprintln(os.Stderr, "✓ PASS: model knew the secret code — session file format works as history injection!")
+	} else {
+		fmt.Fprintf(os.Stderr, "✗ FAIL: model did not report the secret code.\nResult: %s\n", resultText)
+	}
+}
+
+// writeSyntheticSessionFile writes a minimal Claude CLI JSONL session file
+// containing a canned conversation:
+//
+//	user  → "Read /tmp/probe-logo.png and describe what you see."
+//	asst  → tool_use: read_file({path: "/tmp/probe-logo.png"})
+//	user  → tool_result with the image bytes (base64 PNG)
+//
+// Each JSONL line is a TranscriptMessage — the format Claude CLI uses internally
+// for its session files (parentUuid chain, sessionId, cwd, userType, version).
+// Passing the resulting file path to --resume triggers loadMessagesFromJsonlPath
+// which builds the conversation chain and returns ALL messages (including user
+// tool_result) as initialMessages, bypassing the stream-json stdin routing that
+// always treats user messages as new prompts.
+//
+// Returns the path of the written file.
+func writeSyntheticSessionFile(imgPath, sessionID, workDir string) (string, error) {
+	imgBytes, err := os.ReadFile(imgPath)
+	if err != nil {
+		return "", fmt.Errorf("reading image: %w", err)
+	}
+	b64img := base64.StdEncoding.EncodeToString(imgBytes)
+
+	// Resolve symlinks — the CLI uses the real path for project dir derivation.
+	cwd := workDir
+	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
+		cwd = resolved
+	}
+
+	// UUIDs for the three messages in the chain.
+	uuidUser1 := "aaaaaaaa-0001-4000-a000-000000000001"
+	uuidAsst1 := "aaaaaaaa-0002-4000-a000-000000000002"
+	uuidUser2 := "aaaaaaaa-0003-4000-a000-000000000003"
+
+	toolUseID := "toolu_synth_probe_0000000001"
+	msgID := "msg_synth_probe_000000000001"
+
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+
+	// Helper to build the boilerplate session-file fields every TranscriptMessage carries.
+	meta := func(uuid, parentUUID *string) map[string]any {
+		m := map[string]any{
+			"uuid":      *uuid,
+			"sessionId": sessionID,
+			"timestamp": now,
+			"cwd":       cwd,
+			"userType":  "external",
+			"version":   "1.0.0",
+			"isSidechain": false,
+		}
+		if parentUUID != nil {
+			m["parentUuid"] = *parentUUID
+		} else {
+			m["parentUuid"] = nil
+		}
+		return m
+	}
+
+	// Message 1: user asks to read the image.
+	msg1 := meta(&uuidUser1, nil)
+	msg1["type"] = "user"
+	msg1["message"] = map[string]any{
+		"role": "user",
+		"content": []map[string]any{
+			{"type": "text", "text": "Read /tmp/probe-logo.png and describe what you see in detail."},
+		},
+	}
+
+	// Message 2: assistant responds with a tool_use.
+	msg2 := meta(&uuidAsst1, &uuidUser1)
+	msg2["type"] = "assistant"
+	msg2["message"] = map[string]any{
+		"id":   msgID,
+		"type": "message",
+		"role": "assistant",
+		"content": []map[string]any{
+			{
+				"type":  "tool_use",
+				"id":    toolUseID,
+				"name":  "Read",
+				"input": map[string]any{"file_path": "/tmp/probe-logo.png"},
+			},
+		},
+		"stop_reason": "tool_use",
+		"model":       "claude-haiku-4-5-20251001",
+		"usage": map[string]any{
+			"input_tokens":  100,
+			"output_tokens": 20,
+		},
+	}
+
+	// Message 3: user supplies the tool_result (image bytes).
+	msg3 := meta(&uuidUser2, &uuidAsst1)
+	msg3["type"] = "user"
+	msg3["message"] = map[string]any{
+		"role": "user",
+		"content": []map[string]any{
+			{
+				"type":        "tool_result",
+				"tool_use_id": toolUseID,
+				"is_error":    false,
+				"content": []map[string]any{
+					{
+						"type": "image",
+						"source": map[string]any{
+							"type":       "base64",
+							"media_type": "image/png",
+							"data":       b64img,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Write all three lines as NDJSON.
+	f, err := os.CreateTemp("", "probe-synthetic-session-*.jsonl")
+	if err != nil {
+		return "", fmt.Errorf("creating temp file: %w", err)
+	}
+	enc := json.NewEncoder(f)
+	for _, m := range []map[string]any{msg1, msg2, msg3} {
+		if err := enc.Encode(m); err != nil {
+			f.Close()
+			os.Remove(f.Name())
+			return "", fmt.Errorf("encoding session line: %w", err)
+		}
+	}
+	f.Close()
+	return f.Name(), nil
+}
+
+// syntheticRunResult captures token usage from a single synthetic-session run.
+type syntheticRunResult struct {
+	inputTokens       int
+	outputTokens      int
+	cacheCreation     int
+	cacheRead         int
+	resultText        string
+	sawToolUse        bool
+	sawToolUseNames   []string
+}
+
+// runOneSyntheticRun runs a single Claude CLI invocation with --resume /path.jsonl
+// and returns token counts from the result event. proxyAddr may be empty.
+// printOutput controls whether event JSON is printed to stderr.
+func runOneSyntheticRun(label, claudePath, model, jsonlPath, followUpPrompt, proxyAddr string, printOutput bool) syntheticRunResult {
+	fmt.Fprintf(os.Stderr, "\n── %s ──\n", label)
+
+	args := []string{
+		"--output-format", "stream-json",
+		"--verbose",
+		"--resume", jsonlPath,
+		"--tools", "",
+		"--print",
+		"--input-format", "stream-json",
+		"--dangerously-skip-permissions",
+	}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	fmt.Fprintf(os.Stderr, "cmd: claude %s\n", strings.Join(args, " "))
+
+	cmd := exec.Command(claudePath, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Dir = probeWorkDir
+	cmd.Env = probeEnv(proxyAddr)
+
+	stdout, _ := cmd.StdoutPipe()
+	stdinPipe, _ := cmd.StdinPipe()
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to start claude: %v\n", err)
+		os.Exit(1)
+	}
+
+	msg, _ := json.Marshal(map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"role":    "user",
+			"content": []map[string]any{{"type": "text", "text": followUpPrompt}},
+		},
+	})
+	fmt.Fprintf(os.Stderr, "[probe → stdin] %s\n", string(msg))
+	fmt.Fprintln(stdinPipe, string(msg))
+
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 10<<20), 10<<20)
+
+	var res syntheticRunResult
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		if printOutput {
+			var pretty bytes.Buffer
+			if json.Indent(&pretty, []byte(line), "  ", "  ") == nil {
+				fmt.Fprintf(os.Stderr, "%s\n\n", pretty.String())
+			} else {
+				fmt.Fprintf(os.Stderr, "%s\n", line)
+			}
+		}
+
+		var parsed map[string]any
+		if json.Unmarshal([]byte(line), &parsed) != nil {
+			continue
+		}
+		typ, _ := parsed["type"].(string)
+
+		if typ == "assistant" {
+			if msg, ok := parsed["message"].(map[string]any); ok {
+				if content, ok := msg["content"].([]any); ok {
+					for _, c := range content {
+						if block, ok := c.(map[string]any); ok && block["type"] == "tool_use" {
+							res.sawToolUse = true
+							name, _ := block["name"].(string)
+							res.sawToolUseNames = append(res.sawToolUseNames, name)
+							fmt.Fprintf(os.Stderr, "⚠️  Claude making new tool call: %s\n", name)
+						}
+					}
+				}
+			}
+		}
+
+		if typ == "result" {
+			if r, ok := parsed["result"].(string); ok {
+				res.resultText = r
+			}
+			// Extract token counts from the usage block.
+			if u, ok := parsed["usage"].(map[string]any); ok {
+				res.inputTokens = int(floatFromMap(u, "input_tokens"))
+				res.outputTokens = int(floatFromMap(u, "output_tokens"))
+				res.cacheCreation = int(floatFromMap(u, "cache_creation_input_tokens"))
+				res.cacheRead = int(floatFromMap(u, "cache_read_input_tokens"))
+			}
+			_ = stdinPipe.Close()
+		}
+	}
+	_ = cmd.Wait()
+
+	fmt.Fprintf(os.Stderr, "  tokens: input=%d output=%d cache_creation=%d cache_read=%d\n",
+		res.inputTokens, res.outputTokens, res.cacheCreation, res.cacheRead)
+	return res
+}
+
+func floatFromMap(m map[string]any, key string) float64 {
+	v, _ := m[key].(float64)
+	return v
+}
+
+// runSyntheticSessionResume tests whether a synthetic JSONL session file
+// can be used to inject conversation history (including tool_use + tool_result
+// with image) into Claude CLI via --resume /path.jsonl, bypassing the stream-json
+// stdin routing that always re-executes user messages with tool_result content.
+// Pass intercept=true to dump the full Anthropic API wire format.
+func runSyntheticSessionResume(model, claudePath, imgPath string, intercept bool) {
+	fmt.Fprintln(os.Stderr, "\n╔══ synthetic-session-resume ══╗")
+	fmt.Fprintln(os.Stderr, "Writing synthetic JSONL session file with: user ask → assistant tool_use → user tool_result (image)")
+
+	_ = os.MkdirAll(probeWorkDir, 0o755)
+	_ = os.MkdirAll(probeConfigDir, 0o755)
+
+	// Start intercept proxy if requested — captures the exact API request so we
+	// can see whether cache_control markers are present.
+	var proxyAddr string
+	if intercept {
+		addrCh := make(chan string, 1)
+		go runProxy(addrCh)
+		proxyAddr = <-addrCh
+		fmt.Fprintf(os.Stderr, "intercepting proxy at %s\n", proxyAddr)
+	}
+
+	syntheticSessionID := "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"
+	ensureProbeImage(imgPath)
+
+	jsonlPath, err := writeSyntheticSessionFile(imgPath, syntheticSessionID, probeWorkDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to write synthetic session file: %v\n", err)
+		os.Exit(1)
+	}
+	defer os.Remove(jsonlPath)
+	fmt.Fprintf(os.Stderr, "synthetic session file: %s\n", jsonlPath)
+
+	// Print first-time session file contents.
+	contents, _ := os.ReadFile(jsonlPath)
+	lines := strings.Split(strings.TrimSpace(string(contents)), "\n")
+	fmt.Fprintf(os.Stderr, "session file (%d lines):\n", len(lines))
+	for i, line := range lines {
+		var pretty bytes.Buffer
+		if json.Indent(&pretty, []byte(line), "  ", "  ") == nil {
+			fmt.Fprintf(os.Stderr, "  line %d: %s\n\n", i+1, pretty.String())
+		}
+	}
+
+	followUp := "Based on what the Read tool returned, describe the image in detail. Do NOT call any tools again."
+	res := runOneSyntheticRun("synthetic-session-resume run", claudePath, model, jsonlPath, followUp, proxyAddr, true)
+
+	fmt.Fprintln(os.Stderr, "\n=== synthetic-session-resume VERDICT ===")
+	if res.sawToolUse {
+		fmt.Fprintf(os.Stderr, "✗ FAIL: Claude made new tool call(s): %v\n", res.sawToolUseNames)
+	} else if res.resultText != "" {
+		fmt.Fprintln(os.Stderr, "✓ PASS: Claude synthesized from injected history — NO re-execution!")
+		fmt.Fprintf(os.Stderr, "  Result: %s\n", res.resultText)
+	} else {
+		fmt.Fprintln(os.Stderr, "? INCONCLUSIVE: no result observed")
+	}
+	fmt.Fprintf(os.Stderr, "  cache_creation=%d  cache_read=%d  (0 means no cache_control in request)\n",
+		res.cacheCreation, res.cacheRead)
+}
+
+// runSyntheticSessionCache runs the synthetic session TWICE with identical content
+// to determine whether prompt caching works across runs.
+//
+// Run 1 should show cache_creation_input_tokens > 0 if Claude CLI adds
+// cache_control markers when loading from synthetic JSONL.
+// Run 2 (same content) should show cache_read_input_tokens > 0 if Anthropic
+// cached the prefix from Run 1. If both are 0 every run, Claude CLI is not
+// emitting cache_control for synthetic JSONL and we need a different approach.
+func runSyntheticSessionCache(model, claudePath, imgPath string, intercept bool) {
+	fmt.Fprintln(os.Stderr, "\n╔══ synthetic-session-cache (two-run cache test) ══╗")
+
+	_ = os.MkdirAll(probeWorkDir, 0o755)
+	_ = os.MkdirAll(probeConfigDir, 0o755)
+
+	var proxyAddr string
+	if intercept {
+		addrCh := make(chan string, 1)
+		go runProxy(addrCh)
+		proxyAddr = <-addrCh
+		fmt.Fprintf(os.Stderr, "intercepting proxy at %s\n", proxyAddr)
+	}
+
+	syntheticSessionID := "cccccccc-cccc-4ccc-cccc-cccccccccccc"
+	ensureProbeImage(imgPath)
+
+	// Write once — reuse the SAME file for both runs so content is byte-identical.
+	jsonlPath, err := writeSyntheticSessionFile(imgPath, syntheticSessionID, probeWorkDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to write synthetic session file: %v\n", err)
+		os.Exit(1)
+	}
+	defer os.Remove(jsonlPath)
+	fmt.Fprintf(os.Stderr, "synthetic session file (shared across both runs): %s\n\n", jsonlPath)
+
+	followUp := "Based on what the Read tool returned, describe the image in detail. Do NOT call any tools again."
+
+	fmt.Fprintln(os.Stderr, "━━━ Run 1 (expect cache_creation > 0 if Claude CLI adds cache_control) ━━━")
+	run1 := runOneSyntheticRun("run-1", claudePath, model, jsonlPath, followUp, proxyAddr, false)
+
+	// Brief pause to ensure Anthropic's cache is populated before run 2.
+	fmt.Fprintln(os.Stderr, "\nSleeping 2s before run 2 to allow cache propagation...")
+	time.Sleep(2 * time.Second)
+
+	fmt.Fprintln(os.Stderr, "━━━ Run 2 (expect cache_read > 0 if caching works) ━━━")
+	run2 := runOneSyntheticRun("run-2", claudePath, model, jsonlPath, followUp, proxyAddr, false)
+
+	fmt.Fprintln(os.Stderr, "\n=== synthetic-session-cache RESULTS ===")
+	fmt.Fprintf(os.Stderr, "Run 1:  input=%d  output=%d  cache_creation=%d  cache_read=%d\n",
+		run1.inputTokens, run1.outputTokens, run1.cacheCreation, run1.cacheRead)
+	fmt.Fprintf(os.Stderr, "Run 2:  input=%d  output=%d  cache_creation=%d  cache_read=%d\n",
+		run2.inputTokens, run2.outputTokens, run2.cacheCreation, run2.cacheRead)
+
+	fmt.Fprintln(os.Stderr, "\n=== VERDICT ===")
+	switch {
+	case run1.cacheCreation == 0 && run2.cacheCreation == 0 && run2.cacheRead == 0:
+		fmt.Fprintln(os.Stderr, "✗ NO CACHING: Claude CLI is NOT adding cache_control to synthetic JSONL requests.")
+		fmt.Fprintln(os.Stderr, "  → We need to inject cache_control into the session file, OR accept no caching,")
+		fmt.Fprintln(os.Stderr, "    OR keep the real --session-id/--resume flow for cache benefit.")
+	case run1.cacheCreation > 0 && run2.cacheRead > 0:
+		saved := run2.inputTokens - (run2.inputTokens - run2.cacheRead)
+		fmt.Fprintf(os.Stderr, "✓ CACHING WORKS: Run 2 hit the cache. ~%d tokens saved vs run 1.\n", saved)
+		fmt.Fprintln(os.Stderr, "  → Synthetic JSONL + --resume is sufficient. No need for real session tracking.")
+	case run1.cacheCreation > 0 && run2.cacheRead == 0:
+		fmt.Fprintln(os.Stderr, "? PARTIAL: Cache was created in run 1 but not hit in run 2.")
+		fmt.Fprintln(os.Stderr, "  → Content may differ slightly between runs (timestamp in JSONL?), or cache TTL issue.")
+	default:
+		fmt.Fprintf(os.Stderr, "? UNEXPECTED: run1_creation=%d run2_read=%d — investigate proxy logs.\n",
+			run1.cacheCreation, run2.cacheRead)
+	}
+}
+
+// ensureProbeImage copies imgPath to /tmp/probe-logo.png if not already present.
+func ensureProbeImage(imgPath string) {
+	if _, err := os.Stat("/tmp/probe-logo.png"); err != nil {
+		src, err2 := os.ReadFile(imgPath)
+		if err2 != nil {
+			fmt.Fprintf(os.Stderr, "cannot read image %q: %v\n", imgPath, err2)
+			os.Exit(1)
+		}
+		if err3 := os.WriteFile("/tmp/probe-logo.png", src, 0o644); err3 != nil {
+			fmt.Fprintf(os.Stderr, "cannot write /tmp/probe-logo.png: %v\n", err3)
+			os.Exit(1)
+		}
+	}
+}
+
 func runMultiTurn(scenario, model, systemPrompt, claudePath string, intercept, denyAll bool) {
 	var proxyAddr string
 	if intercept {
@@ -678,9 +1313,14 @@ func main() {
 	sessionID := flag.String("session-id", "", "Fixed session UUID (auto-generated if empty); printed on completion for use with --resume")
 	resumeID := flag.String("resume", "", "Resume this session ID instead of starting fresh")
 	deleteSession := flag.Bool("delete-session", false, "Delete the session file after the run (simulates missing-session fallback)")
+	imagePath := flag.String("image", "/Users/kminkler/src/auxot/auxothq/auxot-server/web/node_modules/vue-grid-layout-v3/website/docs/logo.png", "Path to image file used by history-tool-image scenario")
 	flag.Parse()
-	// Always dump raw JSON for the recon scenario.
-	if *scenario == "mcp-parallel-live" {
+	_ = imagePath
+	// Always dump raw JSON for recon scenarios.
+	if *scenario == "mcp-parallel-live" || *scenario == "live-read-image" ||
+		*scenario == "live-read-text" || *scenario == "history-tool-image" ||
+		*scenario == "history-tool-text" || *scenario == "session-file-replay" ||
+		*scenario == "synthetic-session-resume" || *scenario == "synthetic-session-cache" {
 		*rawDump = true
 	}
 
@@ -695,6 +1335,17 @@ func main() {
 	case "session-simple", "session-builtin", "session-mcp", "session-missing":
 		runMultiTurn(*scenario, *model, *systemPrompt, *claudePath, *intercept, *denyAll)
 		return
+	case "session-file-replay":
+		runSessionFileReplay(*model, *claudePath)
+		return
+	case "synthetic-session-resume":
+		imgPath := flag.Lookup("image").Value.String()
+		runSyntheticSessionResume(*model, *claudePath, imgPath, *intercept)
+		return
+	case "synthetic-session-cache":
+		imgPath := flag.Lookup("image").Value.String()
+		runSyntheticSessionCache(*model, *claudePath, imgPath, *intercept)
+		return
 	}
 
 	prompts := map[string]string{
@@ -705,6 +1356,44 @@ func main() {
 		// is sent before this prompt; check --intercept wire to confirm the API
 		// receives a proper 3-entry messages array, not a flat single-message blob.
 		"history": "What did I just ask you? Repeat it back word for word.",
+		// history-tool: verifies that tool_use + tool_result pairs can be injected
+		// in stream-json stdin history. If Claude correctly reports what the tool
+		// returned, full structured history works and the text-blob approach is
+		// unnecessary.
+		"history-tool": "Earlier you used a tool called lookup_colour. What exact string did it return? Repeat it verbatim.",
+		// history-tool-image: injects an opaque tool (generate_image) + is_error:false.
+		// No re-execution possible. If the injected image reaches the model, the model
+		// will describe it. If Claude CLI strips it, the model will say it has no image.
+		// Definitive test of whether is_error:false unlocks structured tool history.
+		"history-tool-image": "", // no trailing prompt; tool_result IS the last message
+		// history-blob-image: tests our ACTUAL approach — the cliworker sends
+		// conversation history as a text blob, and images from tool results are
+		// injected as native Anthropic image content blocks in the SAME user
+		// message alongside the text. This is what buildPrompt + extractImageBlocks
+		// produces. If Claude can describe the image, our fix is correct.
+		"history-blob-image": "Describe in detail what you see in the image that was returned by the read tool.",
+		// live-read-image: let Claude CLI actually execute Read on a real image.
+		// Full raw JSON dumped for every event so we can see the EXACT stream-json
+		// format of the tool_use block and the tool_result user event that Claude CLI
+		// produces. We need this format to replay it correctly as history input.
+		"live-read-image": "Read the image at /tmp/probe-logo.png using the Read tool. Then describe what you see in it.",
+		// live-read-text: control test — let Claude CLI read a TEXT file with Read.
+		// Captures exact wire format for a text tool_result for comparison with
+		// the image case, and as ground truth for history-tool-text injection.
+		"live-read-text": "Read the file /tmp/probe-test.txt using the Read tool. Tell me the secret code it contains.",
+		// history-tool-text: control injection test — injects Read tool_use +
+		// tool_result with TEXT content (not image). If the model reports the
+		// secret code correctly, structured text tool history injection works.
+		// Compare with history-tool-image to isolate whether stripping is
+		// content-type-specific or affects all injected tool results.
+		"history-tool-text": "", // no trailing prompt; model must synthesise from injected result
+		// session-file-replay: two-phase test.
+		//   Phase 1 — run a live Read session WITH session persistence, capture session ID.
+		//   Phase 2 — read the session file Claude wrote, then replay those exact NDJSON
+		//             lines as stream-json stdin to a NEW session (no --resume). Ask the
+		//             model the follow-up question. If it knows the secret code without
+		//             re-executing, the session file format IS the correct injection format.
+		"session-file-replay": "What was the secret code in the file you just read?",
 		// parallel-mcp-kill: probe whether ALL tool_use blocks are present in the
 		// assistant event BEFORE the first control_request fires. If they are, we
 		// can kill Claude at first control_request without denying and capture all
@@ -722,12 +1411,12 @@ func main() {
 		"mcp-parallel-live": "Call tool1 and tool2 simultaneously in parallel right now. Do not explain anything first, just call both tools at the same time.",
 	}
 	if *prompt == "" {
-		var ok bool
-		*prompt, ok = prompts[*scenario]
+		p, ok := prompts[*scenario]
 		if !ok {
 			fmt.Fprintf(os.Stderr, "unknown scenario %q\n", *scenario)
 			os.Exit(1)
 		}
+		*prompt = p
 	}
 	_ = sessionID
 	_ = resumeID
@@ -861,13 +1550,222 @@ func main() {
 			})
 		}
 
-		sendJSON("initial prompt", map[string]any{
-			"type": "user",
-			"message": map[string]any{
-				"role":    "user",
-				"content": []map[string]any{{"type": "text", "text": *prompt}},
-			},
-		})
+		// history-blob-image scenario: mirrors exactly what our cliworker does.
+		// The full conversation (including a synthetic tool_use + tool_result) is
+		// sent as a TEXT BLOB in a single user message, with the image bytes
+		// appended as a separate native image content block in that same message.
+		// This is the approach in buildPrompt after our image-injection fix.
+		if *scenario == "history-blob-image" {
+			imgPath := flag.Lookup("image").Value.String()
+			imgBytes, err := os.ReadFile(imgPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "history-blob-image: cannot read image %q: %v\n", imgPath, err)
+				os.Exit(1)
+			}
+			b64img := base64.StdEncoding.EncodeToString(imgBytes)
+
+			// Simulate what buildPrompt produces: a text blob that represents the
+			// entire conversation history including the tool_use + tool_result turns.
+			historyBlob := "<conversation_history>\n" +
+				"[user]\nPlease read the file /tmp/logo.png and describe what it contains.\n\n" +
+				"[assistant]\nI'll read that file for you.\n[tool_use: read({\"path\":\"/tmp/logo.png\"})]\n\n" +
+				"[tool_result (id: toolu_probe_read_01)]\nRead image file [image/png]\n" +
+				"[Image data from this tool result is attached as a native image block in this message.]\n" +
+				"</conversation_history>"
+
+			// Send ONE user message: text blob + native image block.
+			// This is exactly what cliworker does when building the stdin message.
+			sendJSON("history-blob + image block", map[string]any{
+				"type": "user",
+				"message": map[string]any{
+					"role": "user",
+					"content": []map[string]any{
+						{"type": "text", "text": historyBlob},
+						{
+							"type": "image",
+							"source": map[string]any{
+								"type":       "base64",
+								"media_type": "image/png",
+								"data":       b64img,
+							},
+						},
+					},
+				},
+			})
+		}
+
+		// history-tool-image scenario: inject an OPAQUE tool (generate_image) that
+		// Claude CLI has no handler for, so re-execution is impossible.
+		// Combined with is_error:false (per GH #16712), this is the cleanest test of
+		// whether injected tool history with an image passes through to the model.
+		// If the model describes the image -> structured tool history works.
+		// If it errors or asks to generate -> image data is stripped by Claude CLI.
+		if *scenario == "history-tool-image" {
+			imgPath := flag.Lookup("image").Value.String()
+			imgBytes, err := os.ReadFile(imgPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "history-tool-image: cannot read image %q: %v\n", imgPath, err)
+				os.Exit(1)
+			}
+			b64img := base64.StdEncoding.EncodeToString(imgBytes)
+
+			// 1. User turn: ask to generate and describe an image.
+			sendJSON("history user ask", map[string]any{
+				"type": "user",
+				"message": map[string]any{
+					"role":    "user",
+					"content": []map[string]any{{"type": "text", "text": "Generate a random image using the generate_image tool, then describe what it looks like."}},
+				},
+			})
+
+			// 2. Assistant turn: generate_image tool_use (opaque — no handler in CLI).
+			sendJSON("history assistant tool_use (generate_image, opaque)", map[string]any{
+				"type": "assistant",
+				"message": map[string]any{
+					"id":   "msg_01GLwak4EYd8Afcfy46dPhRH",
+					"type": "message",
+					"role": "assistant",
+					"content": []map[string]any{{
+						"type":  "tool_use",
+						"id":    "toolu_01RZKzStX57MbeAsNZWqfX5w",
+						"name":  "generate_image",
+						"input": map[string]any{"prompt": "a random abstract shape"},
+					}},
+					"stop_reason": "tool_use",
+				},
+			})
+
+			// 3. User turn: tool_result with is_error:false and the image payload.
+			//    No re-execution is possible (generate_image is not a registered tool).
+			//    If this image reaches the model, structured tool history works.
+			sendJSON("history tool_result with image (is_error:false)", map[string]any{
+				"type": "user",
+				"message": map[string]any{
+					"role": "user",
+					"content": []map[string]any{{
+						"type":        "tool_result",
+						"tool_use_id": "toolu_01RZKzStX57MbeAsNZWqfX5w",
+						"is_error":    false,
+						"content": []map[string]any{{
+							"type": "image",
+							"source": map[string]any{
+								"type":       "base64",
+								"media_type": "image/png",
+								"data":       b64img,
+							},
+						}},
+					}},
+				},
+			})
+		}
+
+		// history-tool-text: control injection test with TEXT content.
+		// Exact same structure as history-tool-image but content is a text string.
+		// If the model reports the secret code, text injection works.
+		// If it fails the same way as image injection, all tool_use blocks are
+		// intercepted by Claude CLI regardless of content type.
+		if *scenario == "history-tool-text" {
+			secretText := "This is a probe test file. It contains a secret code: AUXOT-PROBE-42. The quick brown fox jumps over the lazy dog."
+
+			// 1. User turn: ask to read the file.
+			sendJSON("history user ask", map[string]any{
+				"type": "user",
+				"message": map[string]any{
+					"role":    "user",
+					"content": []map[string]any{{"type": "text", "text": "Read the file /tmp/probe-test.txt and tell me the secret code it contains."}},
+				},
+			})
+
+			// 2. Assistant turn: Read tool_use (opaque — no Read tool registered).
+			sendJSON("history assistant tool_use (Read, no tools registered)", map[string]any{
+				"type": "assistant",
+				"message": map[string]any{
+					"id":   "msg_01TextProbeAAAAAAAAAAAAAAA",
+					"type": "message",
+					"role": "assistant",
+					"content": []map[string]any{{
+						"type":  "tool_use",
+						"id":    "toolu_01TextProbeAAAAAAAAAAAA",
+						"name":  "Read",
+						"input": map[string]any{"file_path": "/tmp/probe-test.txt"},
+					}},
+					"stop_reason": "tool_use",
+				},
+			})
+
+			// 3. User turn: tool_result with the text content + is_error:false.
+			sendJSON("history tool_result with text (is_error:false)", map[string]any{
+				"type": "user",
+				"message": map[string]any{
+					"role": "user",
+					"content": []map[string]any{{
+						"type":        "tool_result",
+						"tool_use_id": "toolu_01TextProbeAAAAAAAAAAAA",
+						"is_error":    false,
+						"content": []map[string]any{{
+							"type": "text",
+							"text": secretText,
+						}},
+					}},
+				},
+			})
+		}
+
+		// history-tool scenario: inject an assistant turn with a tool_use block
+		// followed by a user turn with the tool_result. Then ask Claude what the
+		// tool returned. If it answers correctly, structured tool history works in
+		// stream-json and the text-blob approach is unnecessary.
+		if *scenario == "history-tool" {
+			// Turn 1: user asks.
+			sendJSON("history user prompt", map[string]any{
+				"type": "user",
+				"message": map[string]any{
+					"role":    "user",
+					"content": []map[string]any{{"type": "text", "text": "What colour is the sky? Use the lookup_colour tool."}},
+				},
+			})
+			// Turn 2: assistant calls the tool.
+			sendJSON("history assistant tool_use", map[string]any{
+				"type": "assistant",
+				"message": map[string]any{
+					"role": "assistant",
+					"content": []map[string]any{{
+						"type":  "tool_use",
+						"id":    "toolu_probe_colour_01",
+						"name":  "lookup_colour",
+						"input": map[string]any{"query": "sky"},
+					}},
+				},
+			})
+			// Turn 3: tool result (the "server" returns a canned string).
+			sendJSON("history tool_result", map[string]any{
+				"type": "user",
+				"message": map[string]any{
+					"role": "user",
+					"content": []map[string]any{{
+						"type":        "tool_result",
+						"tool_use_id": "toolu_probe_colour_01",
+						"content": []map[string]any{{
+							"type": "text",
+							"text": "SENTINEL_RESULT: the sky is cornflower-blue",
+						}},
+					}},
+				},
+			})
+		}
+
+		// Scenarios with an empty prompt end with the injected tool_result.
+		// The model must synthesize without a further user message.
+		// Also guard against sending an empty text block (causes API 400).
+		if *prompt != "" {
+			sendJSON("initial prompt", map[string]any{
+				"type": "user",
+				"message": map[string]any{
+					"role":    "user",
+					"content": []map[string]any{{"type": "text", "text": *prompt}},
+				},
+			})
+		}
 	}
 
 	scanner := bufio.NewScanner(stdout)
@@ -1032,8 +1930,61 @@ func buildArgs(scenario, prompt, model, systemPrompt, systemPromptFile, mcpConfi
 			"--strict-mcp-config",
 			"--mcp-config", mcpConfigFile,
 		)
-	case "history":
+	case "history", "history-tool", "history-blob-image":
 		// No tools — pure conversational multi-turn to test history injection.
+		// history-tool additionally injects a synthetic tool_use+tool_result pair
+		// to verify that structured tool history works in stream-json stdin.
+		// history-blob-image tests our actual cliworker approach: text blob + native image block.
+		args = append(args,
+			"--tools", "",
+			"--print",
+			"--input-format", "stream-json",
+			"--permission-prompt-tool", "stdio",
+		)
+	case "history-tool-image":
+		// generate_image (opaque tool) + is_error:false + no tools registered.
+		// Claude CLI can't re-execute generate_image. With is_error:false on the
+		// tool_result, does the state builder treat it as complete and pass the
+		// image to the model? Or does it still strip it and replace with an error?
+		args = append(args,
+			"--tools", "",
+			"--print",
+			"--input-format", "stream-json",
+			"--permission-prompt-tool", "stdio",
+		)
+	case "live-read-image":
+		// Let Claude CLI actually execute Read on a real image file.
+		// --dangerously-skip-permissions so Read fires without a control_request.
+		// Full raw JSON is always dumped (rawDump forced on below).
+		args = append(args,
+			"--tools", "Read",
+			"--print",
+			"--input-format", "stream-json",
+			"--dangerously-skip-permissions",
+		)
+	case "live-read-text":
+		// Control test: let Claude CLI read a TEXT file with Read.
+		// Compare wire format vs live-read-image to confirm text results differ.
+		args = append(args,
+			"--tools", "Read",
+			"--print",
+			"--input-format", "stream-json",
+			"--dangerously-skip-permissions",
+		)
+	case "session-file-replay":
+		// Phase 1: run with session persistence ON so the CLI writes a session file.
+		// Phase 2 is handled inline in the stdin-injection block below.
+		// No --no-session-persistence here — that's intentional.
+		args = append(args,
+			"--tools", "Read",
+			"--print",
+			"--input-format", "stream-json",
+			"--dangerously-skip-permissions",
+		)
+	case "history-tool-text":
+		// Control injection test: inject Read tool_use + tool_result with TEXT.
+		// No tools registered so no re-execution possible via that path.
+		// --tools "" means Claude CLI can't re-execute Read either.
 		args = append(args,
 			"--tools", "",
 			"--print",

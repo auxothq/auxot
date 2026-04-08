@@ -28,11 +28,14 @@ const (
 	DefaultWorkerDir = "/tmp/auxot-worker"
 	// DefaultConfigDir is CLAUDE_CONFIG_DIR for the claude subprocess.
 	// Isolating configuration here keeps sessions, memory, and caches
-	// away from the developer's personal ~/.claude directory and makes
-	// the session file path fully deterministic:
-	//   <DefaultConfigDir>/projects/-tmp-auxot-worker/<session-id>.jsonl
+	// away from the developer's personal ~/.claude directory.
 	DefaultConfigDir = "/tmp/auxot-worker/.claude"
 )
+
+// syntheticSessionUUID is the fixed session ID written into every synthetic
+// JSONL session file. Claude CLI reads it back as metadata but does not use
+// it for any lookup once a file path is passed directly to --resume.
+const syntheticSessionUUID = "00000000-0000-4000-a000-000000000000"
 
 // JobConfig carries per-execution settings derived from the worker policy.
 type JobConfig struct {
@@ -66,44 +69,12 @@ type JobConfig struct {
 	OnToolCall func(jobID, callID, toolName, arguments string) (result string, isError bool, err error)
 }
 
-// sessionFilePath returns the path where the Claude CLI persists conversation
-// history for a given session ID, given the config directory and working
-// directory that the claude subprocess was started with.
-//
-// Path layout:  <configDir>/projects/<escaped-cwd>/<session-id>.jsonl
-// CWD escaping: every "/" is replaced with "-" (including the leading slash).
-//
-// Symlinks in workDir are resolved before escaping — the CLI uses the real
-// path (as seen by the OS) for the project directory. On macOS /tmp resolves
-// to /private/tmp, changing the escaped project key.
-func sessionFilePath(configDir, workDir, sessionID string) string {
-	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
-		workDir = resolved
-	}
-	escapedCWD := strings.ReplaceAll(workDir, "/", "-")
-	return filepath.Join(configDir, "projects", escapedCWD, sessionID+".jsonl")
-}
-
-// claudeSessionIDForCompactionKey returns an ID suitable for Claude Code's
-// --session-id / --resume flags, which require a valid RFC-4122 UUID.
-//
-// The server may send CompactionSessionID as the string form of a DB message
-// row id (e.g. "10218"); passing that through makes the CLI exit immediately
-// with status 1. Non-UUID keys are mapped to a stable UUIDv5-style SHA-1 name.
-func claudeSessionIDForCompactionKey(raw string) string {
-	if raw == "" {
-		return ""
-	}
-	if _, err := uuid.Parse(raw); err == nil {
-		return raw
-	}
-	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("auxot.compaction:"+raw)).String()
-}
 
 // workerEnv builds the subprocess environment for the claude CLI.
-// It inherits the current process environment and overlays the variables
-// that control claude's runtime behaviour in a server context.
-func workerEnv(configDir, proxyAddr string) []string {
+// It inherits the current process environment, overlays the variables that
+// control Claude's runtime behaviour, and injects per-job credentials so that
+// builtin tools (Bash, etc.) see them as ordinary shell environment variables.
+func workerEnv(configDir, proxyAddr string, credentials map[string]string) []string {
 	env := os.Environ()
 	overlay := []string{
 		"CLAUDE_CONFIG_DIR=" + configDir,
@@ -117,69 +88,25 @@ func workerEnv(configDir, proxyAddr string) []string {
 		// Suppress non-essential outbound traffic (update checks, etc.).
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 		"DISABLE_TELEMETRY=1",
+		// When the JSONL session file ends on a user(tool_result) message,
+		// Claude CLI detects it as an interrupted_turn and auto-resumes by
+		// injecting "Continue from where you left off." without requiring
+		// any stdin prompt. Safe to always set: the flag is a no-op when the
+		// last message is an assistant (kind='none'), which is the normal path.
+		"CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1",
 	}
 	if proxyAddr != "" {
 		overlay = append(overlay, "ANTHROPIC_BASE_URL="+proxyAddr)
 	}
+	// Inject per-job credentials so Claude's Bash (and other builtin) tools
+	// inherit them as environment variables. Appending last ensures they
+	// override any same-named vars from the worker process environment.
+	for k, v := range credentials {
+		overlay = append(overlay, k+"="+v)
+	}
 	return append(env, overlay...)
 }
 
-// cleanupOldSessionFiles removes any .jsonl session files in the project
-// directory for workDir that do NOT match currentSessionID. This keeps the
-// project directory tidy when the CompactionSessionID rotates (new chunk boundary).
-func cleanupOldSessionFiles(configDir, workDir, currentSessionID string, log *slog.Logger) {
-	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
-		workDir = resolved
-	}
-	escapedCWD := strings.ReplaceAll(workDir, "/", "-")
-	projectDir := filepath.Join(configDir, "projects", escapedCWD)
-	entries, err := os.ReadDir(projectDir)
-	if err != nil {
-		return // directory may not exist yet
-	}
-	currentFile := currentSessionID + ".jsonl"
-	for _, e := range entries {
-		if e.IsDir() || e.Name() == currentFile {
-			continue
-		}
-		if !strings.HasSuffix(e.Name(), ".jsonl") {
-			continue
-		}
-		target := filepath.Join(projectDir, e.Name())
-		if rmErr := os.Remove(target); rmErr == nil {
-			log.Info("cliworker: removed stale session file", "path", target)
-		}
-	}
-}
-
-// CleanupStaleSessions removes session files older than maxAge from the CLI's
-// project directory for the given workDir. Intended to be called periodically
-// by a background goroutine to prevent unbounded growth of session files on
-// long-lived worker instances.
-func CleanupStaleSessions(configDir, workDir string, maxAge time.Duration) {
-	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
-		workDir = resolved
-	}
-	escapedCWD := strings.ReplaceAll(workDir, "/", "-")
-	projectDir := filepath.Join(configDir, "projects", escapedCWD)
-	entries, err := os.ReadDir(projectDir)
-	if err != nil {
-		return
-	}
-	cutoff := time.Now().Add(-maxAge)
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		if info.ModTime().Before(cutoff) {
-			_ = os.Remove(filepath.Join(projectDir, e.Name()))
-		}
-	}
-}
 
 // RunJob executes a single job using the Claude Code CLI and streams results
 // via the provided callbacks.
@@ -195,9 +122,11 @@ func CleanupStaleSessions(configDir, workDir string, maxAge time.Duration) {
 // MCP tool calls, we close stdin to prevent Claude from retrying after denials.
 // The caller (main.go) executes tools server-side and dispatches the next job.
 //
-// Read-repair: if Claude returns a 400 "maximum of 4 blocks with cache_control"
-// error and a session file exists, we delete the poisoned session .jsonl and
-// retry once with --session-id (full reseed) to recover from legacy bugs.
+// History injection: prior conversation turns (including tool_use / tool_result
+// pairs with rich image content) are written to a temporary synthetic JSONL
+// session file and loaded via --resume. This avoids the stream-json design gap
+// where user messages are always treated as new prompts, which would cause
+// Claude to re-execute tool calls from injected history.
 func RunJob(
 	ctx context.Context,
 	job protocol.JobMessage,
@@ -218,14 +147,50 @@ func RunJob(
 	onComplete func(preToolContent, postToolContent, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error,
 	onError func(errMsg, details string) error,
 ) {
-	err := runJobOnce(ctx, job, cfg, onToken, onReasoningToken, onBuiltinTool, onComplete, onError, false)
+	log := slog.Default()
+	err := runJobOnce(ctx, job, cfg, onToken, onReasoningToken, onBuiltinTool, onComplete, onError)
 	if err == errCacheControlRetry {
-		slog.Default().Warn("cliworker: cache_control 400 detected, deleting session and retrying")
-		_ = runJobOnce(ctx, job, cfg, onToken, onReasoningToken, onBuiltinTool, onComplete, onError, true)
+		log.Warn("cliworker: cache_control 400 detected, retrying")
+		_ = runJobOnce(ctx, job, cfg, onToken, onReasoningToken, onBuiltinTool, onComplete, onError)
+		return
+	}
+	if err == errPromptTooLong {
+		// Trim the oldest non-system conversation messages and retry once.
+		// Drop 20% of messages from the oldest end (excluding system prompt).
+		trimmed := trimOldestMessages(job.Messages, 0.20)
+		log.Warn("cliworker: prompt too long — retrying with trimmed history",
+			"original_msgs", len(job.Messages),
+			"trimmed_msgs", len(trimmed),
+		)
+		job.Messages = trimmed
+		_ = runJobOnce(ctx, job, cfg, onToken, onReasoningToken, onBuiltinTool, onComplete, onError)
 	}
 }
 
+// trimOldestMessages removes the oldest fraction of non-system messages,
+// preserving the system prompt and the most recent turns.
+func trimOldestMessages(msgs []protocol.ChatMessage, fraction float64) []protocol.ChatMessage {
+	var sys []protocol.ChatMessage
+	var conv []protocol.ChatMessage
+	for _, m := range msgs {
+		if m.Role == "system" {
+			sys = append(sys, m)
+		} else {
+			conv = append(conv, m)
+		}
+	}
+	drop := int(float64(len(conv)) * fraction)
+	if drop < 1 {
+		drop = 1
+	}
+	if drop >= len(conv) {
+		drop = len(conv) / 2
+	}
+	return append(sys, conv[drop:]...)
+}
+
 var errCacheControlRetry = fmt.Errorf("cache_control_400_retry")
+var errPromptTooLong = fmt.Errorf("prompt_too_long_retry")
 
 func runJobOnce(
 	ctx context.Context,
@@ -236,7 +201,6 @@ func runJobOnce(
 	onBuiltinTool func(id, name, args, result string) error,
 	onComplete func(preToolContent, postToolContent, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error,
 	onError func(errMsg, details string) error,
-	forceReseed bool,
 ) error {
 	log := slog.Default()
 
@@ -264,7 +228,7 @@ func runJobOnce(
 	claudeCtx, cancelClaude := context.WithCancel(ctx)
 	defer cancelClaude()
 
-	// Build a set of MCP tool names so buildPrompt can re-prefix bare names
+	// Build a set of MCP tool names so buildSessionFile can re-prefix bare names
 	// in conversation history to match what Claude CLI sees in its tool list.
 	mcpToolNames := make(map[string]string, len(job.Tools))
 	for _, t := range job.Tools {
@@ -275,48 +239,33 @@ func runJobOnce(
 	toolsFlag := buildToolsFlag(effectiveBuiltins)
 	hasTools := len(job.Tools) > 0
 
-	// ── Session management ─────────────────────────────────────────────────────
-	// When the server supplies a CompactionSessionID we can reuse the CLI's
-	// native session file between turns, giving it proper conversation context
-	// (with cache-warm history) instead of a flat text blob every time.
-	//
-	//  Session file exists  →  --resume <id>    (CLI loads history, we send delta)
-	//  Session file missing →  --session-id <id> (CLI seeds new file, we send full blob)
-	//  No session ID given  →  --no-session-persistence (stateless, current default)
-	sessionID := claudeSessionIDForCompactionKey(job.CompactionSessionID)
-	sessionFileExists := false
-	var sfPath string
-	if sessionID != "" {
-		sfPath = sessionFilePath(configDir, workDir, sessionID)
-		if _, statErr := os.Stat(sfPath); statErr == nil {
-			sessionFileExists = true
-		}
-		// forceReseed: delete the session file so we use --session-id (full seed)
-		// instead of --resume. Used on retry after a cache_control 400.
-		if forceReseed && sessionFileExists {
-			if rmErr := os.Remove(sfPath); rmErr == nil {
-				log.Info("cliworker: removed session file for reseed (cache_control read-repair)", "path", sfPath)
-				sessionFileExists = false
-			} else {
-				log.Warn("cliworker: could not remove session file", "path", sfPath, "error", rmErr)
-			}
-		}
-		log.Info("cliworker: session check",
-			"compaction_session_id", job.CompactionSessionID,
-			"claude_session_id", sessionID,
-			"path", sfPath,
-			"exists", sessionFileExists,
-			"force_reseed", forceReseed,
-		)
-		// Remove any stale session files in the same project directory that
-		// don't match the current session ID. This happens when a new chunk
-		// compaction boundary is created and the CompactionSessionID rotates.
-		cleanupOldSessionFiles(configDir, workDir, sessionID, log)
+	effectiveModel := cfg.Model
+	if effectiveModel == "" {
+		effectiveModel = "claude-sonnet-4-6"
 	}
 
-	// Build prompt after session management so sessionFileExists is known.
-	// Compaction is skipped in session-resume mode (historyBlob is not sent).
-	systemPrompt, historyBlob, currentPrompt, currentImageBlocks := buildPrompt(job.Messages, mcpToolNames, sessionFileExists)
+	// Build a synthetic JSONL session file from conversation history so that
+	// Claude CLI can load all prior turns — including tool_use / tool_result
+	// pairs with rich content (images, etc.) — without re-executing any tools.
+	// On the first turn there is no history, so sessionFilePath is empty and
+	// we simply run with --no-session-persistence.
+	sessionFilePath, systemPrompt, currentPrompt, currentImageBlocks, isContinuation, sfErr := buildSessionFile(
+		job.Messages, mcpToolNames, workDir, effectiveModel,
+	)
+	if sfErr != nil {
+		log.Error("cliworker: failed to write synthetic session file", "error", sfErr)
+		_ = onError("failed to write synthetic session file", sfErr.Error())
+		return nil
+	}
+
+	// sessionFileCleanup is set to true once the run succeeds.
+	// On error we leave the file so the exact claude command can be replayed.
+	sessionFileOK := false
+	defer func() {
+		if sessionFilePath != "" && sessionFileOK {
+			os.Remove(sessionFilePath)
+		}
+	}()
 
 	args := []string{
 		"--output-format", "stream-json",
@@ -324,15 +273,11 @@ func runJobOnce(
 		"--tools", toolsFlag,
 	}
 
-	// Session flags — mutually exclusive with --no-session-persistence.
-	switch {
-	case sessionID != "" && sessionFileExists:
-		args = append(args, "--resume", sessionID)
-	case sessionID != "":
-		args = append(args, "--session-id", sessionID)
-	default:
-		// No compaction session ID from server: run stateless.
-		// Sessions are written to CLAUDE_CONFIG_DIR but never resumed.
+	// Session flags: resume from the synthetic JSONL when there is prior history,
+	// otherwise run stateless so no session file is written.
+	if sessionFilePath != "" {
+		args = append(args, "--resume", sessionFilePath)
+	} else {
 		args = append(args, "--no-session-persistence")
 	}
 
@@ -356,10 +301,6 @@ func runJobOnce(
 	// Always pass --model explicitly so the claude CLI never silently falls back
 	// to the account's configured default (often claude-opus-4-6[1m] — the
 	// 1-million-token context variant billed at premium rates).
-	effectiveModel := cfg.Model
-	if effectiveModel == "" {
-		effectiveModel = "claude-sonnet-4-6"
-	}
 	args = append(args, "--model", effectiveModel)
 	var sysPromptTempFile string
 	if systemPrompt != "" {
@@ -432,7 +373,15 @@ func runJobOnce(
 	cmd.Dir = workDir
 	// Isolated environment: CLAUDE_CONFIG_DIR pins sessions/memory/caches to
 	// a known path; the DISABLE_* vars strip all server-irrelevant behaviours.
-	cmd.Env = workerEnv(configDir, "")
+	// job.Credentials are injected so Claude's Bash tool (and any other builtin)
+	// sees them as ordinary shell environment variables.
+	credKeys := make([]string, 0, len(job.Credentials))
+	for k := range job.Credentials {
+		credKeys = append(credKeys, k)
+	}
+	log.Info("cliworker: injecting credentials into subprocess env",
+		"job_id", job.JobID, "credential_keys", credKeys, "count", len(job.Credentials))
+	cmd.Env = workerEnv(configDir, "", job.Credentials)
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	stdout, err := cmd.StdoutPipe()
@@ -447,6 +396,12 @@ func runJobOnce(
 		return nil
 	}
 
+	log.Info("claude_exec",
+		"cwd", workDir,
+		"path", claudePath,
+		"session_file", sessionFilePath,
+		"args", args,
+	)
 	if startErr := cmd.Start(); startErr != nil {
 		log.Error("claude_start_failed", "error", startErr)
 		_ = onError("failed to start claude", startErr.Error())
@@ -454,41 +409,23 @@ func runJobOnce(
 	}
 
 	{
-		// Build content blocks for stream-json stdin — always, regardless of
-		// whether tools are present. This keeps the conversation off the argv.
-		//
-		// Do not set cache_control here — Anthropic allows at most 4 breakpoints
-		// for the whole request (tools + system + messages), and Claude Code uses
-		// most of that budget internally.
-		//
-		// When --resume is used, the session .jsonl already holds prior turns.
-		// Sending historyBlob again duplicates the transcript and merges with
-		// session state in a way that can exceed the cache_control limit (400).
-		// On resume, send only the latest turn (true delta).
+		// Build content blocks for stream-json stdin.
+		// For normal turns: the current user message (text + images).
+		// For tool-continuation turns: a bare "Continue." so Claude synthesises
+		// a final text response from the tool_result already in the session file.
+		// CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1 is a no-op in --print mode;
+		// Claude requires at least one stdin message before it will produce output.
 		var contentBlocks []map[string]any
-		if sessionFileExists {
-			log.Info("cliworker: stdin resume delta only", "blocks", 1)
-			contentBlocks = append(contentBlocks, map[string]any{
-				"type": "text",
-				"text": currentPrompt,
-			})
+		if isContinuation {
+			contentBlocks = []map[string]any{{"type": "text", "text": "Continue."}}
 		} else {
-			if historyBlob != "" {
-				contentBlocks = append(contentBlocks, map[string]any{
-					"type": "text",
-					"text": historyBlob,
-				})
-			}
 			contentBlocks = append(contentBlocks, map[string]any{
 				"type": "text",
 				"text": currentPrompt,
 			})
+			// Append native image blocks from the current user message.
+			contentBlocks = append(contentBlocks, currentImageBlocks...)
 		}
-		// Append native image blocks for the current turn.
-		// Claude Code's stream-json stdin accepts Anthropic image content blocks
-		// ({ "type": "image", "source": { "type": "base64", ... } }), so we can
-		// pass images directly without the data: URI wrapper.
-		contentBlocks = append(contentBlocks, currentImageBlocks...)
 
 		userMsg := map[string]any{
 			"type": "user",
@@ -502,6 +439,7 @@ func runJobOnce(
 			_ = onError("failed to write user message", err.Error())
 			return nil
 		}
+		stdinPipe.Close()
 	}
 
 	var (
@@ -757,19 +695,27 @@ func runJobOnce(
 			if len(stderr) > 4096 {
 				stderr = stderr[:4096] + "...(truncated)"
 			}
-			// Read-repair: if we see cache_control 400 and we used --resume,
-			// signal the caller to delete the session file and retry once.
-			if sessionFileExists && strings.Contains(stderr, "cache_control") && strings.Contains(stderr, "maximum of 4") {
-				log.Warn("cliworker: cache_control limit error detected with session file", "path", sfPath)
+			// Read-repair: if we see a cache_control 400, signal the caller to
+			// retry (a fresh synthetic session file is written each time anyway).
+			if strings.Contains(stderr, "cache_control") && strings.Contains(stderr, "maximum of 4") {
+				log.Warn("cliworker: cache_control limit error detected, will retry")
 				return errCacheControlRetry
 			}
-			log.Error("claude_exited_with_error", "error", err, "stderr", stderr)
+			log.Error("claude_exited_with_error",
+				"error", err,
+				"stderr", stderr,
+				"stdout_so_far", fullText.String(),
+				"session_file", sessionFilePath,
+				"args", args,
+			)
 			_ = onError(fmt.Sprintf("claude exited: %v", err), stderr)
 			return nil
 		}
 	}
 
 complete:
+	sessionFileOK = true // run completed; allow deferred cleanup to remove session file
+
 	// In live-MCP mode, MCP tool calls were executed in-band by the MCP subprocess.
 	// The CLI streams back each result as a separate user event (one tool_result block
 	// per event — confirmed by probe recon). We captured those results into
@@ -792,6 +738,17 @@ complete:
 		toolCalls = nil
 	}
 
+	// Detect Claude CLI's "Prompt is too long" synthetic response. Claude Code
+	// emits this as a plain-text assistant message when the API rejects the
+	// request for exceeding the context limit. Surface it as a retryable signal
+	// so RunJob can trim history and retry rather than delivering it as output.
+	responseText := fullText.String()
+	if len(toolCalls) == 0 && len(completedBuiltins) == 0 &&
+		strings.Contains(strings.ToLower(responseText), "prompt is too long") {
+		log.Warn("cliworker: detected 'Prompt is too long' response — will retry with trimmed history")
+		return errPromptTooLong
+	}
+
 	var preToolContent, postToolContent string
 	switch {
 	case len(toolCalls) > 0:
@@ -809,7 +766,7 @@ complete:
 
 	default:
 		// Plain text turn: no tools at all.
-		preToolContent = fullText.String()
+		preToolContent = responseText
 	}
 	_ = onComplete(preToolContent, postToolContent, fullReasoning.String(), 0, inputTokens, outputTokens, 0, 0, toolCalls, completedBuiltins)
 	return nil
@@ -946,246 +903,346 @@ func setupMCPLive(tools []protocol.Tool, proxyURL, jobID string) (args []string,
 	return args, cleanup, nil
 }
 
-// estimateTokens approximates the token count of s using the standard 1 token ≈ 4 bytes heuristic.
-func estimateTokens(s string) int { return (len(s) + 3) / 4 }
+// parallelToolInstr is appended to every system prompt to encourage the model
+// to emit parallel tool_use blocks and to never narrate without acting.
+const parallelToolInstr = "IMPORTANT: You are operating in an environment where ALL actions must be performed via tool calls. " +
+	"Never describe what you are about to do without also including the tool_use block in the same response — narrating an action is not the same as performing it. " +
+	"If you intend to run a command, read a file, search the web, or take any other action, include the tool_use block immediately in your current response. " +
+	"When you need to call multiple tools and their results are independent of each other, include ALL of the tool_use blocks in a single response rather than calling them one at a time. This enables parallel execution and faster responses."
 
-const (
-	maxHistoryTokens = 128_000 // authoritative token budget for the history blob
-	inlineByteLimit  = 1_024   // tool_result bodies over this are eligible for compaction
-)
-
-// extractToolCallID parses the tool call ID from a tool_result header line such as
-// "[tool_result (id: toolu_xxx)]". Returns empty string if no ID is present.
-func extractToolCallID(headerLine string) string {
-	const prefix = "(id: "
-	start := strings.Index(headerLine, prefix)
-	if start < 0 {
-		return ""
-	}
-	start += len(prefix)
-	end := strings.IndexByte(headerLine[start:], ')')
-	if end < 0 {
-		return ""
-	}
-	return strings.TrimSpace(headerLine[start : start+end])
-}
-
-// compactHistory applies a two-pass compaction algorithm to history turns,
-// keeping the protected current agentic turn (from the last [user] turn onward)
-// completely untouched.
+// buildSessionFile writes a synthetic Claude CLI JSONL session file containing
+// all conversation history up to (but not including) the last user message.
 //
-// Pass 1 redacts tool_result bodies in the compactable zone, oldest first.
-// Pass 2 drops complete turns from the oldest, only if Pass 1 is insufficient.
+// The session file is in the exact format that Claude CLI expects when loading
+// via --resume /path/to/file.jsonl. This lets Claude see the full prior history
+// — including tool_use / tool_result pairs with rich content (images, etc.) —
+// without re-executing any tool calls.
 //
-// Returns the (possibly modified) combined history, plus diagnostic counts.
-func compactHistory(history []string) (result []string, redactedCount, droppedCount, tokensBefore, tokensAfter int) {
-	if len(history) == 0 {
-		return history, 0, 0, 0, 0
+// Returns:
+//   - path: temp file path (caller must defer os.Remove); empty when there is no history.
+//   - systemPrompt: the system message content (with parallelToolInstr appended).
+//   - currentPrompt: the text of the last user message (to send via stdin).
+//   - imageBlocks: Anthropic image content blocks from the last user message.
+func buildSessionFile(
+	messages []protocol.ChatMessage,
+	mcpToolNames map[string]string,
+	workDir string,
+	model string,
+) (path, systemPrompt, currentPrompt string, imageBlocks []map[string]any, isContinuation bool, err error) {
+	// Separate system prompt from conversation messages.
+	var conv []protocol.ChatMessage
+	for _, msg := range messages {
+		if msg.Role == "system" {
+			systemPrompt = msg.ContentString()
+		} else {
+			conv = append(conv, msg)
+		}
 	}
 
-	// Identify the protected boundary: last [user] turn and everything after it.
+	if systemPrompt != "" {
+		systemPrompt = systemPrompt + "\n\n" + parallelToolInstr
+	} else {
+		systemPrompt = parallelToolInstr
+	}
+
+	// Identify the last user message — that is the current turn to send via stdin.
 	lastUserIdx := -1
-	for i := len(history) - 1; i >= 0; i-- {
-		if strings.HasPrefix(history[i], "[user]") {
+	for i := len(conv) - 1; i >= 0; i-- {
+		if conv[i].Role == "user" {
 			lastUserIdx = i
 			break
 		}
 	}
 
-	// Nothing to compact: either no [user] turn found, or the very first element
-	// is already the current user turn (no older turns to touch).
-	if lastUserIdx <= 0 {
-		blob := strings.Join(history, "\n\n")
-		t := estimateTokens(blob)
-		return history, 0, 0, t, t
-	}
-
-	// Work on copies so the caller's slice is not mutated in place.
-	compactable := make([]string, lastUserIdx)
-	copy(compactable, history[:lastUserIdx])
-	protected := history[lastUserIdx:]
-
-	joinAll := func() string {
-		combined := make([]string, 0, len(compactable)+len(protected))
-		combined = append(combined, compactable...)
-		combined = append(combined, protected...)
-		return strings.Join(combined, "\n\n")
-	}
-
-	blob := joinAll()
-	tokensBefore = estimateTokens(blob)
-
-	if tokensBefore <= maxHistoryTokens {
-		result = append(compactable, protected...)
-		return result, 0, 0, tokensBefore, tokensBefore
-	}
-
-	// Pass 1: redact tool_result bodies in compactable, oldest-first.
-	for estimateTokens(joinAll()) > maxHistoryTokens {
-		found := false
-		for i, turn := range compactable {
-			if !strings.HasPrefix(turn, "[tool_result") {
-				continue
-			}
-			nlIdx := strings.IndexByte(turn, '\n')
-			if nlIdx < 0 {
-				// No body — nothing to redact.
-				continue
-			}
-			headerLine := turn[:nlIdx]
-			body := turn[nlIdx+1:]
-			if strings.HasPrefix(body, "[output redacted") {
-				continue // already redacted
-			}
-			callID := extractToolCallID(headerLine)
-			redactMsg := fmt.Sprintf("[output redacted — call tool_recall(%q, offset_byte=0) to retrieve]", callID)
-			compactable[i] = headerLine + "\n" + redactMsg
-			redactedCount++
-			found = true
-			break
-		}
-		if !found {
-			break // no more unredacted tool_results — proceed to Pass 2
-		}
-	}
-
-	// Pass 2: drop complete turns from oldest if still over budget.
-	for estimateTokens(joinAll()) > maxHistoryTokens && len(compactable) > 0 {
-		compactable = compactable[1:]
-		droppedCount++
-	}
-	if droppedCount > 0 {
-		synthetic := fmt.Sprintf("[user]\n[%d turns omitted — history was too large to include in full]", droppedCount)
-		compactable = append([]string{synthetic}, compactable...)
-	}
-
-	result = append(compactable, protected...)
-	tokensAfter = estimateTokens(strings.Join(result, "\n\n"))
-	return result, redactedCount, droppedCount, tokensBefore, tokensAfter
-}
-
-// buildPrompt extracts the system message and formats the conversation history
-// into a single prompt string for claude's --print mode.
-//
-// For tool result turns (role "tool"), the content is formatted so claude understands
-// it received the result of a tool call it previously requested.
-// buildPrompt parses the stored message history into:
-//   - systemPrompt: the system message content (with parallel-tool instruction appended)
-//   - historyBlob: all prior turns formatted as a conversation transcript; empty
-//     when there is no prior history. Sent as plain text (no cache_control) so we
-//     stay under Anthropic's 4-breakpoint limit once CLI system/tools are counted.
-//   - currentPrompt: the text of the final user message.
-//
-// sessionFileExists controls whether history compaction is skipped — when true,
-// the historyBlob is not sent to Claude (it uses --resume instead), so compaction
-// would be wasted work and would suppress spurious compaction warnings.
-func buildPrompt(messages []protocol.ChatMessage, mcpToolNames map[string]string, sessionFileExists bool) (systemPrompt, historyBlob, currentPrompt string, imageBlocks []map[string]any) {
-	var turns []string
-
-	for _, msg := range messages {
-		switch msg.Role {
-		case "system":
-			systemPrompt = msg.ContentString()
-		case "user":
-			turns = append(turns, "[user]\n"+msg.ContentString())
-		case "assistant":
-			// Reconstruct assistant turn — may include tool calls.
-			// Re-prefix bare tool names to MCP names so the conversation
-			// history matches Claude CLI's tool list.
-			text := reconstructAssistantTurn(msg, mcpToolNames)
-			if text != "" {
-				turns = append(turns, "[assistant]\n"+text)
-			}
-		case "tool":
-			// Tool result — format so claude sees it as a structured response.
-			toolID := ""
-			if msg.ToolCallID != "" {
-				toolID = fmt.Sprintf(" (id: %s)", msg.ToolCallID)
-			}
-			turns = append(turns, fmt.Sprintf("[tool_result%s]\n%s", toolID, msg.ContentString()))
-		}
-	}
-
-	// Encourage the model to emit multiple tool_use blocks in a single response
-	// when tool results are independent, enabling parallel execution.
-	// Also explicitly forbid narration-without-action: Claude Code runs in an
-	// MCP-only environment where every action MUST be a tool call. If it
-	// describes what it's about to do without including the tool_use block,
-	// nothing happens — there is no mechanism to act outside of tool calls.
-	const parallelInstr = "IMPORTANT: You are operating in an environment where ALL actions must be performed via tool calls. " +
-		"Never describe what you are about to do without also including the tool_use block in the same response — narrating an action is not the same as performing it. " +
-		"If you intend to run a command, read a file, search the web, or take any other action, include the tool_use block immediately in your current response. " +
-		"When you need to call multiple tools and their results are independent of each other, include ALL of the tool_use blocks in a single response rather than calling them one at a time. This enables parallel execution and faster responses."
-	if systemPrompt != "" {
-		systemPrompt = systemPrompt + "\n\n" + parallelInstr
-	} else {
-		systemPrompt = parallelInstr
-	}
-
-	if len(turns) == 0 {
+	if lastUserIdx < 0 {
+		// No user message at all — nothing to send.
 		return
 	}
-
-	last := turns[len(turns)-1]
-	history := turns[:len(turns)-1]
-
-	if len(history) > 0 {
-		// In session-resume mode the historyBlob is never sent (Claude uses the
-		// on-disk session file instead), so skip compaction entirely to avoid
-		// spurious warnings and wasted work.
-		if !sessionFileExists {
-			var redacted, dropped, tokBefore, tokAfter int
-			history, redacted, dropped, tokBefore, tokAfter = compactHistory(history)
-			if redacted > 0 || dropped > 0 {
-				slog.Default().Warn("cliworker: history compacted",
-					"est_tokens_before", tokBefore,
-					"est_tokens_after", tokAfter,
-					"budget", maxHistoryTokens,
-					"pass1_redacted", redacted,
-					"pass2_dropped", dropped,
-				)
-			}
-		}
-		historyBlob = "<conversation_history>\n" +
-			strings.Join(history, "\n\n") +
-			"\n</conversation_history>"
+	{
+		lastUser := conv[lastUserIdx]
+		currentPrompt = lastUser.ContentString()
+		imageBlocks = extractImageBlocks(lastUser.Content)
 	}
-	currentPrompt = stripRolePrefix(last)
 
-	// Extract image blocks from the last user message for native rendering.
-	// Claude Code's stream-json stdin accepts Anthropic image content blocks;
-	// we pass images here rather than embedding data: URIs in the text prompt.
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "user" {
-			imageBlocks = extractImageBlocks(messages[i].Content)
+	// Everything before the last user message becomes history in the session file.
+	// The session JSONL must end with an assistant message — the Anthropic API
+	// requires alternating user/assistant turns. System-injected user messages
+	// (e.g. "Pre-compaction memory flush") can trail the last real assistant
+	// response in the history slice; writing them to the JSONL would put two
+	// consecutive user messages at the boundary (session tail + stdin current),
+	// causing Claude CLI to exit with status 1 immediately.
+	// Fix: trim history to end at the last assistant message.
+	history := conv[:lastUserIdx]
+	lastAssistantIdx := -1
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == "assistant" {
+			lastAssistantIdx = i
 			break
 		}
 	}
+
+	// Tool-continuation case: the caller (e.g. OpenClaw via the OpenAI endpoint)
+	// sent [user, assistant(tool_use), tool_result] — the standard agentic pattern
+	// where tool results need to be fed back for a final text response.
+	//
+	// Probe-verified fix (claude-probe synthetic-session-resume): write the FULL
+	// chain [user, assistant(tool_use), user(tool_result)] into the session file.
+	// The tool messages map to "user" entries with tool_result content blocks via
+	// the case "tool" branch in the JSONL loop below.
+	// CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1 (always set in workerEnv) causes
+	// Claude CLI to detect the trailing user(tool_result) as an interrupted_turn
+	// and auto-inject "Continue from where you left off." — no stdin needed.
+	toolContinuation := false
+	if lastUserIdx >= 0 && lastUserIdx < len(conv)-1 {
+		tail := conv[lastUserIdx+1:]
+		isToolChain := true
+		hasToolMsg := false
+		for _, m := range tail {
+			if m.Role == "tool" {
+				hasToolMsg = true
+			} else if m.Role != "assistant" {
+				isToolChain = false
+				break
+			}
+		}
+		if isToolChain && hasToolMsg {
+			history = conv
+			lastAssistantIdx = -1
+			for k := len(history) - 1; k >= 0; k-- {
+				if history[k].Role == "assistant" {
+					lastAssistantIdx = k
+					break
+				}
+			}
+			// currentPrompt is not sent via stdin for continuations —
+			// CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1 handles the auto-resume.
+			currentPrompt = ""
+			imageBlocks = nil
+			toolContinuation = true
+			isContinuation = true
+		}
+	}
+
+	if lastAssistantIdx < 0 {
+		// No assistant turn in history yet — first exchange, no session file.
+		return
+	}
+	// Trim trailing non-assistant messages so the JSONL ends on an assistant
+	// entry (required by the Anthropic API alternating-turn constraint).
+	// Skip the trim for tool-continuation: those trailing "tool" messages must
+	// stay because they become user(tool_result) entries that Claude needs.
+	if !toolContinuation {
+		trimmed := len(history) - (lastAssistantIdx + 1)
+		history = history[:lastAssistantIdx+1]
+		if trimmed > 0 {
+			slog.Default().Info("cliworker: trimmed trailing non-assistant messages from session history",
+				"trimmed", trimmed, "history_len", len(history))
+		}
+	}
+
+	// Safety cap: if the session file would still carry an excessive number of
+	// messages, drop the oldest turns (from the beginning) to stay well within
+	// Claude CLI's context limit. We keep a generous cap because the server-side
+	// preCompactMessages already redacts tool results; this is a last-ditch guard
+	// against the server estimate being too optimistic.
+	// Drop from the oldest end, always keeping the history ending on an assistant
+	// message so the alternating turn constraint stays satisfied.
+	const maxHistoryMessages = 120
+	if len(history) > maxHistoryMessages {
+		drop := len(history) - maxHistoryMessages
+		history = history[drop:]
+		slog.Default().Info("cliworker: capped session file history",
+			"dropped", drop, "history_len", len(history))
+	}
+
+	// Resolve symlinks: Claude CLI records and looks up the real CWD.
+	cwd := workDir
+	if resolved, e := filepath.EvalSymlinks(workDir); e == nil {
+		cwd = resolved
+	}
+
+	f, e := os.CreateTemp("", "auxot-session-*.jsonl")
+	if e != nil {
+		err = fmt.Errorf("create session file: %w", e)
+		return
+	}
+	defer f.Close()
+
+	enc := json.NewEncoder(f)
+	ts := time.Now().UTC().Format(time.RFC3339Nano)
+	prevUUID := ""
+
+	i := 0
+	for i < len(history) {
+		msg := history[i]
+		entryUUID := uuid.New().String()
+
+		var claudeRole string
+		var content any
+
+		switch msg.Role {
+		case "user":
+			claudeRole = "user"
+			var blocks []map[string]any
+			if t := msg.ContentString(); t != "" {
+				blocks = append(blocks, map[string]any{"type": "text", "text": t})
+			}
+			blocks = append(blocks, extractImageBlocks(msg.Content)...)
+			content = blocks
+			i++
+
+		case "assistant":
+			claudeRole = "assistant"
+			var blocks []map[string]any
+			if t := msg.ContentString(); t != "" {
+				blocks = append(blocks, map[string]any{"type": "text", "text": t})
+			}
+			for _, tc := range msg.ToolCalls {
+				name := tc.Function.Name
+				if prefixed, ok := mcpToolNames[name]; ok {
+					name = prefixed
+				}
+				inputRaw := json.RawMessage(tc.Function.Arguments)
+				if len(inputRaw) == 0 {
+					inputRaw = json.RawMessage("{}")
+				}
+				blocks = append(blocks, map[string]any{
+					"type":  "tool_use",
+					"id":    tc.ID,
+					"name":  name,
+					"input": inputRaw,
+				})
+			}
+			content = blocks
+			i++
+
+		case "tool":
+			// Consecutive tool-result messages → one user message with multiple
+			// tool_result content blocks (the canonical Anthropic API format).
+			claudeRole = "user"
+			var toolBlocks []map[string]any
+			for i < len(history) && history[i].Role == "tool" {
+				tr := history[i]
+				toolBlocks = append(toolBlocks, map[string]any{
+					"type":        "tool_result",
+					"tool_use_id": tr.ToolCallID,
+					"content":     buildToolResultContent(tr),
+					"is_error":    false,
+				})
+				i++
+			}
+			content = toolBlocks
+
+		default:
+			i++
+			continue
+		}
+
+		var parentUUID any
+		if prevUUID != "" {
+			parentUUID = prevUUID
+		} else {
+			parentUUID = nil // explicit null, not omitted
+		}
+
+		// Build the inner message object. For assistant turns, the Claude CLI
+		// session loader expects the full Anthropic API message shape — including
+		// "type": "message", "stop_reason", "model", and "usage" — matching what
+		// the probe confirmed works. User turns only need role + content.
+		var messageObj map[string]any
+		if claudeRole == "assistant" {
+			messageObj = map[string]any{
+				"id":          entryUUID, // reuse entry uuid as a stable msg id
+				"type":        "message",
+				"role":        "assistant",
+				"content":     content,
+				"stop_reason": "tool_use",
+				"model":       model,
+				"usage":       map[string]any{"input_tokens": 0, "output_tokens": 0},
+			}
+		} else {
+			messageObj = map[string]any{
+				"role":    claudeRole,
+				"content": content,
+			}
+		}
+
+		// Top-level entry matches the TranscriptMessage shape Claude CLI expects.
+		// "type" must be present ("user" / "assistant") and "version" must be "1.0.0".
+		entry := map[string]any{
+			"uuid":        entryUUID,
+			"parentUuid":  parentUUID,
+			"type":        claudeRole, // ← required: "user" or "assistant"
+			"sessionId":   syntheticSessionUUID,
+			"timestamp":   ts,
+			"cwd":         cwd,
+			"userType":    "external",
+			"version":     "1.0.0", // ← must be "1.0.0", not "1"
+			"isSidechain": false,
+			"message":     messageObj,
+		}
+		if encErr := enc.Encode(entry); encErr != nil {
+			os.Remove(f.Name())
+			err = fmt.Errorf("write session entry: %w", encErr)
+			return
+		}
+		prevUUID = entryUUID
+	}
+
+	path = f.Name()
 	return
 }
 
-// extractImageBlocks converts OpenAI-style image_url parts from a message's
+// buildToolResultContent converts a protocol tool message into Anthropic API
+// content blocks for a tool_result entry in the session JSONL.
+// Text and image parts are preserved; images are represented as native blocks.
+func buildToolResultContent(msg protocol.ChatMessage) []map[string]any {
+	var blocks []map[string]any
+	if t := msg.ContentString(); t != "" {
+		blocks = append(blocks, map[string]any{"type": "text", "text": t})
+	}
+	blocks = append(blocks, extractImageBlocks(msg.Content)...)
+	if len(blocks) == 0 {
+		blocks = append(blocks, map[string]any{"type": "text", "text": ""})
+	}
+	return blocks
+}
+
+// extractImageBlocks converts image_url content parts from a message's
 // RawMessage content into Anthropic-native image content blocks for Claude CLI
 // stream-json stdin. data: URIs are decoded; https:// URLs use the "url" source type.
+//
+// Handles two wire formats:
+//   - Internal flat:  {"type":"image_url","image_url":"data:image/jpeg;base64,..."}
+//   - OpenAI nested:  {"type":"image_url","image_url":{"url":"data:image/jpeg;base64,..."}}
 func extractImageBlocks(content json.RawMessage) []map[string]any {
 	if len(content) == 0 || content[0] != '[' {
 		return nil
 	}
+	// Use json.RawMessage for image_url so we can decode it as either a
+	// flat string or a nested {"url":"..."} object.
 	var parts []struct {
-		Type     string `json:"type"`
-		ImageURL *struct {
-			URL string `json:"url"`
-		} `json:"image_url,omitempty"`
+		Type     string          `json:"type"`
+		ImageURL json.RawMessage `json:"image_url,omitempty"`
 	}
 	if err := json.Unmarshal(content, &parts); err != nil {
 		return nil
 	}
 	var blocks []map[string]any
 	for _, p := range parts {
-		if p.Type != "image_url" || p.ImageURL == nil || p.ImageURL.URL == "" {
+		if p.Type != "image_url" || len(p.ImageURL) == 0 {
 			continue
 		}
-		url := p.ImageURL.URL
+		// Try nested object: {"url": "..."}
+		var nested struct {
+			URL string `json:"url"`
+		}
+		var url string
+		if err := json.Unmarshal(p.ImageURL, &nested); err == nil && nested.URL != "" {
+			url = nested.URL
+		} else if err := json.Unmarshal(p.ImageURL, &url); err != nil || url == "" {
+			continue
+		}
 		if strings.HasPrefix(url, "data:") {
 			// Parse data:<mediaType>;base64,<data>
 			rest := strings.TrimPrefix(url, "data:")
@@ -1221,27 +1278,6 @@ func extractImageBlocks(content json.RawMessage) []map[string]any {
 	return blocks
 }
 
-// reconstructAssistantTurn rebuilds an assistant message that may carry tool calls
-// (i.e. the OpenAI-format ToolCalls field on the message).
-func reconstructAssistantTurn(msg protocol.ChatMessage, mcpToolNames map[string]string) string {
-	text := msg.ContentString()
-	var parts []string
-	if text != "" {
-		parts = append(parts, text)
-	}
-	for _, tc := range msg.ToolCalls {
-		// Re-prefix bare names (e.g. "web_search") to MCP names
-		// (e.g. "mcp__auxot__web_search") so the conversation history
-		// matches the tool names in Claude CLI's tool list.
-		name := tc.Function.Name
-		if prefixed, ok := mcpToolNames[name]; ok {
-			name = prefixed
-		}
-		parts = append(parts, fmt.Sprintf("<tool_use name=%q id=%q>\n%s\n</tool_use>",
-			name, tc.ID, tc.Function.Arguments))
-	}
-	return strings.Join(parts, "\n")
-}
 
 // filterShadowedBuiltins removes built-in tool names that collide with tools
 // provided by the API caller. Colliding tools will be exposed via MCP instead
@@ -1290,18 +1326,6 @@ func stripMCPPrefix(name string) string {
 	return name
 }
 
-func stripRolePrefix(turn string) string {
-	for _, prefix := range []string{"[user]\n", "[assistant]\n", "[tool_result]\n"} {
-		if strings.HasPrefix(turn, prefix) {
-			return strings.TrimPrefix(turn, prefix)
-		}
-	}
-	// Handle [tool_result (id: ...)] prefixes.
-	if idx := strings.Index(turn, "]\n"); idx != -1 && strings.HasPrefix(turn, "[") {
-		return turn[idx+2:]
-	}
-	return turn
-}
 
 // ── Claude NDJSON types ────────────────────────────────────────────────────────
 
