@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -144,8 +145,18 @@ func RunJob(
 	// (empty when there were no builtin tools, or when the turn ended with MCP tools).
 	// The server uses pre/post to insert two separate assistant rows with tool_call
 	// rows in between, preserving the actual execution order in the database.
-	onComplete func(preToolContent, postToolContent, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error,
+	// totalCostUSD is the cumulative session cost from the CLI's "result" event (0 if unavailable).
+	// sessionID is the Claude Code session identifier.
+	// rateLimitStatus, rateLimitResetsAt, rateLimitType are from the rate_limit_info field
+	// of the rate_limit_event. rateLimitStatus is "allowed" on a normal turn; empty if the
+	// event was not emitted (e.g. non-CLI backends).
+	onComplete func(preToolContent, postToolContent, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, totalCostUSD float64, sessionID string, rateLimitStatus string, rateLimitResetsAt int64, rateLimitType string, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error,
 	onError func(errMsg, details string) error,
+	// onOverload is called when Claude CLI reports a provider rate limit
+	// ("You've hit your limit"). The caller should requeue the job rather than
+	// marking it failed. retryAfterSecs is a hint; 0 means use the default.
+	// May be nil if the caller does not need rate-limit handling.
+	onOverload func(retryAfterSecs int) error,
 ) {
 	log := slog.Default()
 	err := runJobOnce(ctx, job, cfg, onToken, onReasoningToken, onBuiltinTool, onComplete, onError)
@@ -164,6 +175,16 @@ func RunJob(
 		)
 		job.Messages = trimmed
 		_ = runJobOnce(ctx, job, cfg, onToken, onReasoningToken, onBuiltinTool, onComplete, onError)
+		return
+	}
+	var rle *rateLimitError
+	if errors.As(err, &rle) {
+		log.Warn("cliworker: provider rate limited — signalling overload to server",
+			"retry_after_secs", rle.retryAfterSecs,
+			"resets_at", rle.resetsAt)
+		if onOverload != nil {
+			_ = onOverload(rle.retryAfterSecs)
+		}
 	}
 }
 
@@ -192,6 +213,18 @@ func trimOldestMessages(msgs []protocol.ChatMessage, fraction float64) []protoco
 var errCacheControlRetry = fmt.Errorf("cache_control_400_retry")
 var errPromptTooLong = fmt.Errorf("prompt_too_long_retry")
 
+// rateLimitError is returned from runJobOnce when the rate_limit_event signals
+// that the account has hit its usage limit (status != "allowed"). It carries
+// the exact retry-after duration so RunJob can pass it to onOverload.
+type rateLimitError struct {
+	retryAfterSecs int
+	resetsAt       int64 // Unix timestamp; 0 if unknown
+}
+
+func (e *rateLimitError) Error() string {
+	return fmt.Sprintf("provider_rate_limited: retry_after=%ds", e.retryAfterSecs)
+}
+
 func runJobOnce(
 	ctx context.Context,
 	job protocol.JobMessage,
@@ -199,7 +232,7 @@ func runJobOnce(
 	onToken func(string) error,
 	onReasoningToken func(string) error,
 	onBuiltinTool func(id, name, args, result string) error,
-	onComplete func(preToolContent, postToolContent, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error,
+	onComplete func(preToolContent, postToolContent, reasoningContent string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, totalCostUSD float64, sessionID string, rateLimitStatus string, rateLimitResetsAt int64, rateLimitType string, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error,
 	onError func(errMsg, details string) error,
 ) error {
 	log := slog.Default()
@@ -449,6 +482,11 @@ func runJobOnce(
 		fullReasoning     strings.Builder
 		inputTokens       int
 		outputTokens      int
+		totalCostUSD      float64 // cumulative session cost from the terminal "result" event
+		sessionID         string  // Claude Code session identifier from the "result" event
+		rateLimitResetsAt int64   // Unix timestamp from rate_limit_info.resetsAt
+		rateLimitStatus   string  // rate_limit_info.status ("allowed" or otherwise)
+		rateLimitType     string  // rate_limit_info.rateLimitType (e.g. "five_hour")
 		toolCalls         []protocol.ToolCall
 		seenMCPTool       bool
 		seenBuiltinResult bool // true after first tool_result (builtin or live-MCP) received
@@ -584,33 +622,67 @@ func runJobOnce(
 				}
 			}
 
-		case "rate_limit_event":
-			// In live-MCP mode, rate_limit_event just signals the end of one
-			// inference batch. Claude is still running (waiting for tool results
-			// from the MCP subprocess) — do NOT kill it. It will emit a `result`
-			// event when it reaches natural completion.
-			if cfg.LiveMCP {
-				log.Info("cliworker: live-MCP rate_limit_event — Claude still running")
-				break
-			}
+	case "rate_limit_event":
+		// Parse rate_limit_info first — it's present on every turn regardless
+		// of whether the account is actually limited. We use it two ways:
+		//   1. Detect when the account IS limited (status != "allowed") so we
+		//      can cancel Claude early and requeue the job rather than failing.
+		//   2. Capture the snapshot (resetsAt, status) to send to the server
+		//      so the provider record stays up-to-date.
+		if rli := event.RateLimitInfo; rli != nil {
+			// Capture for the provider snapshot regardless of status.
+			rateLimitResetsAt = rli.ResetsAt
+			rateLimitStatus = rli.Status
+			rateLimitType = rli.RateLimitType
 
-			batchComplete = true
-			// rate_limit_event fires immediately after the model finishes streaming,
-			// BEFORE the user event carrying builtin tool results.  Only kill Claude
-			// once all pending builtin tools have delivered their results — otherwise
-			// we'd discard the WebSearch / Bash result in a mixed turn.
-			if len(toolCalls) > 0 && len(pendingBuiltin) == 0 && stdinPipe != nil {
-				log.Info("batch_complete",
-					"mcp_tool_calls", len(toolCalls),
-					"builtin_pending", 0)
-				stdinPipe.Close()
-				stdinPipe = nil
+			if rli.Status != "allowed" {
+				// Account is rate-limited. Compute retry delay from resetsAt.
+				retryAfter := 0
+				if rli.ResetsAt > 0 {
+					secs := int(rli.ResetsAt - time.Now().Unix())
+					if secs < 0 {
+						secs = 0
+					}
+					retryAfter = secs
+				}
+				log.Warn("cliworker: provider rate limited via rate_limit_event",
+					"status", rli.Status,
+					"rate_limit_type", rli.RateLimitType,
+					"resets_at", rli.ResetsAt,
+					"retry_after_secs", retryAfter)
+				// Kill the Claude process — it's going to emit a rate-limit
+				// text response anyway, which we want to suppress.
 				cancelClaude()
-			} else if len(toolCalls) > 0 && len(pendingBuiltin) > 0 {
-				log.Info("batch_complete_waiting_for_builtins",
-					"mcp_tool_calls", len(toolCalls),
-					"builtin_pending", len(pendingBuiltin))
+				return &rateLimitError{retryAfterSecs: retryAfter, resetsAt: rli.ResetsAt}
 			}
+		}
+
+		// In live-MCP mode, rate_limit_event just signals the end of one
+		// inference batch. Claude is still running (waiting for tool results
+		// from the MCP subprocess) — do NOT kill it. It will emit a `result`
+		// event when it reaches natural completion.
+		if cfg.LiveMCP {
+			log.Info("cliworker: live-MCP rate_limit_event — Claude still running")
+			break
+		}
+
+		batchComplete = true
+		// rate_limit_event fires immediately after the model finishes streaming,
+		// BEFORE the user event carrying builtin tool results.  Only kill Claude
+		// once all pending builtin tools have delivered their results — otherwise
+		// we'd discard the WebSearch / Bash result in a mixed turn.
+		if len(toolCalls) > 0 && len(pendingBuiltin) == 0 && stdinPipe != nil {
+			log.Info("batch_complete",
+				"mcp_tool_calls", len(toolCalls),
+				"builtin_pending", 0)
+			stdinPipe.Close()
+			stdinPipe = nil
+			cancelClaude()
+		} else if len(toolCalls) > 0 && len(pendingBuiltin) > 0 {
+			log.Info("batch_complete_waiting_for_builtins",
+				"mcp_tool_calls", len(toolCalls),
+				"builtin_pending", len(pendingBuiltin))
+		}
 
 	case "result":
 		if event.Usage != nil {
@@ -621,10 +693,19 @@ func runJobOnce(
 				outputTokens = event.Usage.OutputTokens
 			}
 		}
-			if stdinPipe != nil {
-				stdinPipe.Close()
-				stdinPipe = nil
-			}
+		// Capture cumulative session cost and session ID from the terminal result.
+		// These are present only on the final "result" event, not on intermediate
+		// assistant/user events.
+		if event.TotalCostUSD > 0 {
+			totalCostUSD = event.TotalCostUSD
+		}
+		if event.SessionID != "" {
+			sessionID = event.SessionID
+		}
+		if stdinPipe != nil {
+			stdinPipe.Close()
+			stdinPipe = nil
+		}
 
 		case "control_request":
 			if event.Request == nil || event.Request.Subtype != "can_use_tool" || stdinPipe == nil {
@@ -749,6 +830,9 @@ complete:
 		return errPromptTooLong
 	}
 
+	// Note: rate limit detection is handled in the rate_limit_event case above.
+	// By the time we reach here, the account was not rate limited for this turn.
+
 	var preToolContent, postToolContent string
 	switch {
 	case len(toolCalls) > 0:
@@ -768,7 +852,7 @@ complete:
 		// Plain text turn: no tools at all.
 		preToolContent = responseText
 	}
-	_ = onComplete(preToolContent, postToolContent, fullReasoning.String(), 0, inputTokens, outputTokens, 0, 0, toolCalls, completedBuiltins)
+	_ = onComplete(preToolContent, postToolContent, fullReasoning.String(), 0, inputTokens, outputTokens, 0, 0, totalCostUSD, sessionID, rateLimitStatus, rateLimitResetsAt, rateLimitType, toolCalls, completedBuiltins)
 	return nil
 }
 
@@ -1203,7 +1287,10 @@ func buildToolResultContent(msg protocol.ChatMessage) []map[string]any {
 	}
 	blocks = append(blocks, extractImageBlocks(msg.Content)...)
 	if len(blocks) == 0 {
-		blocks = append(blocks, map[string]any{"type": "text", "text": ""})
+		// An empty tool_result content block causes Claude CLI to add
+		// cache_control to a zero-length text block, which Anthropic rejects
+		// with HTTP 400 "cache_control cannot be set for empty text blocks".
+		blocks = append(blocks, map[string]any{"type": "text", "text": "(empty)"})
 	}
 	return blocks
 }
@@ -1329,10 +1416,35 @@ func stripMCPPrefix(name string) string {
 
 // ── Claude NDJSON types ────────────────────────────────────────────────────────
 
+// claudeRateLimitInfo is the structured payload inside a rate_limit_event.
+// It is emitted on every assistant turn — even when the account is not limited.
+// Example (not limited):
+//
+//	{"status":"allowed","resetsAt":1775689200,"rateLimitType":"five_hour",
+//	 "overageStatus":"rejected","overageDisabledReason":"org_level_disabled","isUsingOverage":false}
+//
+// When the account IS rate-limited, status will be something other than "allowed"
+// (e.g. "denied" or "rate_limited") and resetsAt gives the exact reset epoch.
+type claudeRateLimitInfo struct {
+	Status                string `json:"status"`
+	ResetsAt              int64  `json:"resetsAt"`
+	RateLimitType         string `json:"rateLimitType"`
+	OverageStatus         string `json:"overageStatus"`
+	OverageDisabledReason string `json:"overageDisabledReason"`
+	IsUsingOverage        bool   `json:"isUsingOverage"`
+}
+
 type claudeEvent struct {
 	Type    string         `json:"type"`
 	Message *claudeMessage `json:"message,omitempty"`
 	Usage   *claudeUsage   `json:"usage,omitempty"`
+	// rate_limit_event fields
+	RateLimitInfo *claudeRateLimitInfo `json:"rate_limit_info,omitempty"`
+	// result event fields — present on the terminal "result" event only.
+	// TotalCostUSD is the cumulative API spend for this CLI session.
+	// SessionID is the Claude Code internal session identifier.
+	TotalCostUSD float64 `json:"total_cost_usd,omitempty"`
+	SessionID    string  `json:"session_id,omitempty"`
 	// control_request fields (permission-prompt-tool stdio protocol)
 	RequestID string                `json:"request_id,omitempty"`
 	Request   *claudeControlRequest `json:"request,omitempty"`

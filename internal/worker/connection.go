@@ -324,20 +324,28 @@ func (c *Connection) SendPromptProgress(jobID string, total, cached, processed i
 // preToolContent is the assistant text before any CLI-native tools ran.
 // postToolContent is the assistant text after CLI-native tools completed (empty when
 // no builtin tools were used or the turn ended with MCP tools).
-func (c *Connection) SendComplete(jobID, preToolContent, postToolContent, reasoningContent string, durationMS int64, cacheTokens, inputTokens, outputTokens, reasoningTokens int, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error {
+// totalCostUSD is the cumulative session cost from the CLI result event (0 if unavailable).
+// providerSessionID is the CLI provider's internal session identifier (empty if unavailable).
+// rateLimitStatus/ResetsAt/Type are from the rate_limit_event (empty for non-CLI backends).
+func (c *Connection) SendComplete(jobID, preToolContent, postToolContent, reasoningContent string, durationMS int64, cacheTokens, inputTokens, outputTokens, reasoningTokens int, totalCostUSD float64, providerSessionID, rateLimitStatus string, rateLimitResetsAt int64, rateLimitType string, toolCalls []protocol.ToolCall, builtinToolUses []protocol.BuiltinToolUse) error {
 	return c.sendJSON(protocol.CompleteMessage{
-		Type:             protocol.TypeComplete,
-		JobID:            jobID,
-		FullResponse:     preToolContent,
-		PostToolContent:  postToolContent,
-		ReasoningContent: reasoningContent,
-		DurationMS:       durationMS,
-		CacheTokens:      cacheTokens,
-		InputTokens:      inputTokens,
-		OutputTokens:     outputTokens,
-		ReasoningTokens:  reasoningTokens,
-		ToolCalls:        toolCalls,
-		BuiltinToolUses:  builtinToolUses,
+		Type:              protocol.TypeComplete,
+		JobID:             jobID,
+		FullResponse:      preToolContent,
+		PostToolContent:   postToolContent,
+		ReasoningContent:  reasoningContent,
+		DurationMS:        durationMS,
+		CacheTokens:       cacheTokens,
+		InputTokens:       inputTokens,
+		OutputTokens:      outputTokens,
+		ReasoningTokens:   reasoningTokens,
+		TotalCostUSD:      totalCostUSD,
+		ProviderSessionID: providerSessionID,
+		RateLimitStatus:   rateLimitStatus,
+		RateLimitResetsAt: rateLimitResetsAt,
+		RateLimitType:     rateLimitType,
+		ToolCalls:         toolCalls,
+		BuiltinToolUses:   builtinToolUses,
 	})
 }
 
@@ -347,6 +355,17 @@ func (c *Connection) SendError(jobID, errMsg string) error {
 		Type:  protocol.TypeError,
 		JobID: jobID,
 		Error: errMsg,
+	})
+}
+
+// SendOverload notifies the server that the provider hit a usage/rate limit.
+// The server should requeue the job rather than marking it failed.
+// retryAfterSecs is a hint; 0 lets the server use its default (5 minutes).
+func (c *Connection) SendOverload(jobID string, retryAfterSecs int) error {
+	return c.sendJSON(protocol.OverloadMessage{
+		Type:           protocol.TypeJobOverload,
+		JobID:          jobID,
+		RetryAfterSecs: retryAfterSecs,
 	})
 }
 

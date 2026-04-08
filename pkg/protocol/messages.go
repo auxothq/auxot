@@ -58,6 +58,10 @@ const (
 	TypeJobToolCallRequest MessageType = "job.tool.call.request"
 	// Server → Worker: "Here is the result of the tool execution you requested."
 	TypeJobToolCallResult MessageType = "job.tool.call.result"
+
+	// Worker → Server: "The provider hit a rate/usage limit — do not fail the job,
+	// requeue it for retry after RetryAfterSecs (0 = use server default of 5 min)."
+	TypeJobOverload MessageType = "job.overload"
 )
 
 // Envelope is the first-pass parse of any WebSocket message.
@@ -207,6 +211,18 @@ type CompleteMessage struct {
 	ToolCalls        []ToolCall       `json:"tool_calls,omitempty"`
 	BuiltinToolUses  []BuiltinToolUse `json:"builtin_tool_uses,omitempty"`
 	Attachments      []FileAttachment `json:"attachments,omitempty"`
+	// TotalCostUSD is the cumulative API spend for this CLI session (from "result" event).
+	// Only set for CLI-backed providers; 0 for GPU/cloud providers.
+	TotalCostUSD float64 `json:"total_cost_usd,omitempty"`
+	// ProviderSessionID is the provider-internal session identifier (from "result" event).
+	ProviderSessionID string `json:"provider_session_id,omitempty"`
+	// RateLimitStatus is rate_limit_info.status from the most-recent rate_limit_event
+	// ("allowed" on a normal turn). Empty for non-CLI backends.
+	RateLimitStatus string `json:"rate_limit_status,omitempty"`
+	// RateLimitResetsAt is the Unix epoch when the rate limit period resets.
+	RateLimitResetsAt int64 `json:"rate_limit_resets_at,omitempty"`
+	// RateLimitType is the rate limit bucket (e.g. "five_hour").
+	RateLimitType string `json:"rate_limit_type,omitempty"`
 }
 
 // ErrorMessage is sent by the worker when a job fails.
@@ -215,6 +231,16 @@ type ErrorMessage struct {
 	JobID   string      `json:"job_id,omitempty"`
 	Error   string      `json:"error"`
 	Details string      `json:"details,omitempty"`
+}
+
+// OverloadMessage is sent by the CLI worker when the provider (Claude Code CLI)
+// has hit a usage/rate limit and the job should be requeued rather than failed.
+// RetryAfterSecs is a hint for the server's retry delay; 0 means use the server
+// default (currently 5 minutes). The server must NOT mark the job as failed.
+type OverloadMessage struct {
+	Type            MessageType `json:"type"`
+	JobID           string      `json:"job_id"`
+	RetryAfterSecs  int         `json:"retry_after_secs,omitempty"`
 }
 
 // --- Server → Worker messages ---
