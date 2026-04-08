@@ -10,21 +10,35 @@
 //     Run with --intercept to start the proxy and point ANTHROPIC_BASE_URL at it.
 //
 // Single-turn test scenarios:
-//   1. builtin         – CLI-native tools only (Bash)
-//   2. mcp             – MCP tools only (get_status, get_version) — we deny all
-//   3. mixed           – Bash builtin + MCP tools in the same turn
-//   4. history         – Multi-turn blob injected via stdin (no --resume)
+//   1. builtin              – CLI-native tools only (Bash)
+//   2. mcp                  – MCP tools only (get_status, get_version) — we deny all
+//   3. mixed                – Bash builtin + MCP tools in the same turn
+//   4. history              – Multi-turn blob injected via stdin (no --resume)
+//   5. parallel-mcp-kill    – Two parallel MCP tool_use blocks; close stdin at first
+//                             control_request WITHOUT sending deny. Proves all tool_use
+//                             blocks arrive in the assistant event before any control_request.
+//   6. mcp-live             – Full MCP round-trip: allow all tool calls, MCP server
+//                             returns real results, Claude runs to natural completion.
+//                             Tests the "live continuation" architecture.
+//   7. mcp-parallel-live    – Two parallel MCP tools (tool1, tool2) both executed live.
+//                             Dumps FULL raw JSON for every event so we can see exactly
+//                             what stream-json Claude CLI emits: how many assistant events,
+//                             when tool_use blocks appear, what user events carry tool
+//                             results, and when rate_limit_event fires relative to all of
+//                             the above. This is the ground-truth recon run.
 //
 // Multi-turn session scenarios (verify --session-id / --resume behaviour):
-//   5. session-simple   – Turn 1: plain answer. Turn 2: follow-up referencing turn 1.
-//   6. session-builtin  – Turn 1: Bash tool. Turn 2: follow-up asking for its output.
-//   7. session-mcp      – Turn 1: MCP tool (denied). Turn 2: follow-up.
-//   8. session-missing  – Like session-simple but session file deleted between turns
+//   7. session-simple   – Turn 1: plain answer. Turn 2: follow-up referencing turn 1.
+//   8. session-builtin  – Turn 1: Bash tool. Turn 2: follow-up asking for its output.
+//   9. session-mcp      – Turn 1: MCP tool (denied). Turn 2: follow-up.
+//  10. session-missing  – Like session-simple but session file deleted between turns
 //                         to verify the full-seed fallback path.
 //
 // Usage:
 //
 //	go run ./cmd/claude-probe [--scenario builtin|mcp|mixed|history] [--prompt "..."]
+//	go run ./cmd/claude-probe --scenario parallel-mcp-kill  # key regression test
+//	go run ./cmd/claude-probe --scenario mcp-live           # live continuation test
 //	go run ./cmd/claude-probe --scenario session-simple    # multi-turn session test
 //	go run ./cmd/claude-probe --mcp-server                 # internal: MCP stdio mode
 //	go run ./cmd/claude-probe --proxy                      # internal: HTTP proxy mode
@@ -54,7 +68,14 @@ import (
 
 // ── MCP server mode ──────────────────────────────────────────────────────────
 
-func runMCPServer() {
+// runMCPServer runs a minimal MCP stdio server.
+// When live=true the server actually executes tools/call requests:
+//   - bash: runs the command in a shell, returns stdout+stderr
+//   - get_status / get_version: return canned responses
+//   - tool1 / tool2: return "tool1 fired!" / "tool2 fired!" (for parallel-live recon)
+//
+// When live=false (default stub mode) all tools/call requests return "stub".
+func runMCPServer(live bool) {
 	tools := []map[string]any{
 		{
 			"name":        "get_status",
@@ -66,37 +87,101 @@ func runMCPServer() {
 			"description": "Get the system version string.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 		},
+		{
+			"name":        "bash",
+			"description": "Run a shell command and return its output.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"command": map[string]any{"type": "string", "description": "Shell command to execute"},
+				},
+				"required": []string{"command"},
+			},
+		},
+		{
+			"name":        "tool1",
+			"description": "First probe tool. Call this to confirm tool1 executes.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+		},
+		{
+			"name":        "tool2",
+			"description": "Second probe tool. Call this to confirm tool2 executes.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+		},
 	}
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 1<<20), 1<<20)
 	enc := json.NewEncoder(os.Stdout)
 	for scanner.Scan() {
+		line := scanner.Text()
+		// Log every MCP message to stderr for recon visibility.
+		fmt.Fprintf(os.Stderr, "[mcp-server ←] %s\n", line)
 		var req map[string]any
-		if err := json.Unmarshal([]byte(scanner.Text()), &req); err != nil {
+		if err := json.Unmarshal([]byte(line), &req); err != nil {
 			continue
 		}
 		method, _ := req["method"].(string)
 		id := req["id"]
 		switch method {
 		case "initialize":
-			_ = enc.Encode(map[string]any{
+			resp := map[string]any{
 				"jsonrpc": "2.0", "id": id,
 				"result": map[string]any{
 					"protocolVersion": "2024-11-05",
 					"capabilities":    map[string]any{"tools": map[string]any{}},
 					"serverInfo":      map[string]any{"name": "probe-mcp", "version": "1.0"},
 				},
-			})
+			}
+			respBytes, _ := json.Marshal(resp)
+			fmt.Fprintf(os.Stderr, "[mcp-server →] %s\n", respBytes)
+			_ = enc.Encode(resp)
 		case "tools/list":
-			_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"tools": tools}})
+			resp := map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"tools": tools}}
+			respBytes, _ := json.Marshal(resp)
+			fmt.Fprintf(os.Stderr, "[mcp-server →] %s\n", respBytes)
+			_ = enc.Encode(resp)
 		case "tools/call":
-			_ = enc.Encode(map[string]any{
+			var result string
+			if live {
+				params, _ := req["params"].(map[string]any)
+				toolName, _ := params["name"].(string)
+				arguments, _ := params["arguments"].(map[string]any)
+				switch toolName {
+				case "bash":
+					command, _ := arguments["command"].(string)
+					out, err := exec.Command("sh", "-c", command).CombinedOutput()
+					if err != nil {
+						result = fmt.Sprintf("exit error: %v\n%s", err, out)
+					} else {
+						result = string(out)
+					}
+				case "get_status":
+					result = "status: ok"
+				case "get_version":
+					result = "version: probe-1.0"
+				case "tool1":
+					result = "tool1 fired!"
+				case "tool2":
+					result = "tool2 fired!"
+				default:
+					result = fmt.Sprintf("unknown tool: %s", toolName)
+				}
+			} else {
+				result = "stub"
+			}
+			resp := map[string]any{
 				"jsonrpc": "2.0", "id": id,
-				"result": map[string]any{"content": []map[string]any{{"type": "text", "text": "stub"}}},
-			})
+				"result": map[string]any{"content": []map[string]any{{"type": "text", "text": result}}},
+			}
+			respBytes, _ := json.Marshal(resp)
+			fmt.Fprintf(os.Stderr, "[mcp-server →] %s\n", respBytes)
+			_ = enc.Encode(resp)
 		default:
 			if id != nil {
-				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": nil})
+				resp := map[string]any{"jsonrpc": "2.0", "id": id, "result": nil}
+				respBytes, _ := json.Marshal(resp)
+				fmt.Fprintf(os.Stderr, "[mcp-server →] %s\n", respBytes)
+				_ = enc.Encode(resp)
 			}
 		}
 	}
@@ -481,7 +566,7 @@ func runMultiTurn(scenario, model, systemPrompt, claudePath string, intercept, d
 		}
 
 	case "session-mcp":
-		mcpCfg, err := writeMCPConfig()
+		mcpCfg, err := writeMCPConfig(false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to write MCP config: %v\n", err)
 			os.Exit(1)
@@ -560,7 +645,10 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--mcp-server":
-			runMCPServer()
+			runMCPServer(false)
+			return
+		case "--mcp-server-live":
+			runMCPServer(true)
 			return
 		case "--proxy":
 			addrCh := make(chan string, 1)
@@ -571,7 +659,7 @@ func main() {
 		}
 	}
 
-	scenario := flag.String("scenario", "mcp", "Test scenario: builtin, mcp, mixed, history, session-simple, session-builtin")
+	scenario := flag.String("scenario", "mcp", "Test scenario: builtin, mcp, mixed, history, session-simple, session-builtin, mcp-parallel-live")
 	prompt := flag.String("prompt", "", "Custom prompt (overrides scenario default)")
 	claudePath := flag.String("claude", "claude", "Path to claude binary")
 	// Default to haiku — the probe is a diagnostic tool, not a production run.
@@ -586,10 +674,15 @@ func main() {
 	denyAll := flag.Bool("deny-all", true, "Deny all MCP tool permission requests (default)")
 	ignoreControl := flag.Bool("ignore-control", false, "Don't respond to any control_request")
 	intercept := flag.Bool("intercept", false, "Start intercepting proxy and log Anthropic API wire traffic")
+	rawDump := flag.Bool("raw", false, "Print full raw JSON for every received event (always on for mcp-parallel-live)")
 	sessionID := flag.String("session-id", "", "Fixed session UUID (auto-generated if empty); printed on completion for use with --resume")
 	resumeID := flag.String("resume", "", "Resume this session ID instead of starting fresh")
 	deleteSession := flag.Bool("delete-session", false, "Delete the session file after the run (simulates missing-session fallback)")
 	flag.Parse()
+	// Always dump raw JSON for the recon scenario.
+	if *scenario == "mcp-parallel-live" {
+		*rawDump = true
+	}
 
 	// -system-prompt-file and -system-prompt are mutually exclusive.
 	// When -system-prompt-file is set it takes precedence; clear the inline value.
@@ -612,6 +705,21 @@ func main() {
 		// is sent before this prompt; check --intercept wire to confirm the API
 		// receives a proper 3-entry messages array, not a flat single-message blob.
 		"history": "What did I just ask you? Repeat it back word for word.",
+		// parallel-mcp-kill: probe whether ALL tool_use blocks are present in the
+		// assistant event BEFORE the first control_request fires. If they are, we
+		// can kill Claude at first control_request without denying and capture all
+		// tool calls. Key test for the "kill-not-deny" architecture.
+		"parallel-mcp-kill": "Call the get_status and get_version tools in parallel. I need both results.",
+		// mcp-live: Claude runs a full agentic MCP loop — tool calls are actually
+		// executed by the MCP server (bash included) and results fed back to Claude.
+		// Claude terminates naturally when done. Tests the "live continuation" model.
+		"mcp-live": "Call the bash tool with command `echo hello-from-live && date`. Report the exact output.",
+		// mcp-parallel-live: ground-truth recon run. Two simple MCP tools (tool1, tool2)
+		// executed in parallel with real results. Full raw JSON dumped for every event.
+		// This tells us exactly how many assistant events Claude emits, when tool_use
+		// blocks appear, what the user event carrying both results looks like, and when
+		// rate_limit_event fires. Required reading before fixing the cliworker.
+		"mcp-parallel-live": "Call tool1 and tool2 simultaneously in parallel right now. Do not explain anything first, just call both tools at the same time.",
 	}
 	if *prompt == "" {
 		var ok bool
@@ -639,9 +747,11 @@ func main() {
 	}
 
 	var mcpConfigFile string
-	if *scenario == "mcp" || *scenario == "mixed" {
+	needsMCP := map[string]bool{"mcp": true, "mixed": true, "parallel-mcp-kill": true, "mcp-live": true, "mcp-parallel-live": true}
+	if needsMCP[*scenario] {
+		liveMCP := *scenario == "mcp-live" || *scenario == "mcp-parallel-live"
 		var err error
-		mcpConfigFile, err = writeMCPConfig()
+		mcpConfigFile, err = writeMCPConfig(liveMCP)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to create MCP config: %v\n", err)
 			os.Exit(1)
@@ -697,6 +807,15 @@ func main() {
 		events = append(events, e)
 		fmt.Fprintf(os.Stderr, "[%04d %6dms %s] type=%-20s %s\n",
 			e.Seq, e.ElapsedMS, e.Direction, e.Type, e.Summary)
+		// Full raw JSON dump — essential for recon scenarios.
+		if *rawDump && raw != "" && dir == "recv" {
+			var pretty bytes.Buffer
+			if err := json.Indent(&pretty, []byte(raw), "  ", "  "); err == nil {
+				fmt.Fprintf(os.Stderr, "  RAW:\n  %s\n", pretty.String())
+			} else {
+				fmt.Fprintf(os.Stderr, "  RAW: %s\n", raw)
+			}
+		}
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -776,7 +895,16 @@ func main() {
 			req, _ := parsed["request"].(map[string]any)
 			toolName, _ := req["tool_name"].(string)
 
-			if strings.HasPrefix(toolName, "mcp__") && *denyAll {
+			if *scenario == "parallel-mcp-kill" && strings.HasPrefix(toolName, "mcp__") {
+				// Kill-not-deny: close stdin immediately without sending any response.
+				// The question: were ALL tool_use blocks already captured from the
+				// assistant event before this first control_request fired?
+				// If yes, we have all tool calls and can proceed without denying.
+				record("send", "", "kill_not_deny", fmt.Sprintf("closing stdin at control_request for %s (no deny sent)", toolName))
+				stdinPipe.Close()
+				stdinPipe = nil
+				break
+			} else if strings.HasPrefix(toolName, "mcp__") && *denyAll {
 				resp := map[string]any{
 					"type": "control_response",
 					"response": map[string]any{
@@ -912,6 +1040,43 @@ func buildArgs(scenario, prompt, model, systemPrompt, systemPromptFile, mcpConfi
 			"--input-format", "stream-json",
 			"--permission-prompt-tool", "stdio",
 		)
+	case "parallel-mcp-kill":
+		// Same as mcp but we close stdin at first control_request without denying.
+		// If all tool_use blocks are already captured from the assistant event,
+		// we should have N tool calls even though Claude only saw N-1 (or 0) denials.
+		args = append(args,
+			"--tools", "",
+			"--print",
+			"--input-format", "stream-json",
+			"--permission-prompt-tool", "stdio",
+			"--strict-mcp-config",
+			"--mcp-config", mcpConfigFile,
+		)
+	case "mcp-live":
+		// Allow all tool calls — the MCP server (--mcp-server-live) actually executes them.
+		// Claude runs to natural completion; no denial, no kill.
+		// Uses dangerously-skip-permissions because all tools are MCP tools we trust.
+		args = append(args,
+			"--tools", "",
+			"--print",
+			"--input-format", "stream-json",
+			"--dangerously-skip-permissions",
+			"--strict-mcp-config",
+			"--mcp-config", mcpConfigFile,
+		)
+	case "mcp-parallel-live":
+		// Ground-truth recon: two parallel MCP tools (tool1, tool2) both executed live.
+		// Uses dangerously-skip-permissions — no control_request events, tool calls go
+		// directly to the MCP server subprocess.  The full raw JSON of every stream-json
+		// event is printed so we can see exactly what Claude CLI emits.
+		args = append(args,
+			"--tools", "",
+			"--print",
+			"--input-format", "stream-json",
+			"--dangerously-skip-permissions",
+			"--strict-mcp-config",
+			"--mcp-config", mcpConfigFile,
+		)
 	}
 
 	if model != "" {
@@ -922,16 +1087,22 @@ func buildArgs(scenario, prompt, model, systemPrompt, systemPromptFile, mcpConfi
 
 // writeMCPConfig uses THIS binary in --mcp-server mode as the MCP server,
 // making the probe fully self-contained.
-func writeMCPConfig() (string, error) {
+// When live=true the server uses --mcp-server-live so tools/call requests
+// are actually executed (bash runs for real, etc.).
+func writeMCPConfig(live bool) (string, error) {
 	probeBin, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("resolving probe executable: %w", err)
+	}
+	serverArg := "--mcp-server"
+	if live {
+		serverArg = "--mcp-server-live"
 	}
 	config := map[string]any{
 		"mcpServers": map[string]any{
 			"auxot": map[string]any{
 				"command": probeBin,
-				"args":    []string{"--mcp-server"},
+				"args":    []string{serverArg},
 			},
 		},
 	}

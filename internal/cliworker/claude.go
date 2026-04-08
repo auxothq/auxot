@@ -513,10 +513,16 @@ func runJobOnce(
 		outputTokens      int
 		toolCalls         []protocol.ToolCall
 		seenMCPTool       bool
-		seenBuiltinResult bool // true after first builtin tool_result received
+		seenBuiltinResult bool // true after first tool_result (builtin or live-MCP) received
 		batchComplete     bool // set true on rate_limit_event
 		pendingBuiltin    = map[string]*protocol.BuiltinToolUse{}
 		completedBuiltins []protocol.BuiltinToolUse
+		// In live-MCP mode, tool results arrive back from Claude CLI as user events
+		// (one tool_result block per event). We capture them here keyed by tool_use_id
+		// so we can attach them to the corresponding toolCall at complete: time and
+		// ship them as pre-resolved entries — preventing the server from re-dispatching
+		// tool calls that the MCP subprocess already handled.
+		liveToolResults = map[string]string{}
 	)
 
 	scanner := bufio.NewScanner(stdout)
@@ -609,7 +615,7 @@ func runJobOnce(
 					continue
 				}
 				if pending, ok := pendingBuiltin[block.ToolUseID]; ok {
-					pending.Result = block.ResultContent
+					pending.Result = block.ResultContent()
 					if onBuiltinTool != nil {
 						_ = onBuiltinTool(pending.ID, pending.Name, pending.Arguments, pending.Result)
 					}
@@ -627,6 +633,16 @@ func runJobOnce(
 						stdinPipe = nil
 						cancelClaude()
 					}
+				} else if cfg.LiveMCP {
+					// In live-MCP mode, each MCP tool result echoes back as a separate
+					// user event with a single tool_result block (one event per tool,
+					// not one event for all tools). Capture the result text and signal
+					// that any subsequent assistant text is the post-tool response.
+				liveToolResults[block.ToolUseID] = block.ResultContent()
+				seenBuiltinResult = true
+				log.Info("cliworker: live-MCP tool result captured",
+					"tool_use_id", block.ToolUseID,
+					"result_len", len(liveToolResults[block.ToolUseID]))
 				}
 			}
 
@@ -754,15 +770,30 @@ func runJobOnce(
 	}
 
 complete:
+	// In live-MCP mode, MCP tool calls were executed in-band by the MCP subprocess.
+	// The CLI streams back each result as a separate user event (one tool_result block
+	// per event — confirmed by probe recon). We captured those results into
+	// liveToolResults above. Now convert toolCalls to pre-resolved completedBuiltins
+	// so the server stores them as completed tool_call rows and does NOT re-dispatch
+	// them. Sending them as unresolved toolCalls would trigger a second inference turn.
+	if cfg.LiveMCP && len(toolCalls) > 0 {
+		for _, tc := range toolCalls {
+			result := liveToolResults[tc.ID] // empty string if result not captured
+			completedBuiltins = append(completedBuiltins, protocol.BuiltinToolUse{
+				ID:        tc.ID,
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+				Result:    result,
+			})
+		}
+		log.Info("cliworker: live-MCP converted tool calls to pre-resolved",
+			"count", len(toolCalls),
+			"results_captured", len(liveToolResults))
+		toolCalls = nil
+	}
+
 	var preToolContent, postToolContent string
 	switch {
-	case cfg.LiveMCP:
-		// Live-continuation mode: Claude ran to natural completion, executing all
-		// tool calls in-band via MCP. The full accumulated text is the response;
-		// there are no pending server-side tool calls to dispatch.
-		preToolContent = fullText.String()
-		// toolCalls and completedBuiltins are both empty in live mode.
-
 	case len(toolCalls) > 0:
 		// Deny-kill mode MCP turn: response is whatever the agent said before
 		// calling MCP tools. Claude is killed after we collect the tool calls,
@@ -770,9 +801,9 @@ complete:
 		preToolContent = preToolText.String()
 
 	case len(completedBuiltins) > 0:
-		// CLI-native builtin turn: separate the pre-tool preamble from the
-		// post-tool response so the server can insert them as two distinct
-		// assistant rows with the tool_call rows in between.
+		// Tool turn (builtin or live-MCP): separate the pre-tool preamble from the
+		// post-tool response so the server inserts two distinct assistant rows with
+		// the tool_call rows in between, preserving the actual execution order.
 		preToolContent = preToolText.String()
 		postToolContent = postToolText.String()
 
@@ -1305,9 +1336,42 @@ type claudeBlock struct {
 	ID    string          `json:"id,omitempty"`
 	Name  string          `json:"name,omitempty"`
 	Input json.RawMessage `json:"input,omitempty"`
-	// tool_result fields (user → result of builtin tool execution)
-	ToolUseID     string `json:"tool_use_id,omitempty"`
-	ResultContent string `json:"content,omitempty"` // plain text or JSON result
+	// tool_result fields (user → result of builtin or MCP tool execution).
+	// Builtin tools: `content` is a plain JSON string.
+	// MCP tools:    `content` is a JSON array of {type, text} objects.
+	// Use ResultContent() to get a normalised string in both cases.
+	ToolUseID         string          `json:"tool_use_id,omitempty"`
+	ResultContentRaw  json.RawMessage `json:"content,omitempty"`
+}
+
+// ResultContent returns the tool result as a plain string regardless of
+// whether it was encoded as a plain JSON string (builtin tools) or as an
+// array of content objects (MCP tools).
+func (b *claudeBlock) ResultContent() string {
+	if len(b.ResultContentRaw) == 0 {
+		return ""
+	}
+	// Plain string (builtin tools: bash, read, etc.)
+	var s string
+	if json.Unmarshal(b.ResultContentRaw, &s) == nil {
+		return s
+	}
+	// Array of {type, text} objects (MCP tools).
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(b.ResultContentRaw, &blocks) == nil {
+		parts := make([]string, 0, len(blocks))
+		for _, blk := range blocks {
+			if blk.Type == "text" && blk.Text != "" {
+				parts = append(parts, blk.Text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	// Fallback: raw JSON.
+	return string(b.ResultContentRaw)
 }
 
 type claudeUsage struct {
