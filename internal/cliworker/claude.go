@@ -155,8 +155,10 @@ func RunJob(
 	// onOverload is called when Claude CLI reports a provider rate limit
 	// ("You've hit your limit"). The caller should requeue the job rather than
 	// marking it failed. retryAfterSecs is a hint; 0 means use the default.
+	// status and rateLimitType come from the rate_limit_event payload so the
+	// server can persist them to the provider usage snapshot.
 	// May be nil if the caller does not need rate-limit handling.
-	onOverload func(retryAfterSecs int) error,
+	onOverload func(retryAfterSecs int, resetsAt int64, status, rateLimitType string) error,
 ) {
 	log := slog.Default()
 	err := runJobOnce(ctx, job, cfg, onToken, onReasoningToken, onBuiltinTool, onComplete, onError)
@@ -181,9 +183,10 @@ func RunJob(
 	if errors.As(err, &rle) {
 		log.Warn("cliworker: provider rate limited — signalling overload to server",
 			"retry_after_secs", rle.retryAfterSecs,
-			"resets_at", rle.resetsAt)
+			"resets_at", rle.resetsAt,
+			"status", rle.status)
 		if onOverload != nil {
-			_ = onOverload(rle.retryAfterSecs)
+			_ = onOverload(rle.retryAfterSecs, rle.resetsAt, rle.status, rle.rateLimitType)
 		}
 	}
 }
@@ -218,7 +221,9 @@ var errPromptTooLong = fmt.Errorf("prompt_too_long_retry")
 // the exact retry-after duration so RunJob can pass it to onOverload.
 type rateLimitError struct {
 	retryAfterSecs int
-	resetsAt       int64 // Unix timestamp; 0 if unknown
+	resetsAt       int64  // Unix timestamp; 0 if unknown
+	status         string // e.g. "allowed_warning", "denied"
+	rateLimitType  string // e.g. "five_hour"
 }
 
 func (e *rateLimitError) Error() string {
@@ -653,7 +658,12 @@ func runJobOnce(
 				// Kill the Claude process — it's going to emit a rate-limit
 				// text response anyway, which we want to suppress.
 				cancelClaude()
-				return &rateLimitError{retryAfterSecs: retryAfter, resetsAt: rli.ResetsAt}
+				return &rateLimitError{
+					retryAfterSecs: retryAfter,
+					resetsAt:       rli.ResetsAt,
+					status:         rli.Status,
+					rateLimitType:  rli.RateLimitType,
+				}
 			}
 		}
 

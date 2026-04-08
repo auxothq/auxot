@@ -361,11 +361,16 @@ func (c *Connection) SendError(jobID, errMsg string) error {
 // SendOverload notifies the server that the provider hit a usage/rate limit.
 // The server should requeue the job rather than marking it failed.
 // retryAfterSecs is a hint; 0 lets the server use its default (5 minutes).
-func (c *Connection) SendOverload(jobID string, retryAfterSecs int) error {
+// The rate limit fields are forwarded verbatim from the Claude rate_limit_event
+// so the server can persist them to the provider usage snapshot.
+func (c *Connection) SendOverload(jobID string, retryAfterSecs int, resetsAt int64, status, rateLimitType string) error {
 	return c.sendJSON(protocol.OverloadMessage{
-		Type:           protocol.TypeJobOverload,
-		JobID:          jobID,
-		RetryAfterSecs: retryAfterSecs,
+		Type:              protocol.TypeJobOverload,
+		JobID:             jobID,
+		RetryAfterSecs:    retryAfterSecs,
+		RateLimitStatus:   status,
+		RateLimitResetsAt: resetsAt,
+		RateLimitType:     rateLimitType,
 	})
 }
 

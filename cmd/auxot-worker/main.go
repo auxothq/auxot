@@ -656,8 +656,8 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 			func(errMsg, details string) error {
 				return conn.SendError(job.JobID, appendErrorDetails(errMsg, details))
 			},
-			func(retryAfterSecs int) error {
-				return conn.SendOverload(job.JobID, retryAfterSecs)
+			func(retryAfterSecs int, resetsAt int64, status, rateLimitType string) error {
+				return conn.SendOverload(job.JobID, retryAfterSecs, resetsAt, status, rateLimitType)
 			},
 		)
 	})

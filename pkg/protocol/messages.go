@@ -237,10 +237,15 @@ type ErrorMessage struct {
 // has hit a usage/rate limit and the job should be requeued rather than failed.
 // RetryAfterSecs is a hint for the server's retry delay; 0 means use the server
 // default (currently 5 minutes). The server must NOT mark the job as failed.
+// The rate limit fields are forwarded from the Claude rate_limit_event so the
+// server can persist them to the provider usage snapshot.
 type OverloadMessage struct {
-	Type            MessageType `json:"type"`
-	JobID           string      `json:"job_id"`
-	RetryAfterSecs  int         `json:"retry_after_secs,omitempty"`
+	Type              MessageType `json:"type"`
+	JobID             string      `json:"job_id"`
+	RetryAfterSecs    int         `json:"retry_after_secs,omitempty"`
+	RateLimitStatus   string      `json:"rate_limit_status,omitempty"`
+	RateLimitResetsAt int64       `json:"rate_limit_resets_at,omitempty"`
+	RateLimitType     string      `json:"rate_limit_type,omitempty"`
 }
 
 // --- Server → Worker messages ---
