@@ -31,12 +31,26 @@ func (w *Worker) handleFileUpload(msg protocol.AgentFileUploadMessage) {
 	log := w.logger.With("correlation_id", msg.CorrelationID, "file_name", msg.FileName)
 
 	sendAck := func(resolvedPath, errMsg string) {
-		if err := w.writeJSON(protocol.AgentFileUploadAckMessage{
+		ack := protocol.AgentFileUploadAckMessage{
 			Type:          protocol.TypeFileUploadAck,
 			CorrelationID: msg.CorrelationID,
 			ResolvedPath:  resolvedPath,
 			Error:         errMsg,
-		}); err != nil {
+		}
+		// Bounded write so a peer that stops reading cannot block this goroutine
+		// indefinitely while holding writeMu (which would stall heartbeats and tool results).
+		w.writeMu.Lock()
+		c := w.currentConn()
+		var err error
+		if c == nil {
+			err = fmt.Errorf("no connection")
+		} else {
+			_ = c.SetWriteDeadline(time.Now().Add(10 * time.Second)) //nolint:errcheck
+			err = c.WriteJSON(ack)
+			_ = c.SetWriteDeadline(time.Time{}) //nolint:errcheck
+		}
+		w.writeMu.Unlock()
+		if err != nil {
 			log.Warn("file.upload: failed to send ack", "err", err)
 		}
 	}
@@ -92,7 +106,13 @@ func (w *Worker) handleFileUpload(msg protocol.AgentFileUploadMessage) {
 	}
 
 	log.Info("file.upload: file saved", "path", finalPath, "size", len(msg.Data))
-	sendAck(finalPath, "")
+	ackPath := finalPath
+	if abs, err := filepath.Abs(finalPath); err == nil {
+		ackPath = abs
+	} else {
+		log.Warn("file.upload: filepath.Abs failed", "path", finalPath, "err", err)
+	}
+	sendAck(ackPath, "")
 }
 
 // cleanupOldUploads removes files in dir whose mtime is older than uploadTTL.
