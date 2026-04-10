@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/auxothq/auxot/pkg/builtins"
 )
 
 func UseSkillTool() Tool {
@@ -35,6 +38,13 @@ func executeUseSkill(ctx context.Context, workDir string, args json.RawMessage) 
 	}
 	if err := json.Unmarshal(args, &p); err != nil {
 		return "", fmt.Errorf("parse args: %w", err)
+	}
+
+	if strings.HasPrefix(p.SkillID, "auxot:") {
+		if content, ok := builtins.LookupSkill(p.SkillID); ok {
+			return builtins.AppendAuxotOpenUIChatFooterIfNeeded(p.SkillID, content), nil
+		}
+		return fmt.Sprintf("Skill %q not found.", p.SkillID), nil
 	}
 
 	absPath, err := safePath(workDir, filepath.Join("skills", p.SkillID, "SKILL.md"))
