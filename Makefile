@@ -1,4 +1,4 @@
-.PHONY: build test test-integration test-race vet lint check clean sync-registry tag tag-release test-router-url-flag
+.PHONY: build test test-integration test-race vet lint check clean sync-registry tag tag-release test-router-url-flag environment
 
 WEB_REPO      := $(HOME)/src/auxot/auxot
 CHANGELOG_DIR := $(WEB_REPO)/apps/web/src/content/changelog/oss
@@ -59,6 +59,10 @@ test-router-url-flag: bin/auxot-tools
 	else \
 		echo "✗ FAIL: expected router_url with 9999, got: $$out"; exit 1; \
 	fi
+
+## environment: install deps and build prerequisites (for worktree/CI setup)
+environment: ensure-registry
+	go mod download
 
 # Remove build artifacts
 clean:
