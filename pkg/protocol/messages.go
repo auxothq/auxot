@@ -62,6 +62,11 @@ const (
 	// Worker → Server: "The provider hit a rate/usage limit — do not fail the job,
 	// requeue it for retry after RetryAfterSecs (0 = use server default of 5 min)."
 	TypeJobOverload MessageType = "job.overload"
+
+	// Server → Agent worker: push file bytes to the VM's working directory.
+	TypeFileUpload MessageType = "file.upload"
+	// Agent worker → Server: file written to VM, resolved absolute path returned.
+	TypeFileUploadAck MessageType = "file.upload_ack"
 )
 
 // Envelope is the first-pass parse of any WebSocket message.
@@ -721,6 +726,27 @@ type AgentReloadPolicyMessage struct {
 	Type          MessageType       `json:"type"` // TypeReloadPolicy
 	SystemPrompt  string            `json:"system_prompt"`
 	ExternalTools []ExternalToolDef `json:"external_tools,omitempty"`
+}
+
+// AgentFileUploadMessage is sent from the server to an agent worker to push a file
+// to the VM's working directory. Data contains raw file bytes; JSON encoding
+// base64-encodes them automatically, matching the JSON framing used elsewhere.
+type AgentFileUploadMessage struct {
+	Type          MessageType `json:"type"`                // TypeFileUpload
+	CorrelationID string      `json:"correlation_id"`
+	FileName      string      `json:"file_name"`
+	MimeType      string      `json:"mime_type,omitempty"`
+	Data          []byte      `json:"data"` // raw bytes; JSON marshal will base64-encode
+}
+
+// AgentFileUploadAckMessage is sent from the agent worker to the server after
+// writing the file. ResolvedPath is the absolute path on the VM where the file
+// was saved. Error is non-empty when the write failed.
+type AgentFileUploadAckMessage struct {
+	Type          MessageType `json:"type"` // TypeFileUploadAck
+	CorrelationID string      `json:"correlation_id"`
+	ResolvedPath  string      `json:"resolved_path,omitempty"`
+	Error         string      `json:"error,omitempty"`
 }
 
 // JobToolCallRequestMessage is sent by a CLI worker to the server when Claude Code
