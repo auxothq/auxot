@@ -13,10 +13,6 @@ import (
 )
 
 const (
-	// maxUploadBytes is the worker-side cap for incoming file payloads.
-	// The server enforces a stricter primary limit; this is a second-line defense.
-	maxUploadBytes = 100 * 1024 * 1024 // 100 MB
-
 	// uploadMaxFileNameLen caps the sanitized filename length.
 	uploadMaxFileNameLen = 200
 
@@ -24,18 +20,25 @@ const (
 	uploadTTL = 7 * 24 * time.Hour
 )
 
+// maxUploadBytes is the worker-side cap for incoming file payloads.
+// The server enforces a stricter primary limit; this is a second-line defense.
+// It is a var (not const) so tests can lower the limit without huge allocations.
+var maxUploadBytes = 100 * 1024 * 1024 // 100 MB
+
 // handleFileUpload writes the uploaded file to cfg.Dir/tmp/ and sends an ack.
 // Always called in a dedicated goroutine — never blocks the main receive loop.
 func (w *Worker) handleFileUpload(msg protocol.AgentFileUploadMessage) {
 	log := w.logger.With("correlation_id", msg.CorrelationID, "file_name", msg.FileName)
 
 	sendAck := func(resolvedPath, errMsg string) {
-		_ = w.writeJSON(protocol.AgentFileUploadAckMessage{
+		if err := w.writeJSON(protocol.AgentFileUploadAckMessage{
 			Type:          protocol.TypeFileUploadAck,
 			CorrelationID: msg.CorrelationID,
 			ResolvedPath:  resolvedPath,
 			Error:         errMsg,
-		})
+		}); err != nil {
+			log.Warn("file.upload: failed to send ack", "err", err)
+		}
 	}
 
 	// Second-line size defense — server is the primary enforcer.

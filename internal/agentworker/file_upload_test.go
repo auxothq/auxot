@@ -167,12 +167,16 @@ func TestHandleFileUpload_Cleanup(t *testing.T) {
 }
 
 func TestHandleFileUpload_OversizedPayload(t *testing.T) {
+	prevLimit := maxUploadBytes
+	maxUploadBytes = 1024
+	t.Cleanup(func() { maxUploadBytes = prevLimit })
+
 	workerConn, serverConn := newTestWSPair(t)
 	dir := t.TempDir()
 	w := newTestWorker(t, dir, workerConn)
 
-	// One byte over the limit — no actual data needed, size check fires first.
-	largeData := make([]byte, maxUploadBytes+1)
+	// One byte over the lowered test limit — avoids allocating ~100 MB.
+	largeData := make([]byte, 1025)
 	msg := protocol.AgentFileUploadMessage{
 		Type:          protocol.TypeFileUpload,
 		CorrelationID: "corr-oversize-1",
