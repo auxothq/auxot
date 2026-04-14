@@ -259,6 +259,14 @@ func (w *Worker) connectAndRun(ctx context.Context, onConnected func()) error {
 			}
 			go w.handleToolExecute(ctx, msg)
 
+		case string(protocol.TypeFileUpload): // "file.upload"
+			var msg protocol.AgentFileUploadMessage
+			if err := json.Unmarshal(raw, &msg); err != nil {
+				w.logger.Warn("parse file.upload failed", "err", err)
+				continue
+			}
+			go w.handleFileUpload(msg)
+
 		case "reload_policy":
 			// Re-read the gitagent directory and push an updated context_update.
 			go w.sendContextUpdate()
