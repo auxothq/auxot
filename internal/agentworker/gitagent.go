@@ -172,14 +172,7 @@ func (ga *GitAgent) BuildSystemPrompt(auxotContext string, toolNames []string) s
 
 	b.WriteString("\n\n[operational rules]\n")
 	b.WriteString("- You are running inside Auxot. Respond conversationally.\n")
-	if len(toolNames) > 0 {
-		b.WriteString("- Tools available: ")
-		b.WriteString(strings.Join(toolNames, ", "))
-		b.WriteString(".\n")
-	}
-	b.WriteString("- Do not modify SOUL.md, RULES.md, or agent.yaml.\n")
 	b.WriteString("- Write to memory/ to persist state across sessions.\n")
-	b.WriteString("- Output your final response as text — Auxot handles delivery.\n")
 	b.WriteString("[/operational rules]")
 
 	if ga.Bootstrap != "" {
