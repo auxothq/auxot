@@ -362,6 +362,9 @@ type Tool struct {
 type JobMessage struct {
 	Type            MessageType    `json:"type"`
 	JobID           string         `json:"job_id"`
+	// Model is the per-job routed model for CLI workers (e.g. haiku, sonnet,
+	// claude-haiku-4-5). When set, cliworker prefers this over hello policy model_name.
+	Model           string         `json:"model,omitempty"`
 	Messages        []ChatMessage  `json:"messages"`
 	Tools           []Tool         `json:"tools,omitempty"`
 	Temperature     *float64       `json:"temperature,omitempty"`

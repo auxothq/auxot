@@ -346,6 +346,8 @@ func probeEnv(proxyAddr string) []string {
 	env := os.Environ()
 	overlay := []string{
 		"CLAUDE_CONFIG_DIR=" + probeConfigDir,
+		// Match cliworker.workerEnv: avoid 5m top-level vs 1h block cache_control 400s.
+		"DISABLE_PROMPT_CACHING=1",
 		"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
 		"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1",
 		"CLAUDE_CODE_DISABLE_CRON=1",

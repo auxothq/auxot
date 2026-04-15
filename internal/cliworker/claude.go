@@ -79,6 +79,14 @@ func workerEnv(configDir, proxyAddr string, credentials map[string]string) []str
 	env := os.Environ()
 	overlay := []string{
 		"CLAUDE_CONFIG_DIR=" + configDir,
+		// Claude Code adds message/tool cache_control markers (often ttl=1h for
+		// eligible accounts). Anthropic's automatic prompt caching uses a
+		// top-level cache_control with ttl=5m on the same target block; the API
+		// rejects mixed TTLs on one block ("must have matching TTLs").
+		// Disabling Claude's manual breakpoint injection keeps only top-level
+		// automatic caching. See claude-code-source getPromptCachingEnabled /
+		// DISABLE_PROMPT_CACHING and anthropic/claude-code cache_control issues.
+		"DISABLE_PROMPT_CACHING=1",
 		// Prevent Claude from creating per-user memory files that could
 		// bleed context between different users' sessions on the same worker.
 		"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
@@ -277,7 +285,11 @@ func runJobOnce(
 	toolsFlag := buildToolsFlag(effectiveBuiltins)
 	hasTools := len(job.Tools) > 0
 
-	effectiveModel := cfg.Model
+	// Per-job model from the server (chat selection) beats hello policy defaults.
+	effectiveModel := strings.TrimSpace(job.Model)
+	if effectiveModel == "" {
+		effectiveModel = strings.TrimSpace(cfg.Model)
+	}
 	if effectiveModel == "" {
 		effectiveModel = "claude-sonnet-4-6"
 	}
