@@ -2876,6 +2876,125 @@
       "mmproj_file_name": "mmproj-F16.gguf"
     },
     {
+      "id": "qwen3-6-35b-a3b-f16",
+      "model_name": "Qwen3.6-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.6-35B-A3B-GGUF",
+      "quantization": "F16",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 70,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "BF16/Qwen3.6-35B-A3B-BF16-00001-of-00002.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "qwen3-6-35b-a3b-q3-k-s",
+      "model_name": "Qwen3.6-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.6-35B-A3B-GGUF",
+      "quantization": "Q3_K_S",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 11,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "Qwen3.6-35B-A3B-UD-Q3_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "qwen3-6-35b-a3b-q4-k-s",
+      "model_name": "Qwen3.6-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.6-35B-A3B-GGUF",
+      "quantization": "Q4_K_S",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 17.5,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "Qwen3.6-35B-A3B-UD-Q4_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "qwen3-6-35b-a3b-q5-k-s",
+      "model_name": "Qwen3.6-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.6-35B-A3B-GGUF",
+      "quantization": "Q5_K_S",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 21.9,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "Qwen3.6-35B-A3B-UD-Q5_K_S.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "qwen3-6-35b-a3b-q6-k",
+      "model_name": "Qwen3.6-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.6-35B-A3B-GGUF",
+      "quantization": "Q6_K",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 26.3,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "Qwen3.6-35B-A3B-UD-Q6_K.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "qwen3-6-35b-a3b-q8-0",
+      "model_name": "Qwen3.6-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.6-35B-A3B-GGUF",
+      "quantization": "Q8_0",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 35,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "Qwen3.6-35B-A3B-Q8_0.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
+      "id": "qwen3-6-35b-a3b-q8-k",
+      "model_name": "Qwen3.6-35B-A3B",
+      "huggingface_id": "unsloth/Qwen3.6-35B-A3B-GGUF",
+      "quantization": "Q8_K",
+      "family": "MoE",
+      "parameters": "35B",
+      "default_context_size": 32768,
+      "max_context_size": 262144,
+      "vram_requirements_gb": 35,
+      "capabilities": [
+        "chat",
+        "vision"
+      ],
+      "file_name": "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf",
+      "mmproj_file_name": "mmproj-F16.gguf"
+    },
+    {
       "id": "qwen3-vl-32b-f16",
       "model_name": "Qwen3-VL-32B",
       "huggingface_id": "unsloth/Qwen3-VL-32B-Instruct-GGUF",
