@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,9 +15,19 @@ import (
 
 const (
 	defaultBashTimeoutSecs = 120
-	bashInlineBytes        = 1_024          // returned inline to the LLM
-	maxBashOutputBytes     = 100 * 1024     // collected from subprocess, full result
+	bashInlineBytes        = 1_024      // returned inline to the LLM (marshaled JSON size)
+	maxBashOutputBytes     = 100 * 1024 // len(stdout)+len(stderr) from subprocess (before JSON)
 )
+
+const bash100KBTruncationSuffix = "\n[output truncated at 100KB]"
+
+// bashResultJSON is the compact JSON object returned to the LLM for bash runs.
+type bashResultJSON struct {
+	Stdout string `json:"stdout"`
+	Stderr string `json:"stderr"`
+	Output string `json:"output"` // always identical to Stdout (LLM ergonomics)
+	Status int    `json:"status"` // process exit code; 0 success; -1 if not an exec.ExitError
+}
 
 // BashArgs are the arguments for the bash tool.
 type BashArgs struct {
@@ -35,8 +46,11 @@ type BashArgs struct {
 // when that variable is not exported).
 func BashTool() Tool {
 	return Tool{
-		Name:        "bash",
-		Description: "Execute a bash command. The working directory is the agent directory. stdout and stderr are captured and returned combined. Output is capped at 100KB.",
+		Name: "bash",
+		Description: "Execute a bash command in the agent directory. " +
+			"The result is a JSON object string with string fields stdout, stderr, and output " +
+			"(output is always the same as stdout), and integer status (shell exit code; -1 when the failure was not a normal non-zero exit). " +
+			"Combined stdout/stderr payload is capped at 100KB; inline JSON size is capped at 1KB.",
 		Parameters: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -138,38 +152,166 @@ func executeBash(ctx context.Context, workDir string, toolEnv map[string]string,
 	cmd.Dir = workDir
 	cmd.Env = bashSubprocessEnv(workDir, toolEnv)
 
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
 
-	// Run and capture exit code in the output — don't return an error for
-	// non-zero exit codes, as the model needs to see the output to diagnose.
-	if err := cmd.Run(); err != nil {
-		if out.Len() == 0 {
-			// No output and command failed — surface the error.
-			return "", fmt.Errorf("bash: %w", err)
+	// Run and capture exit code — don't return an error for non-zero exits when
+	// there is output, as the model needs to see streams to diagnose.
+	runErr := cmd.Run()
+	status := 0
+	if runErr != nil {
+		if stdoutBuf.Len() == 0 && stderrBuf.Len() == 0 {
+			return "", fmt.Errorf("bash: %w", runErr)
 		}
-		// Include a note about the non-zero exit.
-		fmt.Fprintf(&out, "\n[exit: %v]", err)
-	}
-
-	result := out.String()
-	if len(result) > maxBashOutputBytes {
-		result = result[:maxBashOutputBytes] + "\n[output truncated at 100KB]"
-	}
-	if result == "" {
-		return "(no output)", nil
-	}
-
-	// Cap inline output to the LLM; return the tail (most recent output is most actionable).
-	if len(result) > bashInlineBytes {
-		callID := "<call_id>"
-		if id, ok := toolEnv["_call_id"]; ok && id != "" {
-			callID = id
+		var exitErr *exec.ExitError
+		if errors.As(runErr, &exitErr) {
+			status = exitErr.ExitCode()
+		} else {
+			status = -1
 		}
-		header := fmt.Sprintf("[output truncated — showing last 1024 bytes; use tool_recall(%q, offset_byte=0) to read from the beginning]\n", callID)
-		tail := result[len(result)-bashInlineBytes:]
-		return header + tail, nil
+		fmt.Fprintf(&stderrBuf, "\n[exit: %v]", runErr)
 	}
-	return result, nil
+
+	p := bashResultJSON{
+		Stdout: stdoutBuf.String(),
+		Stderr: stderrBuf.String(),
+		Status: status,
+	}
+	p.Output = p.Stdout
+
+	applyMaxBashPayload(&p)
+	return marshalBashResultInline(p, toolEnv), nil
+}
+
+// applyMaxBashPayload ensures len(stdout)+len(stderr) <= maxBashOutputBytes in the
+// final JSON string fields: trim from the end of stderr first, then stdout, then
+// append one shared truncation note to stderr (included in the byte budget).
+func applyMaxBashPayload(p *bashResultJSON) {
+	total := len(p.Stdout) + len(p.Stderr)
+	if total <= maxBashOutputBytes {
+		p.Output = p.Stdout
+		return
+	}
+	suffix := bash100KBTruncationSuffix
+	contentBudget := maxBashOutputBytes - len(suffix)
+	if contentBudget < 0 {
+		contentBudget = 0
+	}
+	over := total - contentBudget
+	// Trim stderr from the end first.
+	if over > 0 && len(p.Stderr) > 0 {
+		if over >= len(p.Stderr) {
+			over -= len(p.Stderr)
+			p.Stderr = ""
+		} else {
+			p.Stderr = p.Stderr[:len(p.Stderr)-over]
+			over = 0
+		}
+	}
+	if over > 0 && len(p.Stdout) > 0 {
+		if over >= len(p.Stdout) {
+			p.Stdout = ""
+		} else {
+			p.Stdout = p.Stdout[:len(p.Stdout)-over]
+		}
+	}
+	p.Stderr += suffix
+	p.Output = p.Stdout
+}
+
+func marshalBashResultInline(p bashResultJSON, toolEnv map[string]string) string {
+	p.Output = p.Stdout
+	b, err := json.Marshal(p)
+	if err != nil {
+		return minimalBashInlineJSON(toolEnv, p.Status)
+	}
+	if len(b) <= bashInlineBytes {
+		return string(b)
+	}
+	// Fit JSON into bashInlineBytes: trim from the end of stderr first (longest
+	// stderr prefix), then stdout (longest stdout prefix), using binary search
+	// so we do not wipe content in one step (JSON size is not linear in string length).
+	so, se := p.Stdout, p.Stderr
+	// Largest stderr prefix (trim suffix first) that still allows some stdout.
+	bestKE := 0
+	lo, hi := 0, len(se)
+	for lo <= hi {
+		mid := (lo + hi + 1) / 2
+		p2 := bashResultJSON{Stdout: so, Stderr: se[:mid], Output: so, Status: p.Status}
+		b2, err2 := json.Marshal(p2)
+		if err2 != nil {
+			hi = mid - 1
+			continue
+		}
+		if len(b2) <= bashInlineBytes {
+			bestKE = mid
+			lo = mid + 1
+		} else {
+			hi = mid - 1
+		}
+	}
+	seUse := se[:bestKE]
+	// Largest stdout prefix with stderr fixed.
+	bestKO := 0
+	lo, hi = 0, len(so)
+	for lo <= hi {
+		mid := (lo + hi + 1) / 2
+		p2 := bashResultJSON{Stdout: so[:mid], Stderr: seUse, Output: so[:mid], Status: p.Status}
+		b2, err2 := json.Marshal(p2)
+		if err2 != nil {
+			hi = mid - 1
+			continue
+		}
+		if len(b2) <= bashInlineBytes {
+			bestKO = mid
+			lo = mid + 1
+		} else {
+			hi = mid - 1
+		}
+	}
+	out := bashResultJSON{Stdout: so[:bestKO], Stderr: seUse, Output: so[:bestKO], Status: p.Status}
+	b, err = json.Marshal(out)
+	if err != nil || len(b) > bashInlineBytes {
+		return minimalBashInlineJSON(toolEnv, p.Status)
+	}
+	return string(b)
+}
+
+func minimalBashInlineJSON(toolEnv map[string]string, status int) string {
+	callID := "<call_id>"
+	if id, ok := toolEnv["_call_id"]; ok && id != "" {
+		callID = id
+	}
+	// Hint mirrors prior inline header spirit: tool_recall for full content.
+	msg := fmt.Sprintf("[output truncated — use tool_recall(%q, offset_byte=0) to read from the beginning]", callID)
+	p := bashResultJSON{
+		Stdout: "",
+		Stderr: msg,
+		Output: "",
+		Status: status,
+	}
+	b, err := json.Marshal(p)
+	if err != nil {
+		fallback, _ := json.Marshal(bashResultJSON{Status: status})
+		return string(fallback)
+	}
+	if len(b) <= bashInlineBytes {
+		return string(b)
+	}
+	// Last resort: shorten stderr message (field carries the hint).
+	for len(msg) > 0 {
+		msg = msg[:len(msg)-1]
+		p.Stderr = msg
+		b, err = json.Marshal(p)
+		if err != nil {
+			fallback, _ := json.Marshal(bashResultJSON{Status: status})
+			return string(fallback)
+		}
+		if len(b) <= bashInlineBytes {
+			return string(b)
+		}
+	}
+	fallback, _ := json.Marshal(bashResultJSON{Status: status})
+	return string(fallback)
 }
