@@ -118,7 +118,7 @@ RUN \
         echo 'precedence 2002::/16        30'; \
         echo 'precedence ::/96            20'; \
     } > /etc/gai.conf && \
-    mkdir -p /opt/auxot/bun-cache /opt/auxot/pw-browsers /home/nobody /opt/auxot/mcp-cache && \
+    mkdir -p /opt/auxot/bun-cache /opt/auxot/pw-browsers /opt/auxot/browser-profile /home/nobody /opt/auxot/mcp-cache && \
     # Install the Playwright Chromium browser using the pre-installed playwright-mcp.
     # @playwright/mcp is copied from the node-source stage; we run it with node directly.
     node /usr/local/lib/node_modules/@playwright/mcp/cli.js install-browser chrome-for-testing && \
