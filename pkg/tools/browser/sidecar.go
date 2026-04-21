@@ -69,19 +69,29 @@ func (s *Sidecar) Start(ctx context.Context) error {
 	//   --host 127.0.0.1: bind to IPv4 loopback only; avoids IPv6/IPv4 ambiguity
 	//     inside Docker and satisfies Playwright MCP's CSRF host-check.
 	//
-	// NOT using --isolated: in default (non-isolated) mode a single Chrome process
-	// is shared across all MCP sessions on this worker.  Each session identified by
-	// Mcp-Session-Id gets its own isolated BrowserContext (separate cookies,
-	// localStorage, auth state) within that one process.  Chrome starts once per
-	// worker (~30 s cold start) and each subsequent thread attaches a fresh context
-	// in milliseconds — no per-request Chrome spawn.
+	// --isolated: each MCP session (identified by Mcp-Session-Id) gets its own
+	// independent Chrome process and temp user-data-dir.  Sessions are completely
+	// isolated — separate cookies, localStorage, auth — with no shared state.
+	//
+	// Why --isolated instead of non-isolated (shared Chrome) mode:
+	//   In non-isolated mode playwright-mcp allows only ONE browser to run with a
+	//   given user-data-dir at a time.  Concurrent sessions (multiple threads) race
+	//   to acquire that browser and the losers get "Browser is already in use".
+	//   --isolated eliminates the contention entirely: each session starts its own
+	//   Chrome process with a unique temp dir, so N concurrent threads work fine.
+	//
+	// Chrome startup cost (one-time per session, not per request):
+	//   Chrome starts LAZILY on the first browser tool call of a new thread, not on
+	//   initialize.  Our Registry keeps the session alive across calls for the same
+	//   thread_id, so the cold-start (~5-15 s) happens at most once per thread per
+	//   30-minute TTL window, not on every LLM tool invocation.
 	cmd := exec.CommandContext(ctx,
 		"node",
 		"/usr/local/lib/node_modules/@playwright/mcp/cli.js",
 		"--browser", "chromium",
 		"--headless",
 		"--no-sandbox",
-		"--user-data-dir", "/opt/auxot/browser-profile",
+		"--isolated",
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(s.port),
 	)

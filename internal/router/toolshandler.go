@@ -149,13 +149,19 @@ func NewToolsWSHandler(
 			},
 		}
 	}
-	builtinDefs["browser"] = protocol.Tool{
-		Type: "function",
-		Function: protocol.ToolDefinition{
-			Name:        browser.Definition.Name,
-			Description: browser.Definition.Description,
-			Parameters:  browser.Definition.Parameters,
-		},
+	// Register each individual Playwright MCP tool so the LLM can call
+	// browser_navigate({ url: "..." }), browser_click({ target: "..." }), etc.
+	// directly instead of routing through an opaque aggregate wrapper.
+	for _, name := range browser.AllowedToolNames() {
+		n := name // capture for closure safety
+		builtinDefs[n] = protocol.Tool{
+			Type: "function",
+			Function: protocol.ToolDefinition{
+				Name:        n,
+				Description: "Browser automation action via Playwright MCP (" + n + ").",
+				Parameters:  json.RawMessage(`{"type":"object","additionalProperties":true}`),
+			},
+		}
 	}
 
 	return &ToolsWSHandler{

@@ -89,10 +89,10 @@ func (w *Worker) Run(ctx context.Context) error {
 			w.browserRegistry = browser.NewRegistry(ctx, sc, w.logger)
 			defer sc.Stop()
 
-			// Register the browser built-in executor and update the advertised
-			// tools list so the next HelloMessage includes "browser".
-			browserExec := browser.NewExecutor(w.browserRegistry)
-			w.registry.Register("browser", browserExec.Execute)
+			// Register individual Playwright MCP tool executors so each browser
+			// action appears as its own tool in discovery with a proper schema.
+			// The LLM calls browser_navigate({ url: "..." }) directly — no wrapper.
+			browser.RegisterAll(w.registry, w.browserRegistry)
 			w.conn.UpdateAdvertisedTools(w.registry.Names())
 		}
 	}

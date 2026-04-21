@@ -280,6 +280,37 @@ func (r *Registry) GetOrCreate(threadID string) (*Session, error) {
 // result JSON.  The caller's ctx controls the per-call deadline so slow
 // browser operations (heavy pages, screenshots) respect the job timeout.
 func (r *Registry) Call(ctx context.Context, sess *Session, method string, params any) (json.RawMessage, error) {
+	raw, err := r.doCall(ctx, sess, method, params)
+	if err != nil && isSessionNotFound(err) {
+		// The playwright-mcp server lost this session (sidecar restart, proxy
+		// timeout dropping the idle connection, etc.).  Evict the dead session
+		// and reconnect transparently so the caller never has to handle this.
+		r.mu.Lock()
+		delete(r.sessions, sess.threadID)
+		r.mu.Unlock()
+		go sess.close()
+
+		r.logger.Info("browser session lost; reconnecting",
+			"thread_id", sess.threadID, "cause", err)
+
+		newSess, reconnErr := r.GetOrCreate(sess.threadID)
+		if reconnErr != nil {
+			return nil, fmt.Errorf("browser session reconnect: %w", reconnErr)
+		}
+		return r.doCall(ctx, newSess, method, params)
+	}
+	return raw, err
+}
+
+// isSessionNotFound reports whether err indicates that the playwright-mcp
+// server returned 404 "Session not found" for a stale Mcp-Session-Id.
+func isSessionNotFound(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "404") && strings.Contains(s, "Session not found")
+}
+
+// doCall performs a single MCP round-trip with no retry logic.
+func (r *Registry) doCall(ctx context.Context, sess *Session, method string, params any) (json.RawMessage, error) {
 	atomic.AddInt64(&sess.inFlight, 1)
 	defer atomic.AddInt64(&sess.inFlight, -1)
 
