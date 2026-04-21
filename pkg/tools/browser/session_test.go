@@ -36,6 +36,12 @@ func newMCPMock(t *testing.T) *mcpMock {
 }
 
 func (m *mcpMock) handleMCP(w http.ResponseWriter, r *http.Request) {
+	// DELETE /mcp: session termination — acknowledge and return.
+	if r.Method == http.MethodDelete {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	body, _ := io.ReadAll(r.Body)
 
 	var req struct {

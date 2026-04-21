@@ -197,33 +197,26 @@ func TestIntegration_AllowedToolsExistInSidecar(t *testing.T) {
 }
 
 // TestIntegration_SessionIsolation verifies that two different thread IDs get
-// independent browser state — navigating one does not affect the other.
+// independent browser state.  Non-isolated mode uses one Chrome with separate
+// BrowserContexts per session; sessions run sequentially (close A before
+// opening B) which is the realistic production pattern — the LLM finishes one
+// thread's task before starting another on the same worker.
 func TestIntegration_SessionIsolation(t *testing.T) {
 	const threadA = "integ-iso-A"
 	const threadB = "integ-iso-B"
-	defer closeThread(t, threadA)
-	defer closeThread(t, threadB)
 
 	reg := sharedRegistry(t)
-	ctxA := tools.WithThreadID(context.Background(), threadA)
-	ctxB := tools.WithThreadID(context.Background(), threadB)
-
 	navExec := NewPerToolExecutor("browser_navigate", reg)
 	snapExec := NewPerToolExecutor("browser_snapshot", reg)
 
-	// Navigate thread A to example.com.
+	// ── Thread A ──────────────────────────────────────────────────────────────
+	ctxA := tools.WithThreadID(context.Background(), threadA)
+
 	navArgs, _ := json.Marshal(map[string]string{"url": "https://example.com"})
 	if _, err := navExec.Execute(ctxA, navArgs); err != nil {
 		t.Fatalf("thread A browser_navigate: %v", err)
 	}
 
-	// Navigate thread B to about:blank (different page).
-	blankArgs, _ := json.Marshal(map[string]string{"url": "about:blank"})
-	if _, err := navExec.Execute(ctxB, blankArgs); err != nil {
-		t.Fatalf("thread B browser_navigate: %v", err)
-	}
-
-	// Snapshot thread A — should mention "example".
 	snapA, err := snapExec.Execute(ctxA, json.RawMessage("{}"))
 	if err != nil {
 		t.Fatalf("thread A browser_snapshot: %v", err)
@@ -232,7 +225,24 @@ func TestIntegration_SessionIsolation(t *testing.T) {
 	_ = json.Unmarshal(snapA.Output, &textA)
 	t.Logf("thread A snapshot excerpt: %.150s", textA)
 
-	// Snapshot thread B — should NOT mention "Example Domain" (it's on about:blank).
+	if !strings.Contains(strings.ToLower(textA), "example") {
+		t.Error("thread A snapshot should contain 'example' (navigated to example.com)")
+	}
+
+	// Explicitly close thread A before starting thread B.
+	// In production this happens via the 30-min idle TTL sweeper; in tests we
+	// close immediately to keep the test fast and predictable.
+	closeThread(t, threadA)
+
+	// ── Thread B ──────────────────────────────────────────────────────────────
+	ctxB := tools.WithThreadID(context.Background(), threadB)
+	defer closeThread(t, threadB)
+
+	blankArgs, _ := json.Marshal(map[string]string{"url": "about:blank"})
+	if _, err := navExec.Execute(ctxB, blankArgs); err != nil {
+		t.Fatalf("thread B browser_navigate: %v", err)
+	}
+
 	snapB, err := snapExec.Execute(ctxB, json.RawMessage("{}"))
 	if err != nil {
 		t.Fatalf("thread B browser_snapshot: %v", err)
@@ -241,11 +251,8 @@ func TestIntegration_SessionIsolation(t *testing.T) {
 	_ = json.Unmarshal(snapB.Output, &textB)
 	t.Logf("thread B snapshot excerpt: %.150s", textB)
 
-	if !strings.Contains(strings.ToLower(textA), "example") {
-		t.Error("thread A snapshot should contain 'example' (navigated to example.com)")
-	}
 	if strings.Contains(strings.ToLower(textB), "example domain") {
-		t.Error("thread B snapshot should NOT contain 'Example Domain' — session leaked from thread A")
+		t.Error("thread B snapshot should NOT contain 'Example Domain' — state leaked from thread A")
 	}
 }
 

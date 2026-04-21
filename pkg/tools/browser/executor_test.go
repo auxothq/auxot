@@ -45,6 +45,11 @@ func newExecMockSidecar(t *testing.T, toolsCallResult func() any) *execMockSidec
 //   - 202 Accepted for notifications (no id, no body needed)
 //   - 200 with SSE body for request/response round-trips
 func (m *execMockSidecar) handleMCP(w http.ResponseWriter, r *http.Request) {
+	// DELETE /mcp: session termination — just acknowledge.
+	if r.Method == http.MethodDelete {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return

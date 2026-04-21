@@ -49,9 +49,30 @@ type Session struct {
 	closeOnce sync.Once
 }
 
-// close signals any waiters that the session is gone.
+// close terminates the server-side MCP session (DELETE /mcp) and signals any
+// waiters that the Go-side session is gone.
+//
+// Sending DELETE is important in non-isolated mode: the sidecar keeps the
+// BrowserContext open until it receives the DELETE.  Without it a second
+// thread's initialize succeeds but its first tool call races the existing
+// BrowserContext and can get "Browser is already in use".
 func (sess *Session) close() {
 	sess.closeOnce.Do(func() {
+		if sess.sessionID != "" {
+			// Best-effort: fire the DELETE and ignore errors.  The sidecar
+			// will eventually GC the session on its own idle timeout anyway.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+				sess.sidecar.baseURL+"/mcp", nil)
+			if err == nil {
+				req.Header.Set("Mcp-Session-Id", sess.sessionID)
+				resp, err := mcpHTTPClient.Do(req)
+				if err == nil {
+					_ = resp.Body.Close()
+				}
+			}
+		}
 		close(sess.done)
 	})
 }
