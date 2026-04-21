@@ -17,72 +17,38 @@ import (
 	"github.com/auxothq/auxot/pkg/tools"
 )
 
-// execMockSidecar is a variant of the test mock that allows setting a custom
-// response for tools/call requests so Executor tests can control sidecar output.
+// execMockSidecar simulates the Playwright MCP sidecar's Streamable HTTP
+// transport (MCP 2025-03-26): every client request is a POST to /mcp, and the
+// server replies with either a 202 Accepted (for notifications) or an inline
+// SSE stream containing the JSON-RPC response.
 type execMockSidecar struct {
-	srv     *httptest.Server
-	mu      sync.Mutex
-	sessCtr int
-	sseChans map[string]chan []byte
+	srv *httptest.Server
+	mu  sync.Mutex
 
-	// toolsCallResult, when non-nil, is sent as the result field for tools/call.
+	sessCtr int
+
+	// toolsCallResult, when non-nil, is returned as the result for tools/call.
 	toolsCallResult func() any
 }
 
 func newExecMockSidecar(t *testing.T, toolsCallResult func() any) *execMockSidecar {
 	t.Helper()
-	m := &execMockSidecar{
-		sseChans:        make(map[string]chan []byte),
-		toolsCallResult: toolsCallResult,
-	}
+	m := &execMockSidecar{toolsCallResult: toolsCallResult}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/sse", m.handleSSE)
-	mux.HandleFunc("/messages", m.handleMessages)
+	mux.HandleFunc("/mcp", m.handleMCP)
 	m.srv = httptest.NewServer(mux)
 	return m
 }
 
-func (m *execMockSidecar) handleSSE(w http.ResponseWriter, r *http.Request) {
-	m.mu.Lock()
-	m.sessCtr++
-	sessionID := fmt.Sprintf("exec-sess%d", m.sessCtr)
-	ch := make(chan []byte, 64)
-	m.sseChans[sessionID] = ch
-	m.mu.Unlock()
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+// handleMCP handles POST /mcp — the single endpoint of the Streamable HTTP
+// MCP transport.  It parses the JSON-RPC method and returns:
+//   - 202 Accepted for notifications (no id, no body needed)
+//   - 200 with SSE body for request/response round-trips
+func (m *execMockSidecar) handleMCP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	fmt.Fprintf(w, "event: endpoint\ndata: /messages?sessionId=%s\n\n", sessionID)
-	flusher.Flush()
-
-	for {
-		select {
-		case data, ok := <-ch:
-			if !ok {
-				return
-			}
-			fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
-			flusher.Flush()
-		case <-r.Context().Done():
-			m.mu.Lock()
-			delete(m.sseChans, sessionID)
-			m.mu.Unlock()
-			return
-		}
-	}
-}
-
-func (m *execMockSidecar) handleMessages(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.URL.Query().Get("sessionId")
-	m.mu.Lock()
-	ch := m.sseChans[sessionID]
-	m.mu.Unlock()
 
 	body, _ := io.ReadAll(r.Body)
 	var req struct {
@@ -91,12 +57,14 @@ func (m *execMockSidecar) handleMessages(w http.ResponseWriter, r *http.Request)
 	}
 	_ = json.Unmarshal(body, &req)
 
-	w.WriteHeader(http.StatusAccepted)
-
-	if len(req.ID) == 0 || string(req.ID) == "null" {
-		return // notifications need no response
+	// Notifications have no id — acknowledge with 202, no body.
+	isNotification := len(req.ID) == 0 || string(req.ID) == "null"
+	if isNotification {
+		w.WriteHeader(http.StatusAccepted)
+		return
 	}
 
+	// Determine result based on method.
 	var result any
 	switch req.Method {
 	case "initialize":
@@ -120,13 +88,28 @@ func (m *execMockSidecar) handleMessages(w http.ResponseWriter, r *http.Request)
 		"id":      req.ID,
 		"result":  result,
 	})
-	if ch != nil {
-		ch <- resp
+
+	// Assign or carry forward the session ID via header.
+	sessionID := r.Header.Get("Mcp-Session-Id")
+	if sessionID == "" {
+		m.mu.Lock()
+		m.sessCtr++
+		sessionID = fmt.Sprintf("exec-sess%d", m.sessCtr)
+		m.mu.Unlock()
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Mcp-Session-Id", sessionID)
+	w.WriteHeader(http.StatusOK)
+
+	fmt.Fprintf(w, "data: %s\n\n", resp)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
 	}
 }
 
-// close shuts the mock server down, forcing any open SSE connections closed first
-// so httptest.Server.Close() does not block indefinitely.
+// close shuts down the mock server.
 func (m *execMockSidecar) close() {
 	m.srv.CloseClientConnections()
 	m.srv.Close()
@@ -147,9 +130,9 @@ func newExecTestRegistry(mock *execMockSidecar) *Registry {
 	}
 }
 
-// TestExecutor_TextResult verifies that a text-only Playwright MCP response is
-// correctly mapped to tools.Result.Output as a JSON string.
-func TestExecutor_TextResult(t *testing.T) {
+// TestPerToolExecutor_TextResult verifies that a text-only Playwright MCP response
+// is correctly mapped to tools.Result.Output as a JSON string.
+func TestPerToolExecutor_TextResult(t *testing.T) {
 	mock := newExecMockSidecar(t, func() any {
 		return map[string]any{
 			"content": []any{
@@ -161,12 +144,9 @@ func TestExecutor_TextResult(t *testing.T) {
 	defer mock.close()
 
 	reg := newExecTestRegistry(mock)
-	exec := NewExecutor(reg)
+	exec := NewPerToolExecutor("browser_navigate", reg)
 
-	args, _ := json.Marshal(map[string]any{
-		"tool_name": "browser_navigate",
-		"params":    map[string]any{"url": "https://example.com"},
-	})
+	args, _ := json.Marshal(map[string]any{"url": "https://example.com"})
 
 	ctx := tools.WithThreadID(context.Background(), "test-thread-text")
 	result, err := exec.Execute(ctx, args)
@@ -189,9 +169,9 @@ func TestExecutor_TextResult(t *testing.T) {
 	}
 }
 
-// TestExecutor_ScreenshotResult verifies that an image content item from Playwright
-// MCP is decoded from base64 and placed in tools.Result.ImageParts.
-func TestExecutor_ScreenshotResult(t *testing.T) {
+// TestPerToolExecutor_ScreenshotResult verifies that an image content item from
+// Playwright MCP is decoded from base64 and placed in tools.Result.ImageParts.
+func TestPerToolExecutor_ScreenshotResult(t *testing.T) {
 	// A 1×1 transparent PNG in base64 (minimal valid PNG, ~68 bytes).
 	pngBytes := []byte{
 		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
@@ -221,12 +201,9 @@ func TestExecutor_ScreenshotResult(t *testing.T) {
 	defer mock.close()
 
 	reg := newExecTestRegistry(mock)
-	exec := NewExecutor(reg)
+	exec := NewPerToolExecutor("browser_take_screenshot", reg)
 
-	args, _ := json.Marshal(map[string]any{
-		"tool_name": "browser_screenshot",
-		"params":    map[string]any{},
-	})
+	args := json.RawMessage("{}")
 
 	ctx := tools.WithThreadID(context.Background(), "test-thread-screenshot")
 	result, err := exec.Execute(ctx, args)
@@ -252,35 +229,44 @@ func TestExecutor_ScreenshotResult(t *testing.T) {
 	}
 }
 
-// TestExecutor_BlockedTool verifies that tools not in AllowedTools are rejected
-// before a sidecar call is made.
-func TestExecutor_BlockedTool(t *testing.T) {
-	mock := newExecMockSidecar(t, nil)
-	defer mock.close()
-
-	reg := newExecTestRegistry(mock)
-	exec := NewExecutor(reg)
-
-	args, _ := json.Marshal(map[string]any{
-		"tool_name": "browser_close",
-		"params":    map[string]any{},
-	})
-
-	ctx := tools.WithThreadID(context.Background(), "test-thread-blocked")
-	_, err := exec.Execute(ctx, args)
-	if err == nil {
-		t.Fatal("expected error for disallowed tool, got nil")
+// TestAllowedToolNames_ExcludesLifecycleTools verifies that context-lifecycle tools
+// such as browser_close are not in AllowedToolNames, and that the expected set of
+// individual Playwright tools is present and sorted.
+func TestAllowedToolNames_ExcludesLifecycleTools(t *testing.T) {
+	names := AllowedToolNames()
+	nameSet := make(map[string]bool, len(names))
+	for _, n := range names {
+		nameSet[n] = true
 	}
-	// Error message should mention the tool name or the allowlist.
-	errMsg := err.Error()
-	if errMsg == "" {
-		t.Error("error message is empty")
+
+	// Lifecycle tools must never be exposed.
+	for _, blocked := range []string{"browser_close", "browser_new_context", "browser_new_page"} {
+		if nameSet[blocked] {
+			t.Errorf("AllowedToolNames() must not include lifecycle tool %q", blocked)
+		}
+	}
+
+	// Core tools must be present.
+	for _, required := range []string{
+		"browser_navigate", "browser_click", "browser_type",
+		"browser_take_screenshot", "browser_snapshot", "browser_evaluate",
+	} {
+		if !nameSet[required] {
+			t.Errorf("AllowedToolNames() is missing required tool %q", required)
+		}
+	}
+
+	// Names must be sorted.
+	for i := 1; i < len(names); i++ {
+		if names[i] < names[i-1] {
+			t.Errorf("AllowedToolNames() not sorted at index %d: %q > %q", i, names[i-1], names[i])
+		}
 	}
 }
 
-// TestExecutor_EmptyThreadID verifies that Execute returns an error when no
+// TestPerToolExecutor_EmptyThreadID verifies that Execute returns an error when no
 // thread_id is present in context, preventing cross-tenant session sharing.
-func TestExecutor_EmptyThreadID(t *testing.T) {
+func TestPerToolExecutor_EmptyThreadID(t *testing.T) {
 	mock := newExecMockSidecar(t, func() any {
 		return map[string]any{
 			"content": []any{
@@ -292,12 +278,9 @@ func TestExecutor_EmptyThreadID(t *testing.T) {
 	defer mock.close()
 
 	reg := newExecTestRegistry(mock)
-	exec := NewExecutor(reg)
+	exec := NewPerToolExecutor("browser_navigate", reg)
 
-	args, _ := json.Marshal(map[string]any{
-		"tool_name": "browser_navigate",
-		"params":    map[string]any{"url": "https://example.com"},
-	})
+	args, _ := json.Marshal(map[string]any{"url": "https://example.com"})
 
 	// Intentionally do NOT set a thread_id in context — must return an error.
 	ctx := context.Background()

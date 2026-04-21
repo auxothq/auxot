@@ -2,8 +2,6 @@
 #
 # Unlike the router (FROM scratch, ~10MB), this image needs JS/TS runtime
 # support so auxot-tools can spawn MCP servers on demand.
-# Uses Debian slim + Chromium (Playwright MCP) + bun + pnpm.
-# No Node.js bundled; pnpm is the package manager for MCP deps.
 #
 # Supports multi-arch builds via docker buildx:
 #   docker buildx build -f Dockerfile.tools --platform linux/amd64,linux/arm64 .
@@ -35,7 +33,19 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
 FROM oven/bun:distroless AS bun-source
 
 # ============================================================================
-# Stage 3: pnpm-source — download the pnpm standalone binary (no Node.js needed)
+# Stage 3: node-source — official Node.js 22 LTS with @playwright/mcp installed
+# playwright-mcp must run under real Node.js, not Bun's compatibility layer.
+# Playwright's internal `ws` package hangs during Chrome CDP WebSocket
+# connections when executed inside Bun; real Node.js handles them correctly.
+# ============================================================================
+FROM node:22-bookworm-slim AS node-source
+
+# Install @playwright/mcp globally so its files land under /usr/local/lib/node_modules.
+# This also makes the `playwright-mcp` CLI available at /usr/local/bin/playwright-mcp.
+RUN npm install -g @playwright/mcp@latest
+
+# ============================================================================
+# Stage 4: pnpm-source — download the pnpm standalone binary (no Node.js needed)
 # ============================================================================
 FROM --platform=$BUILDPLATFORM alpine:3.20 AS pnpm-source
 
@@ -49,12 +59,15 @@ RUN apk add --no-cache curl && \
     mkdir -p /opt/auxot/mcp-cache && chown 65534:65534 /opt/auxot/mcp-cache
 
 # ============================================================================
-# Stage 4: final — Debian slim with Chromium, bun, pnpm, and auxot-tools
+# Stage 4: final — Debian slim with system libs, bun, pnpm, and auxot-tools
 # ============================================================================
 FROM debian:bookworm-slim
+
+# System libraries required by Playwright's Chromium build.
+# chromium from apt is NOT used as the browser binary; it's here only to pull
+# in the exact set of .so files that chrome-for-testing links against.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
-    chromium-sandbox \
     ca-certificates \
     fonts-liberation \
     libasound2 \
@@ -72,17 +85,63 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+COPY --from=go-builder  /build/auxot-tools      /usr/local/bin/auxot-tools
+COPY --from=bun-source  /usr/local/bin/bun       /usr/local/bin/bun
+# Copy Node.js binary and the globally installed @playwright/mcp package.
+# We only need the `node` binary and the mcp module — no npm required at runtime.
+COPY --from=node-source /usr/local/bin/node                     /usr/local/bin/node
+COPY --from=node-source /usr/local/lib/node_modules/@playwright /usr/local/lib/node_modules/@playwright
+COPY --from=pnpm-source /usr/local/bin/pnpm      /usr/local/bin/pnpm
+COPY --from=pnpm-source /opt/auxot               /opt/auxot
 
-COPY --from=go-builder /build/auxot-tools /usr/local/bin/auxot-tools
-COPY --from=bun-source /usr/local/bin/bun /usr/local/bin/bun
-COPY --from=pnpm-source /usr/local/bin/pnpm /usr/local/bin/pnpm
-COPY --from=pnpm-source /opt/auxot /opt/auxot
+# Pre-install the exact Playwright Chromium revision that @playwright/mcp@latest
+# requires, using @playwright/mcp's own install-browser command.
+# Both the bun package cache and the browser binaries land under /opt/auxot so
+# a single chown covers everything and the runtime user can read them.
+ENV BUN_INSTALL=/opt/auxot/bun-cache
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/auxot/pw-browsers
+# Node.js 18+ prefers IPv6 when resolving "localhost".  Chrome's remote-debugging
+# port binds to 127.0.0.1 (IPv4 only), so without this flag Playwright's CDP
+# client cannot connect to Chrome inside Docker containers where ::1 is also
+# mapped to localhost in /etc/hosts.
+ENV NODE_OPTIONS=--dns-result-order=ipv4first
 
-# UID 65534 is `nobody` on bookworm-slim (same as distroless nonroot); no useradd needed.
-RUN chown -R 65534:65534 /opt/auxot
+RUN \
+    # Prefer IPv4 over IPv6 for getaddrinfo() in ALL processes (Bun, Node.js, Go).
+    # Chrome's --remote-debugging-port binds to 127.0.0.1 only; without this,
+    # Node.js resolves "localhost" to ::1 in Docker and Playwright can't reach Chrome.
+    # /etc/gai.conf is NOT volume-mounted by Docker, so this change persists.
+    { \
+        echo 'precedence ::ffff:0:0/96  100'; \
+        echo 'precedence ::1/128          50'; \
+        echo 'precedence ::/0             40'; \
+        echo 'precedence 2002::/16        30'; \
+        echo 'precedence ::/96            20'; \
+    } > /etc/gai.conf && \
+    mkdir -p /opt/auxot/bun-cache /opt/auxot/pw-browsers /opt/auxot/browser-profile /home/nobody /opt/auxot/mcp-cache && \
+    # Install the Playwright Chromium browser using the pre-installed playwright-mcp.
+    # @playwright/mcp is copied from the node-source stage; we run it with node directly.
+    node /usr/local/lib/node_modules/@playwright/mcp/cli.js install-browser chrome-for-testing && \
+    # The install-browser step launches Chrome briefly to verify the installation.
+    # This creates a Chrome user-profile directory (mcp-chrome-for-testing-*) inside
+    # PLAYWRIGHT_BROWSERS_PATH containing stale database state (LevelDB, Sync Data, etc.).
+    # Baking this stale profile into the image causes Chrome to hang at first launch.
+    # Delete the profile directory so Chrome creates a fresh one at runtime.
+    find /opt/auxot/pw-browsers -maxdepth 1 -mindepth 1 -type d \
+         ! -name 'chromium-*' \
+         ! -name 'chromium_headless_shell-*' \
+         ! -name 'ffmpeg-*' \
+         ! -name '.links' \
+         -exec rm -rf {} + && \
+    chown -R 65534:65534 /opt/auxot /home/nobody
+
 USER 65534
+
+# Give the process a real writable home so Chromium, bun, and Playwright can
+# write their runtime profile/cache without hitting /nonexistent.
+ENV HOME=/home/nobody
+ENV XDG_CACHE_HOME=/home/nobody/.cache
+ENV XDG_CONFIG_HOME=/home/nobody/.config
 
 WORKDIR /opt/auxot/mcp-cache
 

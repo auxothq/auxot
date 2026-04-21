@@ -15,8 +15,6 @@ import (
 	"strconv"
 	"sync"
 	"time"
-
-	"github.com/auxothq/auxot/pkg/tools"
 )
 
 // Sidecar manages a single long-lived @playwright/mcp HTTP process.
@@ -41,26 +39,64 @@ func NewSidecar(port int, logger *slog.Logger) (*Sidecar, error) {
 			return nil, fmt.Errorf("browser sidecar: closing probe listener: %w", err)
 		}
 	}
+	// Use localhost (not 127.0.0.1) so the readiness probe resolves correctly
+	// regardless of whether the process binds to IPv4 or IPv6 loopback.
 	return &Sidecar{
 		port:    port,
-		baseURL: "http://127.0.0.1:" + strconv.Itoa(port),
+		baseURL: "http://localhost:" + strconv.Itoa(port),
 		logger:  logger,
 	}, nil
 }
 
 // Start launches the Playwright MCP process and waits until it is ready (up to 30 s).
-// Ready means a GET <baseURL>/sse returns HTTP 200.
+// Ready means a GET <baseURL>/sse returns any HTTP response.
 func (s *Sidecar) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// playwright-mcp runs under the real Node.js binary (not Bun).
+	// Playwright's internal `ws` npm package hangs on Chrome CDP WebSockets
+	// when executed inside Bun; real Node.js handles them correctly.
+	// @playwright/mcp is globally installed via npm in Dockerfile.tools.
+	//
+	// Flags:
+	//   --browser chromium: Playwright's own Chromium from PLAYWRIGHT_BROWSERS_PATH.
+	//   --headless: required in Docker (no display server).
+	//   --no-sandbox: required when running as non-root inside a container.
+	//   --user-data-dir: stable writable path for the persistent Chrome profile;
+	//     without this Playwright picks a hash-derived path under the home dir,
+	//     which may not exist or be writable for the `nobody` user in the container.
+	//   --host 127.0.0.1: bind to IPv4 loopback only; avoids IPv6/IPv4 ambiguity
+	//     inside Docker and satisfies Playwright MCP's CSRF host-check.
+	//
+	// --isolated: each MCP session (identified by Mcp-Session-Id) gets its own
+	// independent Chrome process and temp user-data-dir.  Sessions are completely
+	// isolated — separate cookies, localStorage, auth — with no shared state.
+	//
+	// Why --isolated instead of non-isolated (shared Chrome) mode:
+	//   In non-isolated mode playwright-mcp allows only ONE browser to run with a
+	//   given user-data-dir at a time.  Concurrent sessions (multiple threads) race
+	//   to acquire that browser and the losers get "Browser is already in use".
+	//   --isolated eliminates the contention entirely: each session starts its own
+	//   Chrome process with a unique temp dir, so N concurrent threads work fine.
+	//
+	// Chrome startup cost (one-time per session, not per request):
+	//   Chrome starts LAZILY on the first browser tool call of a new thread, not on
+	//   initialize.  Our Registry keeps the session alive across calls for the same
+	//   thread_id, so the cold-start (~5-15 s) happens at most once per thread per
+	//   30-minute TTL window, not on every LLM tool invocation.
 	cmd := exec.CommandContext(ctx,
-		tools.BunBinary(),
-		"x", "@playwright/mcp@latest",
+		"node",
+		"/usr/local/lib/node_modules/@playwright/mcp/cli.js",
+		"--browser", "chromium",
+		"--headless",
+		"--no-sandbox",
+		"--isolated",
+		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(s.port),
 	)
-	// Inherit the full host environment so PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
-	// and any other vars set in the Docker image are visible to the subprocess.
+	// Inherit the full host environment so PLAYWRIGHT_BROWSERS_PATH and other
+	// vars set in the Docker image are visible to the subprocess.
 	cmd.Env = os.Environ()
 
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -80,20 +116,23 @@ func (s *Sidecar) Start(ctx context.Context) error {
 	go s.pipeToLogger(stdoutPipe, "stdout")
 	go s.pipeToLogger(stderrPipe, "stderr")
 
-	// Poll GET /sse every 500 ms for up to 30 s.
-	probeClient := &http.Client{Timeout: 2 * time.Second}
+	// Poll for readiness every 500 ms for up to 30 s.
+	// Use ResponseHeaderTimeout (not Timeout) so SSE streams don't stall the
+	// probe — we only need the server to respond with any HTTP status.
+	probeClient := &http.Client{
+		Transport: &http.Transport{
+			ResponseHeaderTimeout: 2 * time.Second,
+		},
+	}
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
+		// GET /sse confirms the server is accepting connections.
+		// Any HTTP response — including 4xx — means it is up.
 		resp, err := probeClient.Get(s.baseURL + "/sse")
 		if err == nil {
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				// Non-2xx: sidecar not ready yet — drain and continue polling.
-				_ = resp.Body.Close()
-			} else {
-				_ = resp.Body.Close()
-				s.logger.Info("browser sidecar ready", "port", s.port)
-				return nil
-			}
+			_ = resp.Body.Close()
+			s.logger.Info("browser sidecar ready", "port", s.port, "status", resp.StatusCode)
+			return nil
 		}
 		select {
 		case <-ctx.Done():
@@ -107,7 +146,7 @@ func (s *Sidecar) Start(ctx context.Context) error {
 	return fmt.Errorf("browser sidecar: did not become ready within 30 s on port %d", s.port)
 }
 
-// BaseURL returns "http://127.0.0.1:<port>" so callers can build /sse and /messages URLs.
+// BaseURL returns "http://localhost:<port>" so callers can build path URLs.
 func (s *Sidecar) BaseURL() string { return s.baseURL }
 
 // Stop sends SIGINT (graceful shutdown signal) to the process and waits up to

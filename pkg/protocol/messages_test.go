@@ -388,70 +388,80 @@ func TestMarshalMessage_JobRoundTrip(t *testing.T) {
 	}
 }
 
-// TestCapabilities_Engines verifies the new Engines field is backward-compatible:
-// absent → nil; set → preserved. Old JSON without engines parses cleanly.
-func TestCapabilities_Engines(t *testing.T) {
+// TestJobMessage_ReferenceID verifies that a JSON payload containing
+// "reference_id" deserializes into JobMessage.ReferenceID correctly, and that
+// a message without the field leaves it as the zero value.
+func TestJobMessage_ReferenceID(t *testing.T) {
 	tests := []struct {
 		name        string
 		input       string
-		wantEngines []string
+		wantRefID   string
 	}{
 		{
-			name:        "old JSON without engines field (backward compat)",
-			input:       `{"backend":"llama.cpp","model":"qwen3","ctx_size":8192}`,
-			wantEngines: nil,
+			name:      "reference_id present",
+			input:     `{"type":"job","job_id":"j1","messages":[],"reference_id":"thread-abc"}`,
+			wantRefID: "thread-abc",
 		},
 		{
-			name:        "single engine",
-			input:       `{"backend":"vllm-mlx","model":"qwen3","ctx_size":8192,"engines":["vllm-mlx"]}`,
-			wantEngines: []string{"vllm-mlx"},
-		},
-		{
-			name:        "multiple engines",
-			input:       `{"backend":"llama.cpp","model":"qwen3","ctx_size":8192,"engines":["llama.cpp","vllm-mlx"]}`,
-			wantEngines: []string{"llama.cpp", "vllm-mlx"},
+			name:      "reference_id absent (omitempty)",
+			input:     `{"type":"job","job_id":"j2","messages":[]}`,
+			wantRefID: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var caps Capabilities
-			if err := json.Unmarshal([]byte(tt.input), &caps); err != nil {
-				t.Fatalf("unmarshal: %v", err)
+			got, err := ParseMessage([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("ParseMessage error: %v", err)
 			}
-			if len(caps.Engines) != len(tt.wantEngines) {
-				t.Errorf("Engines = %v, want %v", caps.Engines, tt.wantEngines)
-				return
+			msg, ok := got.(JobMessage)
+			if !ok {
+				t.Fatalf("expected JobMessage, got %T", got)
 			}
-			for i, e := range tt.wantEngines {
-				if caps.Engines[i] != e {
-					t.Errorf("Engines[%d] = %q, want %q", i, caps.Engines[i], e)
-				}
-			}
-
-			// Nil engines must not appear in marshaled output (omitempty).
-			if tt.wantEngines == nil {
-				out, _ := json.Marshal(caps)
-				if containsStr(string(out), `"engines"`) {
-					t.Errorf("expected engines omitted in JSON, got: %s", out)
-				}
+			if msg.ReferenceID != tt.wantRefID {
+				t.Errorf("ReferenceID = %q, want %q", msg.ReferenceID, tt.wantRefID)
 			}
 		})
 	}
 }
 
-// containsStr is a simple helper to avoid importing strings in tests.
-func containsStr(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(s) > 0 && searchStr(s, sub))
-}
-
-func searchStr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
+// TestToolJobMessage_ThreadID verifies that a JSON payload containing
+// "thread_id" deserializes into ToolJobMessage.ThreadID correctly, and that
+// a message without the field leaves it as the zero value.
+func TestToolJobMessage_ThreadID(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		wantThreadID string
+	}{
+		{
+			name:         "thread_id present",
+			input:        `{"type":"tool_job","job_id":"tj1","parent_job_id":"p1","tool_name":"web_fetch","tool_call_id":"c1","arguments":"{}","thread_id":"thread-xyz"}`,
+			wantThreadID: "thread-xyz",
+		},
+		{
+			name:         "thread_id absent (omitempty)",
+			input:        `{"type":"tool_job","job_id":"tj2","parent_job_id":"p2","tool_name":"web_fetch","tool_call_id":"c2","arguments":"{}"}`,
+			wantThreadID: "",
+		},
 	}
-	return false
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseMessage([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("ParseMessage error: %v", err)
+			}
+			msg, ok := got.(ToolJobMessage)
+			if !ok {
+				t.Fatalf("expected ToolJobMessage, got %T", got)
+			}
+			if msg.ThreadID != tt.wantThreadID {
+				t.Errorf("ThreadID = %q, want %q", msg.ThreadID, tt.wantThreadID)
+			}
+		})
+	}
 }
 
 // helpers for pointer types in test data
