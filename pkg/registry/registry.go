@@ -35,21 +35,42 @@ type Registry struct {
 	Models      []Model `json:"models"`
 }
 
+// ModelFormatType identifies the weight format of a model variant.
+type ModelFormatType string
+
+const (
+	// ModelFormatGGUF is the quantized GGUF format consumed by llama.cpp / llama-server.
+	ModelFormatGGUF ModelFormatType = "gguf"
+)
+
+// ModelFormat describes a GGUF weight-format entry for a logical model.
+type ModelFormat struct {
+	// Type is the weight format identifier.
+	Type ModelFormatType `json:"type"`
+	// HuggingFaceID is the Hugging Face repo that hosts this format's weights.
+	HuggingFaceID string `json:"huggingface_id"`
+	// FileName is the primary .gguf file (may include a subdirectory prefix).
+	FileName string `json:"file_name,omitempty"`
+}
+
 // Model represents a single model+quantization entry.
 type Model struct {
-	ID                string   `json:"id"`
-	ModelName         string   `json:"model_name"`
-	HuggingFaceID     string   `json:"huggingface_id"`
-	Quantization      string   `json:"quantization"`
-	Family            string   `json:"family"`
-	Parameters        string   `json:"parameters"`
-	DefaultContextSize int     `json:"default_context_size"`
-	MaxContextSize    int      `json:"max_context_size"`
-	VRAMRequirementsGB float64 `json:"vram_requirements_gb"`
-	Capabilities      []string `json:"capabilities"`
-	FileName          string   `json:"file_name"`
-	FileSizeBytes     *int64   `json:"file_size_bytes,omitempty"`
-	MmprojFileName    string   `json:"mmproj_file_name,omitempty"` // Vision encoder (e.g. mmproj-F16.gguf)
+	ID                 string        `json:"id"`
+	ModelName          string        `json:"model_name"`
+	HuggingFaceID      string        `json:"huggingface_id"`
+	Quantization       string        `json:"quantization"`
+	Family             string        `json:"family"`
+	Parameters         string        `json:"parameters"`
+	DefaultContextSize int           `json:"default_context_size"`
+	MaxContextSize     int           `json:"max_context_size"`
+	VRAMRequirementsGB float64       `json:"vram_requirements_gb"`
+	Capabilities       []string      `json:"capabilities"`
+	FileName           string        `json:"file_name"`
+	FileSizeBytes      *int64        `json:"file_size_bytes,omitempty"`
+	MmprojFileName     string        `json:"mmproj_file_name,omitempty"` // Vision encoder (e.g. mmproj-F16.gguf)
+	// Formats lists GGUF format rows for this logical model (typically one).
+	// Nil/empty on entries from older registry builds — treat as GGUF-only.
+	Formats []ModelFormat `json:"formats,omitempty"`
 }
 
 // Load parses the embedded registry data and returns a Registry.
@@ -94,15 +115,18 @@ func (r *Registry) FindByID(id string) *Model {
 
 // FindByNameAndQuant searches for a model matching both name and quantization.
 // The comparison is case-insensitive for convenience.
+// If multiple rows share the same name and quantization, the first match in
+// catalog order is returned.
 func (r *Registry) FindByNameAndQuant(modelName, quantization string) *Model {
 	nameLower := strings.ToLower(modelName)
 	quantLower := strings.ToLower(quantization)
 
 	for i := range r.Models {
-		if strings.ToLower(r.Models[i].ModelName) == nameLower &&
-			strings.ToLower(r.Models[i].Quantization) == quantLower {
-			return &r.Models[i]
+		m := &r.Models[i]
+		if strings.ToLower(m.ModelName) != nameLower || strings.ToLower(m.Quantization) != quantLower {
+			continue
 		}
+		return m
 	}
 	return nil
 }
@@ -218,6 +242,18 @@ func (m *Model) subDir() string {
 		return ""
 	}
 	return m.FileName[:idx]
+}
+
+// HasFormat reports whether this model entry has at least one format of the
+// given type listed in its Formats slice.  Returns false when Formats is nil
+// (old registry entry) or the format is absent.
+func (m *Model) HasFormat(ft ModelFormatType) bool {
+	for _, f := range m.Formats {
+		if f.Type == ft {
+			return true
+		}
+	}
+	return false
 }
 
 // UniqueModelNames returns a deduplicated list of model names in the registry.

@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/auxothq/auxot/pkg/protocol"
 	"github.com/auxothq/auxot/pkg/tools"
+	"github.com/auxothq/auxot/pkg/tools/browser"
 )
 
 // Worker is the top-level tools worker.
@@ -29,6 +32,11 @@ type Worker struct {
 	// runCtx is the context passed to Run; tool job goroutines inherit it so
 	// they are cancelled when the process receives SIGTERM/SIGINT.
 	runCtx context.Context
+
+	// Browser sidecar and per-thread session registry.
+	// Both are nil until the sidecar starts successfully.
+	sidecar         *browser.Sidecar
+	browserRegistry *browser.Registry
 }
 
 // NewWorker creates a Worker with the given config and tool registry.
@@ -50,12 +58,45 @@ func NewWorker(cfg *Config, registry *tools.Registry, logger *slog.Logger) *Work
 	return w
 }
 
+// BrowserRegistry returns the per-thread browser session registry, or nil if
+// the sidecar is not running (e.g. failed to start).
+// Phase 3 uses this to forward browser tool calls to the sidecar.
+func (w *Worker) BrowserRegistry() *browser.Registry { return w.browserRegistry }
+
 // Run connects to the router and processes tool jobs until the context is cancelled.
 // On disconnection it retries immediately, then uses exponential backoff on repeated failures.
 // Backoff resets when a session is established (hello_ack), so a later disconnect
 // does not inherit stale delay from earlier dial failures.
 func (w *Worker) Run(ctx context.Context) error {
 	w.runCtx = ctx
+
+	// Start the Playwright MCP browser sidecar.
+	// Port is taken from AUXOT_BROWSER_MCP_PORT if set; otherwise a free port is chosen.
+	port := 0
+	if p := os.Getenv("AUXOT_BROWSER_MCP_PORT"); p != "" {
+		if n, err := strconv.Atoi(p); err == nil {
+			port = n
+		}
+	}
+	sc, err := browser.NewSidecar(port, w.logger)
+	if err != nil {
+		w.logger.Error("browser sidecar init failed", "error", err)
+	} else {
+		if err := sc.Start(ctx); err != nil {
+			w.logger.Error("browser sidecar failed to start", "error", err)
+		} else {
+			w.sidecar = sc
+			w.browserRegistry = browser.NewRegistry(ctx, sc, w.logger)
+			defer sc.Stop()
+
+			// Register the browser built-in executor and update the advertised
+			// tools list so the next HelloMessage includes "browser".
+			browserExec := browser.NewExecutor(w.browserRegistry)
+			w.registry.Register("browser", browserExec.Execute)
+			w.conn.UpdateAdvertisedTools(w.registry.Names())
+		}
+	}
+
 	var delay time.Duration // 0 = immediate retry; escalates only after failed Connect
 	w.conn.OnConnected(func() {
 		delay = 0
@@ -372,7 +413,9 @@ func (w *Worker) handleToolJob(job protocol.ToolJobMessage) {
 			result, err = tools.McpExecute(ctx, job.McpPackage, job.McpVersion, job.ToolName, job.Arguments, job.Credentials)
 		}
 	} else {
-		// Built-in path.
+		// Built-in path: inject thread_id so executors (e.g. browser) can key
+		// per-thread state without passing it explicitly through every call.
+		ctx = tools.WithThreadID(ctx, job.ThreadID)
 		result, err = w.registry.Execute(ctx, job.ToolName, job.Arguments)
 	}
 
@@ -391,7 +434,15 @@ func (w *Worker) handleToolJob(job protocol.ToolJobMessage) {
 			DurationMS:  durationMS,
 		}
 	} else {
-		logger.Info("tool execution complete", "duration_ms", durationMS)
+		logger.Info("tool execution complete", "duration_ms", durationMS, "image_parts", len(result.ImageParts))
+		// Convert tools.ImagePart to protocol.ImagePart for the wire message.
+		var protoImgParts []protocol.ImagePart
+		for _, ip := range result.ImageParts {
+			protoImgParts = append(protoImgParts, protocol.ImagePart{
+				MIMEType: ip.MIMEType,
+				Data:     ip.Data,
+			})
+		}
 		msg = protocol.ToolResultMessage{
 			Type:        protocol.TypeToolResult,
 			JobID:       job.JobID,
@@ -399,6 +450,7 @@ func (w *Worker) handleToolJob(job protocol.ToolJobMessage) {
 			ToolCallID:  job.ToolCallID,
 			ToolName:    job.ToolName,
 			Result:      result.Output,
+			ImageParts:  protoImgParts,
 			DurationMS:  durationMS,
 		}
 	}

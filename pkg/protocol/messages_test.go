@@ -388,6 +388,72 @@ func TestMarshalMessage_JobRoundTrip(t *testing.T) {
 	}
 }
 
+// TestCapabilities_Engines verifies the new Engines field is backward-compatible:
+// absent → nil; set → preserved. Old JSON without engines parses cleanly.
+func TestCapabilities_Engines(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		wantEngines []string
+	}{
+		{
+			name:        "old JSON without engines field (backward compat)",
+			input:       `{"backend":"llama.cpp","model":"qwen3","ctx_size":8192}`,
+			wantEngines: nil,
+		},
+		{
+			name:        "single engine",
+			input:       `{"backend":"vllm-mlx","model":"qwen3","ctx_size":8192,"engines":["vllm-mlx"]}`,
+			wantEngines: []string{"vllm-mlx"},
+		},
+		{
+			name:        "multiple engines",
+			input:       `{"backend":"llama.cpp","model":"qwen3","ctx_size":8192,"engines":["llama.cpp","vllm-mlx"]}`,
+			wantEngines: []string{"llama.cpp", "vllm-mlx"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var caps Capabilities
+			if err := json.Unmarshal([]byte(tt.input), &caps); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if len(caps.Engines) != len(tt.wantEngines) {
+				t.Errorf("Engines = %v, want %v", caps.Engines, tt.wantEngines)
+				return
+			}
+			for i, e := range tt.wantEngines {
+				if caps.Engines[i] != e {
+					t.Errorf("Engines[%d] = %q, want %q", i, caps.Engines[i], e)
+				}
+			}
+
+			// Nil engines must not appear in marshaled output (omitempty).
+			if tt.wantEngines == nil {
+				out, _ := json.Marshal(caps)
+				if containsStr(string(out), `"engines"`) {
+					t.Errorf("expected engines omitted in JSON, got: %s", out)
+				}
+			}
+		})
+	}
+}
+
+// containsStr is a simple helper to avoid importing strings in tests.
+func containsStr(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(s) > 0 && searchStr(s, sub))
+}
+
+func searchStr(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
 // helpers for pointer types in test data
 func ptrFloat64(v float64) *float64 { return &v }
 func ptrInt(v int) *int             { return &v }

@@ -39,12 +39,12 @@ func NewClient(baseURL string) *Client {
 
 // StreamToken is a single token event from the SSE stream.
 type StreamToken struct {
-	Content          string           // Text content (may be empty for tool call chunks)
-	ReasoningContent string           // Reasoning/thinking content (from <think> blocks)
+	Content          string            // Text content (may be empty for tool call chunks)
+	ReasoningContent string            // Reasoning/thinking content (from <think> blocks)
 	ToolCalls        []openai.ToolCall // Tool calls (streamed incrementally)
-	FinishReason     string           // "stop", "tool_calls", or "" if not done
-	Timings          *Timings         // Only present in the final chunk
-	PromptProgress   *PromptProgress  // Prompt processing progress (llama.cpp return_progress)
+	FinishReason     string            // "stop", "tool_calls", or "" if not done
+	Timings          *Timings          // Only present in the final chunk
+	PromptProgress   *PromptProgress   // Prompt processing progress (llama.cpp return_progress)
 }
 
 // PromptProgress reports prompt processing progress during streaming.
@@ -58,12 +58,12 @@ type PromptProgress struct {
 
 // Timings contains llama.cpp performance metrics from the last chunk.
 type Timings struct {
-	CacheTokens      int     `json:"cache_n"`
-	PromptTokens     int     `json:"prompt_n"`
-	PromptMS         float64 `json:"prompt_ms"`
-	PredictedTokens  int     `json:"predicted_n"`
-	PredictedMS      float64 `json:"predicted_ms"`
-	TokensPerSecond  float64 `json:"predicted_per_second"`
+	CacheTokens     int     `json:"cache_n"`
+	PromptTokens    int     `json:"prompt_n"`
+	PromptMS        float64 `json:"prompt_ms"`
+	PredictedTokens int     `json:"predicted_n"`
+	PredictedMS     float64 `json:"predicted_ms"`
+	TokensPerSecond float64 `json:"predicted_per_second"`
 }
 
 // CompletionResult is the final result after the entire stream is consumed.
@@ -110,6 +110,10 @@ func (c *Client) StreamCompletion(ctx context.Context, req *openai.ChatCompletio
 		return nil, fmt.Errorf("marshaling request: %w", err)
 	}
 
+	return c.streamCompletionBody(ctx, body)
+}
+
+func (c *Client) streamCompletionBody(ctx context.Context, body []byte) (<-chan StreamToken, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, "POST",
 		c.baseURL+"/v1/chat/completions",
 		strings.NewReader(string(body)),
@@ -121,13 +125,13 @@ func (c *Client) StreamCompletion(ctx context.Context, req *openai.ChatCompletio
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("sending request to llama.cpp: %w", err)
+		return nil, fmt.Errorf("POST /v1/chat/completions: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		errBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("llama.cpp returned %d: %s", resp.StatusCode, string(errBody))
+		return nil, fmt.Errorf("chat server returned HTTP %d: %s", resp.StatusCode, string(errBody))
 	}
 
 	tokens := make(chan StreamToken, 32) // Buffered to avoid blocking the HTTP read

@@ -1,11 +1,10 @@
-// Package modeldown downloads GGUF model files from HuggingFace.
+// Package modeldown downloads model weights from HuggingFace.
 //
 // Features:
-//   - Resolves model → HuggingFace URL via the embedded model registry
-//   - Caches downloads to ~/.auxot/models/{repo_id}/{file_name}
-//   - Supports resumable downloads (HTTP Range requests)
-//   - Supports split/sharded GGUF models (e.g., 480B models with 6+ shards)
-//   - Supports air-gapped mode (local GGUF file path)
+//   - GGUF: resolves via the embedded model registry, caches under ~/.auxot/models/{repo_id}/
+//   - Resumable downloads (HTTP Range requests) with progress logs
+//   - Split/sharded GGUF models (e.g., 480B models with 6+ shards)
+//   - Air-gapped mode (local GGUF file path)
 package modeldown
 
 import (
@@ -236,6 +235,7 @@ func downloadWithProgress(ctx context.Context, url, dest string, expectedSize in
 	if err != nil {
 		return err
 	}
+	applyHFToken(req)
 	if startByte > 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", startByte))
 	}
@@ -303,8 +303,8 @@ func downloadWithProgress(ctx context.Context, url, dest string, expectedSize in
 	// If we know total size: report at 20% milestones.
 	// If we don't: report every 1 GB so downloads aren't silent.
 	downloaded := startByte
-	buf := make([]byte, 64*1024)    // 64KB buffer
-	lastMilestone := -1             // last reported 20% milestone (0-4)
+	buf := make([]byte, 64*1024)          // 64KB buffer
+	lastMilestone := -1                   // last reported 20% milestone (0-4)
 	const unknownInterval int64 = 1 << 30 // 1 GB
 	lastUnknownReport := startByte
 
@@ -473,6 +473,13 @@ func EnsureFlux1SchnellAuxiliary(ctx context.Context, modelsDir string, logger *
 	}
 
 	return &Flux1SchnellAuxiliaryPaths{VAEPath: vaePath, ClipLPath: clipLPath, T5xxlPath: t5xxlPath}, nil
+}
+
+// applyHFToken sets Authorization when HF_TOKEN is set (gated models / higher rate limits).
+func applyHFToken(req *http.Request) {
+	if tok := strings.TrimSpace(os.Getenv("HF_TOKEN")); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 }
 
 func formatBytes(b int64) string {

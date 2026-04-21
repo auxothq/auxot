@@ -550,7 +550,8 @@ func discoverCaps(baseURL string, caps *DiscoveredCaps) (*DiscoveredCaps, error)
 	return caps, nil
 }
 
-// DiscoveredCaps holds capabilities discovered from a running llama.cpp instance.
+// DiscoveredCaps holds capabilities discovered from a running inference server.
+// Used by LlamaProcess and SDProcess to return a common shape.
 type DiscoveredCaps struct {
 	Backend    string
 	Model      string
@@ -558,6 +559,10 @@ type DiscoveredCaps struct {
 	VRAMGB     float64
 	Parameters string
 	TotalSlots int
+	// Engines is the list of inference engine identifiers for the Capabilities
+	// protocol field (AUX-168). Nil for llama.cpp and stable-diffusion.cpp
+	// workers (which leave the field omitted for backward compat).
+	Engines []string
 }
 
 // normalizeModelName strips path and quantization suffix from a model ID.
@@ -600,10 +605,10 @@ func FindFreePort() (int, error) {
 // llamaStderrCapture captures llama.cpp stderr output for diagnostics.
 // It keeps a rolling buffer of recent lines and logs critical ones via slog.
 type llamaStderrCapture struct {
-	logger *slog.Logger
-	mu     sync.Mutex
-	buf    []byte
-	lines  []string // Rolling buffer of recent lines
+	logger   *slog.Logger
+	mu       sync.Mutex
+	buf      []byte
+	lines    []string // Rolling buffer of recent lines
 	maxLines int
 }
 

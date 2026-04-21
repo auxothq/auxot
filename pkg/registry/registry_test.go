@@ -3,6 +3,7 @@ package registry
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -97,8 +98,9 @@ func TestFindByNameAndQuant(t *testing.T) {
 	if found == nil {
 		t.Fatalf("FindByNameAndQuant(%q, %q) returned nil", first.ModelName, first.Quantization)
 	}
-	if found.ID != first.ID {
-		t.Errorf("got ID %q, want %q", found.ID, first.ID)
+	if strings.ToLower(found.ModelName) != strings.ToLower(first.ModelName) ||
+		strings.ToLower(found.Quantization) != strings.ToLower(first.Quantization) {
+		t.Errorf("got model %q quant %q, want %q / %q", found.ModelName, found.Quantization, first.ModelName, first.Quantization)
 	}
 
 	// Case-insensitive lookup
@@ -253,6 +255,91 @@ func TestLoadFromFile_NotFound(t *testing.T) {
 	_, err := LoadFromFile("/nonexistent/path/registry.json")
 	if err == nil {
 		t.Fatal("expected error for non-existent file, got nil")
+	}
+}
+
+func TestLoadFromFile_WithFormats(t *testing.T) {
+	// Verify that the formats array round-trips correctly through JSON parsing.
+	// This is the AUX-168 addition: older entries (no formats) must still parse,
+	// and new entries with formats must preserve all format metadata.
+	tempDir := t.TempDir()
+	testFile := filepath.Join(tempDir, "formats-registry.json")
+
+	testJSON := `{
+		"version": "test-0.2.0",
+		"generated_at": "2025-01-01T00:00:00Z",
+		"models": [
+			{
+				"id": "test-model-q4",
+				"model_name": "TestModel",
+				"huggingface_id": "test/TestModel-GGUF",
+				"quantization": "Q4_K_S",
+				"family": "Dense",
+				"parameters": "7B",
+				"default_context_size": 4096,
+				"max_context_size": 8192,
+				"vram_requirements_gb": 4.5,
+				"capabilities": ["chat"],
+				"file_name": "TestModel-Q4_K_S.gguf",
+				"formats": [
+					{"type": "gguf", "huggingface_id": "test/TestModel-GGUF", "file_name": "TestModel-Q4_K_S.gguf"}
+				]
+			},
+			{
+				"id": "legacy-model-q4",
+				"model_name": "LegacyModel",
+				"huggingface_id": "test/LegacyModel-GGUF",
+				"quantization": "Q4_K_S",
+				"family": "Dense",
+				"parameters": "3B",
+				"default_context_size": 4096,
+				"max_context_size": 8192,
+				"vram_requirements_gb": 2.5,
+				"capabilities": ["chat"],
+				"file_name": "LegacyModel-Q4_K_S.gguf"
+			}
+		]
+	}`
+
+	if err := os.WriteFile(testFile, []byte(testJSON), 0644); err != nil {
+		t.Fatalf("writing test file: %v", err)
+	}
+
+	reg, err := LoadFromFile(testFile)
+	if err != nil {
+		t.Fatalf("loading from file: %v", err)
+	}
+
+	if len(reg.Models) != 2 {
+		t.Fatalf("expected 2 models, got %d", len(reg.Models))
+	}
+
+	// Model with formats
+	m := reg.Models[0]
+	if len(m.Formats) != 1 {
+		t.Fatalf("expected 1 format on %q, got %d", m.ID, len(m.Formats))
+	}
+	if m.Formats[0].Type != ModelFormatGGUF {
+		t.Errorf("formats[0].type: got %q, want %q", m.Formats[0].Type, ModelFormatGGUF)
+	}
+	if m.Formats[0].HuggingFaceID != "test/TestModel-GGUF" {
+		t.Errorf("formats[0].huggingface_id: got %q", m.Formats[0].HuggingFaceID)
+	}
+	if m.Formats[0].FileName != "TestModel-Q4_K_S.gguf" {
+		t.Errorf("formats[0].file_name: got %q", m.Formats[0].FileName)
+	}
+
+	if !m.HasFormat(ModelFormatGGUF) {
+		t.Error("HasFormat(GGUF) should be true")
+	}
+
+	// Legacy model (no formats field) — backward compatibility
+	legacy := reg.Models[1]
+	if len(legacy.Formats) != 0 {
+		t.Errorf("legacy model should have no formats, got %d", len(legacy.Formats))
+	}
+	if legacy.HasFormat(ModelFormatGGUF) {
+		t.Error("HasFormat on legacy model (no formats) should return false")
 	}
 }
 

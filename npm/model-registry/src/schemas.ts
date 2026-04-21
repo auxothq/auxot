@@ -12,6 +12,18 @@ const ModelCapabilitySchema = z.enum([
 
 const ModelFamilySchema = z.enum(["MoE", "Dense"]);
 
+const ModelFormatTypeSchema = z.enum(["gguf", "mlx"]);
+
+/**
+ * Schema for a single weight-format entry in the formats array.
+ * Zod must include this or .parse() will strip the formats field.
+ */
+export const ModelFormatSchema = z.object({
+  type: ModelFormatTypeSchema,
+  huggingface_id: z.string(),
+  file_name: z.string().optional(),
+});
+
 export const ModelRegistryEntrySchema = z.object({
   id: z.string(),
   model_name: z.string(),
@@ -26,6 +38,7 @@ export const ModelRegistryEntrySchema = z.object({
   file_name: z.string(),
   mmproj_file_name: z.string().optional(),
   file_size_bytes: z.number().int().positive().nullable().optional(),
+  formats: z.array(ModelFormatSchema).optional(),
 });
 
 export const ModelRegistrySchema = z.object({

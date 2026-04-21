@@ -18,6 +18,7 @@
   },
   "scripts": {
     "build:registry": "tsx scripts/build-registry.ts",
+    "build:formats": "tsx scripts/build-registry.ts --formats-only",
     "patch:registry": "tsx scripts/build-registry.ts --patch",
     "update:registry": "tsx scripts/build-registry.ts --update",
     "build": "tsc",

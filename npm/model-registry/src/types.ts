@@ -15,6 +15,30 @@ export type ModelCapability =
 export type ModelFamily = "MoE" | "Dense";
 
 /**
+ * Weight format type for a model.
+ * - "gguf": quantized GGUF file(s) consumed by llama.cpp / llama-server
+ * - "mlx": Apple MLX format, consumed by mlx-lm / vllm-mlx on Apple Silicon
+ */
+export type ModelFormatType = "gguf" | "mlx";
+
+/**
+ * A single weight-format variant for a logical model.
+ * Multiple formats may coexist for the same logical model
+ * (e.g. GGUF for llama.cpp and MLX for vllm-mlx on Apple Silicon).
+ */
+export interface ModelFormat {
+  /** Weight format type */
+  type: ModelFormatType;
+  /** Hugging Face repo that hosts this format's weights */
+  huggingface_id: string;
+  /**
+   * For GGUF: the primary .gguf filename (may include a subdir prefix).
+   * For MLX: omitted — the whole repo constitutes the model bundle.
+   */
+  file_name?: string;
+}
+
+/**
  * Individual model entry in the registry
  */
 export interface ModelRegistryEntry {
@@ -44,6 +68,13 @@ export interface ModelRegistryEntry {
   mmproj_file_name?: string;
   /** File size in bytes (optional) */
   file_size_bytes?: number | null;
+  /**
+   * All weight formats available for this logical model.
+   * Always contains at least one entry: the GGUF format that this row describes.
+   * Additional MLX entries are included when an mlx-community repo is found.
+   * Absent on entries built before AUX-168 (treat as GGUF-only for backward compat).
+   */
+  formats?: ModelFormat[];
 }
 
 /**

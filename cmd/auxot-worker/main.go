@@ -209,7 +209,20 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 	}
 
 	// ----------------------------------------------------------------
-	// Phase 2: Download model
+	// Registry lookup (before model download — image-generation detection)
+	// ----------------------------------------------------------------
+	// Load the registry early so we can tell stable-diffusion models from GGUF
+	// text models before the download phase completes.
+	reg, registryErr := registry.Load()
+	var regEntry *registry.Model
+	if registryErr == nil {
+		regEntry = reg.FindByNameAndQuant(policy.ModelName, policy.Quantization)
+	} else {
+		logger.Warn("loading registry", "error", registryErr)
+	}
+
+	// ----------------------------------------------------------------
+	// Phase 2: Download model (GGUF, for llama.cpp and stable-diffusion paths)
 	// ----------------------------------------------------------------
 	modelResult, err := modeldown.Ensure(ctx, policy, cfg.ModelsDir, cfg.ModelFile, logger)
 	if err != nil {
@@ -219,19 +232,31 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 	mmprojPath := modelResult.MmprojPath
 	logger.Info("model ready", "path", modelPath, "mmproj", mmprojPath != "")
 
-	// Check if this is an image generation model — use stable-diffusion.cpp path
-	reg, err := registry.Load()
-	if err != nil {
-		return fmt.Errorf("loading registry: %w", err)
-	}
+	// Check if this is an image generation model — use stable-diffusion.cpp path.
+	// regEntry may already be set from above; if registry failed we try again here
+	// using the model we already downloaded (non-fatal if registry still fails).
 	isImageGen := false
 	var regModel *registry.Model
-	if m := reg.FindByNameAndQuant(policy.ModelName, policy.Quantization); m != nil {
-		for _, cap := range m.Capabilities {
+	if regEntry != nil {
+		for _, cap := range regEntry.Capabilities {
 			if cap == "image_generation" {
 				isImageGen = true
-				regModel = m
+				regModel = regEntry
 				break
+			}
+		}
+	} else if registryErr != nil {
+		// Second attempt after download (registry is embedded, so this rarely
+		// differs — but keep the same behaviour as before the restructure).
+		if reg2, err2 := registry.Load(); err2 == nil {
+			if m := reg2.FindByNameAndQuant(policy.ModelName, policy.Quantization); m != nil {
+				for _, cap := range m.Capabilities {
+					if cap == "image_generation" {
+						isImageGen = true
+						regModel = m
+						break
+					}
+				}
 			}
 		}
 	}
@@ -416,7 +441,7 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 	// ----------------------------------------------------------------
 	// Phase 7: Process jobs
 	// ----------------------------------------------------------------
-	executor := worker.NewExecutor(llama.URL(), cfg.JobTimeout, mmprojPath != "", logger)
+	executor := worker.NewExecutor(llama.URL(), cfg.JobTimeout, mmprojPath != "", "", logger)
 	activeJobs := &sync.Map{}
 
 	conn.OnJob(func(job protocol.JobMessage) {
@@ -910,7 +935,7 @@ func runWithExternalLlama(ctx context.Context, cfg *worker.Config, conn *worker.
 
 	logger.Info("worker ready (external llama)", "gpu_id", conn.GPUID())
 
-	executor := worker.NewExecutor(externalURL, cfg.JobTimeout, false, logger)
+	executor := worker.NewExecutor(externalURL, cfg.JobTimeout, false, "", logger)
 	activeJobs := &sync.Map{}
 
 	conn.OnJob(func(job protocol.JobMessage) {

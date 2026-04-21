@@ -17,7 +17,7 @@
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ModelRegistry, ModelRegistryEntry } from '../src/types.js';
+import type { ModelRegistry, ModelRegistryEntry, ModelFormat } from '../src/types.js';
 import { ModelRegistrySchema } from '../src/schemas.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -118,6 +118,158 @@ const IMAGE_GEN_MODELS: ModelRegistryEntry[] = [
     file_name: 'flux1-schnell-Q4_K_S.gguf',
   },
 ];
+
+/**
+ * Hugging Face organisations that publish MLX model weights.
+ * Models in these orgs are discovered in a second pass (after GGUF entries are
+ * built) and attached as additional `formats` entries on matching registry rows.
+ */
+const MLX_ORGS: string[] = ['mlx-community'];
+
+/**
+ * Cache of model_name → MLX repo IDs to avoid redundant HF API calls when
+ * multiple GGUF quantization rows share the same logical model name.
+ */
+const mlxRepoCache = new Map<string, string[]>();
+
+/**
+ * Fetch MLX repos from the configured MLX orgs for a given model name.
+ *
+ * Matching rules (applied per org):
+ *   1. The HF repo name (after the org prefix) must start with our
+ *      `modelName`, case-insensitively.
+ *   2. The suffix after `modelName` must be empty OR a recognised MLX
+ *      quantization/precision marker: -Nbit, -bf16, -fp16, -f16, -mlx.
+ *
+ * These rules are intentionally conservative so we don't pick up unrelated
+ * fine-tunes or similarly-named repos.  The family gating is implicit: we
+ * only call this for models that have already passed `isModelAllowed`.
+ */
+async function findMlxReposForModelName(modelName: string): Promise<string[]> {
+  if (mlxRepoCache.has(modelName)) {
+    return mlxRepoCache.get(modelName)!;
+  }
+
+  const found: string[] = [];
+
+  for (const org of MLX_ORGS) {
+    try {
+      const url =
+        `https://huggingface.co/api/models?author=${org}` +
+        `&search=${encodeURIComponent(modelName)}&limit=30&sort=downloads`;
+
+      const response = await fetchWithRetry(url);
+      if (!response.ok) {
+        console.warn(`  [mlx] Search failed for ${modelName} in ${org}: ${response.status}`);
+        continue;
+      }
+
+      const results: any[] = (await response.json()) as any[];
+      const modelNameLower = modelName.toLowerCase();
+
+      for (const repo of results) {
+        const repoId: string = (repo.id as string) || '';
+        // Strip org prefix to get bare repo name
+        const repoName = repoId.split('/').slice(1).join('/');
+        const repoNameLower = repoName.toLowerCase();
+
+        // Rule 1: must start with our model name
+        if (!repoNameLower.startsWith(modelNameLower)) continue;
+
+        // Rule 2: allowed suffix after the model name (mlx-community naming varies)
+        const suffix = repoName.slice(modelName.length);
+        const suffixOk =
+          suffix === '' ||
+          /^-\d+bit$/i.test(suffix) || // e.g. -4bit, -8bit
+          /^-(bf16|fp16|f16)$/i.test(suffix) ||
+          suffix.toLowerCase() === '-mlx' ||
+          /^-(nvfp4|mxfp4|mxfp8|mxfp6)$/i.test(suffix) || // Apple / MLX common tags
+          /^-\d+bit-[a-z0-9-]+$/i.test(suffix); // e.g. -4bit-DWQ
+
+        if (!suffixOk) continue;
+
+        found.push(repoId);
+      }
+    } catch (err) {
+      console.warn(
+        `  [mlx] Error searching ${org} for "${modelName}":`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  // Only cache positive hits so a later registry rebuild can pick up new mlx-community repos.
+  if (found.length > 0) {
+    mlxRepoCache.set(modelName, found);
+  }
+  return found;
+}
+
+/**
+ * Second pass over all registry entries: populate the `formats` array.
+ *
+ * For every entry:
+ *   - Slot 0 is always the GGUF format (self-referential: same huggingface_id
+ *     and file_name as the entry's own top-level fields).
+ *   - Additional slots are MLX repos discovered in mlx-community (or other
+ *     MLX_ORGS), one entry per repo.
+ *
+ * Entries that already have `formats` populated are skipped (safe for
+ * incremental update/patch modes that reuse existing registry rows).
+ *
+ * A small inter-model delay (150 ms) is inserted to be a good citizen
+ * against HuggingFace rate limits.
+ */
+async function attachMlxFormats(
+  entries: ModelRegistryEntry[],
+): Promise<ModelRegistryEntry[]> {
+  // Build model_name → entry indices map (many quant rows share one name)
+  const byModelName = new Map<string, number[]>();
+  for (let i = 0; i < entries.length; i++) {
+    const name = entries[i].model_name;
+    if (!byModelName.has(name)) byModelName.set(name, []);
+    byModelName.get(name)!.push(i);
+  }
+
+  const result: ModelRegistryEntry[] = [...entries];
+
+  console.log(`\nSearching MLX repos for ${byModelName.size} unique model names…`);
+
+  for (const [modelName, indices] of byModelName) {
+    // Skip HF only when MLX is already present for this model_name on every row.
+    // Rows with only `{ gguf }` must still be refreshed so we do not miss MLX
+    // if the registry was generated before MLX discovery or mlx-community added repos.
+    const mlxAlreadyAttached = indices.every((i) =>
+      result[i].formats?.some((f) => f.type === 'mlx'),
+    );
+    if (mlxAlreadyAttached) continue;
+
+    const mlxRepoIds = await findMlxReposForModelName(modelName);
+    const mlxFormats: ModelFormat[] = mlxRepoIds.map((id) => ({
+      type: 'mlx' as const,
+      huggingface_id: id,
+    }));
+
+    if (mlxRepoIds.length > 0) {
+      console.log(`  ✓ ${modelName}: ${mlxRepoIds.length} MLX repo(s) → ${mlxRepoIds.join(', ')}`);
+    }
+
+    for (const i of indices) {
+      const entry = result[i];
+      const ggufFormat: ModelFormat = {
+        type: 'gguf',
+        huggingface_id: entry.huggingface_id,
+        file_name: entry.file_name,
+      };
+      result[i] = { ...entry, formats: [ggufFormat, ...mlxFormats] };
+    }
+
+    // Polite delay between model lookups
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+
+  return result;
+}
 
 /**
  * Allowed quantization patterns
@@ -906,7 +1058,10 @@ async function buildRegistry(): Promise<ModelRegistry> {
     }
   }
 
-  return writeRegistry(models);
+  // Second pass: attach formats (GGUF self + MLX discovery)
+  const withFormats = await attachMlxFormats(models);
+
+  return writeRegistry(withFormats);
 }
 
 /**
@@ -989,8 +1144,10 @@ async function patchRegistry(pattern: string): Promise<ModelRegistry> {
 
   console.log(`\nPatch summary: kept ${kept.length}, added ${newModels.length}`);
 
-  // 4. Merge and write
-  return writeRegistry([...kept, ...newModels]);
+  // 4. Merge, attach formats for new entries, and write
+  const merged = [...kept, ...newModels];
+  const withFormats = await attachMlxFormats(merged);
+  return writeRegistry(withFormats);
 }
 
 /**
@@ -1004,6 +1161,25 @@ async function patchRegistry(pattern: string): Promise<ModelRegistry> {
  * get fetched and appended. Great for incremental updates after committing
  * registry.json to git.
  */
+/**
+ * Formats-only refresh — reload registry.json, re-run MLX discovery for every
+ * model_name, write back. Use when the GGUF catalog is already correct but
+ * `formats` / MLX rows were never attached (or mlx-community added new repos).
+ *
+ * Usage: pnpm run build:formats
+ */
+async function formatsOnlyRefresh(): Promise<ModelRegistry> {
+  console.log('Refreshing weight formats (GGUF + MLX) on existing registry.json…\n');
+  const existing = loadExistingRegistry();
+  if (existing.length === 0) {
+    console.error('registry.json is missing or has no models.');
+    process.exit(1);
+  }
+  mlxRepoCache.clear();
+  const withFormats = await attachMlxFormats(existing);
+  return writeRegistry(withFormats);
+}
+
 async function updateRegistry(): Promise<ModelRegistry> {
   console.log('Updating model registry (incremental)...');
 
@@ -1067,7 +1243,10 @@ async function updateRegistry(): Promise<ModelRegistry> {
     }
   }
 
-  return writeRegistry(merged);
+  // Second pass: attach formats for any entries that are missing them
+  // (existing entries already have formats; only newly fetched entries need them)
+  const withFormats = await attachMlxFormats(merged);
+  return writeRegistry(withFormats);
 }
 
 // --- CLI entry point ---
@@ -1075,6 +1254,7 @@ async function updateRegistry(): Promise<ModelRegistry> {
 const args = process.argv.slice(2);
 const patchIndex = args.indexOf('--patch');
 const updateMode = args.includes('--update');
+const formatsOnly = args.includes('--formats-only');
 
 if (patchIndex !== -1) {
   const pattern = args[patchIndex + 1];
@@ -1090,6 +1270,11 @@ if (patchIndex !== -1) {
 } else if (updateMode) {
   updateRegistry().catch((error) => {
     console.error('Error updating registry:', error);
+    process.exit(1);
+  });
+} else if (formatsOnly) {
+  formatsOnlyRefresh().catch((error) => {
+    console.error('Error refreshing formats:', error);
     process.exit(1);
   });
 } else {

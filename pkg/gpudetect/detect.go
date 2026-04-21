@@ -5,6 +5,16 @@
 //   - macOS: Metal (built-in) — always available on Apple Silicon
 //   - Linux: NVIDIA (nvidia-smi) → Vulkan → CPU fallback
 //   - Windows: NVIDIA CUDA → CPU fallback
+//
+// Apple Silicon vs Intel Mac distinction:
+//
+// Both Apple Silicon and Intel Macs report BackendMetal, because Metal is
+// supported on all modern macOS hardware. However, only Apple Silicon (arm64)
+// supports the MLX inference stack (vllm-mlx / mlx-lm). Intel Macs running
+// darwin/amd64 have Metal but lack the Neural Engine and the MLX-specific
+// kernels; attempting to run vllm-mlx on Intel would either fail or fall back
+// to CPU-only, defeating the purpose. Use IsAppleSilicon() or
+// Result.IsAppleSilicon to gate the MLX path.
 package gpudetect
 
 import (
@@ -26,9 +36,22 @@ const (
 
 // Result holds the detection outcome.
 type Result struct {
-	Backend  Backend // Which backend to use
-	Detected bool    // Whether an actual GPU was found
-	Warning  string  // Non-empty if falling back to CPU
+	Backend        Backend // Which backend to use
+	Detected       bool    // Whether an actual GPU was found
+	Warning        string  // Non-empty if falling back to CPU
+	IsAppleSilicon bool    // True only on darwin/arm64 — required for the MLX path
+}
+
+// IsAppleSilicon reports whether the current process is running on Apple
+// Silicon (darwin/arm64). This is the guard for the vllm-mlx / mlx-lm
+// inference path.
+//
+// Intel Macs (darwin/amd64) expose Metal and will have Detected=true and
+// Backend=BackendMetal, but IsAppleSilicon returns false there. The MLX
+// stack is arm64-only and must NOT be selected solely because Metal is
+// available — always check IsAppleSilicon() before starting vllm-mlx.
+func IsAppleSilicon() bool {
+	return runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
 }
 
 // Detect identifies the GPU hardware on the current system.
@@ -50,9 +73,13 @@ func Detect() Result {
 }
 
 func detectMacOS() Result {
-	// Apple Silicon (and all modern macOS) includes Metal.
-	// llama.cpp macOS binaries have Metal built in.
-	return Result{Backend: BackendMetal, Detected: true}
+	// All modern macOS hardware includes Metal (llama.cpp uses it automatically).
+	// IsAppleSilicon is true only on arm64 and gates the vllm-mlx path.
+	return Result{
+		Backend:        BackendMetal,
+		Detected:       true,
+		IsAppleSilicon: runtime.GOARCH == "arm64",
+	}
 }
 
 func detectLinux() Result {

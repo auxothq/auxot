@@ -21,23 +21,29 @@ import (
 // removing any actual content the model generated inside them.
 var thinkTagRe = regexp.MustCompile(`</?think>`)
 
-// Executor handles running jobs on the local llama.cpp server.
+// Executor runs chat-completions against an OpenAI-compatible HTTP server
+// (llama.cpp or any compatible backend).
 type Executor struct {
 	llamaURL   string
 	logger     *slog.Logger
 	jobTimeout time.Duration
 	hasVision  bool
+	// completionModel is the OpenAI JSON "model" field for /v1/chat/completions.
+	// llama.cpp ignores it for a single loaded model — use "" to send "local".
+	completionModel string
 }
 
-// NewExecutor creates an Executor that sends inference requests to the
-// llama.cpp server at the given URL. Set hasVision when mmproj is loaded
-// so the executor can inform the model about native vision capability.
-func NewExecutor(llamaURL string, jobTimeout time.Duration, hasVision bool, logger *slog.Logger) *Executor {
+// NewExecutor creates an executor for the given OpenAI base URL. Set hasVision
+// when mmproj is loaded so the executor can inform the model about vision.
+// completionModel is the JSON "model" field; use "" for llama.cpp (becomes
+// "local").
+func NewExecutor(llamaURL string, jobTimeout time.Duration, hasVision bool, completionModel string, logger *slog.Logger) *Executor {
 	return &Executor{
-		llamaURL:   llamaURL,
-		logger:     logger,
-		jobTimeout: jobTimeout,
-		hasVision:  hasVision,
+		llamaURL:        llamaURL,
+		logger:          logger,
+		jobTimeout:      jobTimeout,
+		hasVision:       hasVision,
+		completionModel: completionModel,
 	}
 }
 
@@ -180,26 +186,20 @@ func (e *Executor) Execute(
 		})
 	}
 
-	req := &openai.ChatCompletionRequest{
-		Model:           "local",
-		Messages:        messages,
-		Tools:           tools,
-		Temperature:     job.Temperature,
-		MaxTokens:       job.MaxTokens,
-		Stream:          true,
-		ReasoningEffort: job.ReasoningEffort,
-		ReturnProgress:  true,
+	modelName := strings.TrimSpace(e.completionModel)
+	if modelName == "" {
+		modelName = "local"
 	}
-
-	// When thinking is suppressed, tell llama.cpp to disable thinking at the
-	// template level via chat_template_kwargs. This prevents the Jinja template
-	// from injecting <think> into the generation prompt, so the model never
-	// enters thinking mode.
-	//
-	// Different model families use different variable names:
-	//   - Qwen3: enable_thinking
-	//   - Kimi K2.5: thinking
-	// Passing both is safe — Jinja silently ignores undefined kwargs.
+	req := &openai.ChatCompletionRequest{
+		Model:       modelName,
+		Messages:    messages,
+		Tools:       tools,
+		Temperature: job.Temperature,
+		MaxTokens:   job.MaxTokens,
+		Stream:      true,
+	}
+	req.ReasoningEffort = job.ReasoningEffort
+	req.ReturnProgress = true
 	if suppressThinking {
 		req.ChatTemplateKwargs = map[string]any{
 			"enable_thinking": false, // Qwen3, DeepSeek-R1
@@ -210,14 +210,24 @@ func (e *Executor) Execute(
 	// Debug log the request to llama.cpp (level 2)
 	DebugWorkerToLlama(req)
 
+	tStream := time.Now()
+	// Long prompts: no SSE chunk (hence no tokens) until prefill — can look "stuck".
+	stallWarn := time.AfterFunc(45*time.Second, func() {
+		e.logger.Info("inference: still no stream chunk; possible long prompt prefill (large context can take minutes); first token not received yet",
+			"job_id", job.JobID, "wait_s", int(time.Since(tStream).Seconds()))
+	})
+	defer func() { stallWarn.Stop() }()
+
 	client := llamacpp.NewClient(e.llamaURL)
+
 	tokenCh, err := client.StreamCompletion(jobCtx, req)
 	if err != nil {
-		e.logger.Error("llama.cpp stream failed", "job_id", job.JobID, "error", err)
-		_ = sendError(fmt.Sprintf("llama.cpp error: %v", err), "")
+		e.logger.Error("chat stream failed", "job_id", job.JobID, "error", err)
+		_ = sendError(fmt.Sprintf("inference error: %v", err), "")
 		return
 	}
 
+	sawStreamChunk := false
 	var fullResponse strings.Builder
 	var reasoningContent strings.Builder
 	var reasoningTokenCount int
@@ -233,8 +243,34 @@ func (e *Executor) Execute(
 	// tokens are accumulated but not forwarded to the frontend so users never
 	// see raw XML in the Thought process accordion.
 	inXMLToolCall := false
+	// inXMLToolCallContent mirrors the same suppression for the content stream.
+	// Some models emit XML tool calls in content (after </think>) rather than in
+	// reasoning. We accumulate the tokens but don't stream them to the user.
+	inXMLToolCallContent := false
+	// inThinkContent tracks <think>...</think> state in the content stream.
+	// llama.cpp sometimes emits the <think> tag itself as a content token
+	// (e.g. when the model generates it before the server intercepts it), and
+	// may put subsequent reasoning tokens in reasoning_content while leaving
+	// the opening/closing tags in content. We detect this and:
+	//   • strip <think>/<think> tags from the user-visible stream
+	//   • reroute any reasoning text that appears between them in content to
+	//     sendReasoningToken instead of sendToken
+	inThinkContent := false
 
 	for token := range tokenCh {
+		// Any streaming signal from the server (incl. empty + finish / progress) ends "silent stall" anxiety.
+		if !sawStreamChunk {
+			if token.PromptProgress != nil || token.Content != "" || token.ReasoningContent != "" || len(token.ToolCalls) > 0 || token.FinishReason != "" {
+				stallWarn.Stop()
+				if token.Content != "" || token.ReasoningContent != "" {
+					e.logger.Info("inference: first text chunk from server", "job_id", job.JobID, "ttft_ms", time.Since(tStream).Milliseconds())
+				} else {
+					e.logger.Info("inference: first server chunk (progress or control)", "job_id", job.JobID, "ms", time.Since(tStream).Milliseconds())
+				}
+				sawStreamChunk = true
+			}
+		}
+
 		// Debug log each SSE chunk from llama.cpp (level 2)
 		if DebugLevel() >= 2 && (token.Content != "" || token.ReasoningContent != "" || len(token.ToolCalls) > 0 || token.FinishReason != "") {
 			if len(token.ToolCalls) > 0 {
@@ -250,8 +286,8 @@ func (e *Executor) Execute(
 		}
 
 		if token.FinishReason == "error" {
-			e.logger.Error("llama.cpp stream error", "job_id", job.JobID, "error", token.Content)
-			_ = sendError(fmt.Sprintf("llama.cpp: %s", token.Content), "")
+			e.logger.Error("stream error from inference server", "job_id", job.JobID, "error", token.Content)
+			_ = sendError(fmt.Sprintf("inference: %s", token.Content), "")
 			return
 		}
 
@@ -261,9 +297,48 @@ func (e *Executor) Execute(
 		}
 
 		if token.Content != "" {
-			fullResponse.WriteString(token.Content)
-			if err := sendToken(token.Content); err != nil {
-				e.logger.Warn("failed to send token", "job_id", job.JobID, "error", err)
+			// Split the content chunk around any <think>...</think> boundaries.
+			// llama.cpp normally puts reasoning in reasoning_content, but can
+			// also emit the <think>/<think> tags themselves as content tokens.
+			// When that happens we reroute the enclosed text to reasoning so it
+			// never surfaces as visible response text.
+			for _, part := range splitThinkContent(token.Content, &inThinkContent) {
+				if part.isThinking {
+					if !suppressThinking {
+						reasoningContent.WriteString(part.text)
+						reasoningTokenCount++
+						if !inXMLToolCall && sendReasoningToken != nil {
+							if err := sendReasoningToken(part.text); err != nil {
+								e.logger.Warn("failed to send reasoning token", "job_id", job.JobID, "error", err)
+							}
+						}
+					}
+					continue
+				}
+				// Regular response content — apply XML tool call suppression.
+				// Tool calls may appear in content (after </think>); we still
+				// accumulate in fullResponse so parsers can extract them at job end.
+				// We check two formats:
+				//   <tool_call>...</tool_call>  (Qwen3 XML)
+				//   [Calling tool: NAME({...})] (fallback inline format)
+				// The pattern may split across SSE chunk boundaries, so we probe
+				// the tail of the accumulated response for a partial opening.
+				if !inXMLToolCallContent {
+					tail := fullResponse.String()
+					if len(tail) > 20 {
+						tail = tail[len(tail)-20:]
+					}
+					combined := tail + part.text
+					if strings.Contains(combined, "<tool_call>") || strings.Contains(combined, "[Calling tool:") {
+						inXMLToolCallContent = true
+					}
+				}
+				fullResponse.WriteString(part.text)
+				if !inXMLToolCallContent {
+					if err := sendToken(part.text); err != nil {
+						e.logger.Warn("failed to send token", "job_id", job.JobID, "error", err)
+					}
+				}
 			}
 		}
 
@@ -370,12 +445,20 @@ func (e *Executor) Execute(
 		reasoningTokenCount = 0
 	}
 
-	// Qwen3 on llama.cpp sometimes puts tool calls in the reasoning block as XML.
-	// Normalize them into structured tool_calls before sending to the server.
-	if len(protoToolCalls) == 0 && strings.Contains(finalReasoning, "<tool_call>") {
-		if extracted, stripped := extractXMLToolCalls(finalReasoning); len(extracted) > 0 {
-			protoToolCalls = extracted
-			finalReasoning = stripped
+	// Qwen3 emits XML tool calls either inside the reasoning block or
+	// in the response content after </think>. Check both.
+	if len(protoToolCalls) == 0 {
+		if strings.Contains(finalReasoning, "<tool_call>") {
+			if extracted, stripped := extractXMLToolCalls(finalReasoning); len(extracted) > 0 {
+				protoToolCalls = extracted
+				finalReasoning = stripped
+			}
+		}
+		if len(protoToolCalls) == 0 && strings.Contains(finalResponse, "<tool_call>") {
+			if extracted, stripped := extractXMLToolCalls(finalResponse); len(extracted) > 0 {
+				protoToolCalls = extracted
+				finalResponse = stripped
+			}
 		}
 	}
 
@@ -393,7 +476,7 @@ func (e *Executor) Execute(
 	}
 
 	// Log job completion with progressive detail based on debug level
-	logJobCompleted(e.logger, job.JobID, finishReason, cacheTokens, inputTokens, outputTokens, reasoningTokenCount, durationMS, finalResponse, finalReasoning, protoToolCalls)
+	logJobCompleted(e.logger, job.JobID, finishReason, cacheTokens, inputTokens, outputTokens, reasoningTokenCount, durationMS, finalResponse, finalReasoning, protoToolCalls, finalTimings)
 
 	if err := sendComplete(finalResponse, finalReasoning, cacheTokens, inputTokens, outputTokens, reasoningTokenCount, durationMS, protoToolCalls); err != nil {
 		e.logger.Error("failed to send completion", "job_id", job.JobID, "error", err)
@@ -404,7 +487,7 @@ func (e *Executor) Execute(
 // Level 0: Summary stats only (job_id, tokens, duration, finish_reason, reasoning_tokens)
 // Level 1: Level 0 + full response text + reasoning content + tool calls with arguments
 // Level 2: Level 0 + Level 1 (same as level 1, streaming tokens shown separately via ws_send)
-func logJobCompleted(logger *slog.Logger, jobID, finishReason string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, fullResponse, reasoningContent string, toolCalls []protocol.ToolCall) {
+func logJobCompleted(logger *slog.Logger, jobID, finishReason string, cacheTokens, inputTokens, outputTokens, reasoningTokens int, durationMS int64, fullResponse, reasoningContent string, toolCalls []protocol.ToolCall, finalTimings *llamacpp.Timings) {
 	level := DebugLevel()
 
 	// Level 0: Always log summary stats
@@ -415,6 +498,14 @@ func logJobCompleted(logger *slog.Logger, jobID, finishReason string, cacheToken
 		"input_tokens", inputTokens,
 		"output_tokens", outputTokens,
 		"duration_ms", durationMS,
+	}
+
+	if finalTimings != nil {
+		if finalTimings.TokensPerSecond > 0 {
+			attrs = append(attrs, "tokens_per_s", finalTimings.TokensPerSecond)
+		} else if finalTimings.PredictedMS > 0 && finalTimings.PredictedTokens > 0 {
+			attrs = append(attrs, "tokens_per_s", float64(finalTimings.PredictedTokens)/(finalTimings.PredictedMS/1000.0))
+		}
 	}
 
 	if reasoningTokens > 0 {
@@ -442,6 +533,50 @@ func logJobCompleted(logger *slog.Logger, jobID, finishReason string, cacheToken
 	}
 
 	logger.Info("job completed", attrs...)
+}
+
+// thinkContentPart is one segment produced by splitThinkContent.
+type thinkContentPart struct {
+	text       string
+	isThinking bool // true → route to reasoning; false → route to response
+}
+
+// splitThinkContent splits a raw content chunk around <think>...</think>
+// boundaries, updating *inThink across SSE chunk calls so partial tags work
+// correctly. The <think> and </think> tags themselves are consumed (not
+// included in any returned part).
+//
+// This handles the edge case where llama.cpp emits the <think>/<think> tags
+// as content tokens rather than cleanly separating them into reasoning_content.
+func splitThinkContent(chunk string, inThink *bool) []thinkContentPart {
+	var parts []thinkContentPart
+	remainder := chunk
+	for len(remainder) > 0 {
+		if *inThink {
+			if idx := strings.Index(remainder, "</think>"); idx >= 0 {
+				if idx > 0 {
+					parts = append(parts, thinkContentPart{text: remainder[:idx], isThinking: true})
+				}
+				*inThink = false
+				remainder = remainder[idx+len("</think>"):]
+			} else {
+				parts = append(parts, thinkContentPart{text: remainder, isThinking: true})
+				return parts
+			}
+		} else {
+			if idx := strings.Index(remainder, "<think>"); idx >= 0 {
+				if idx > 0 {
+					parts = append(parts, thinkContentPart{text: remainder[:idx], isThinking: false})
+				}
+				*inThink = true
+				remainder = remainder[idx+len("<think>"):]
+			} else {
+				parts = append(parts, thinkContentPart{text: remainder, isThinking: false})
+				return parts
+			}
+		}
+	}
+	return parts
 }
 
 // messagesContainImage returns true if any message has image_url content parts.
