@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/auxothq/auxot/pkg/tools"
 )
 
 // Sidecar manages a single long-lived @playwright/mcp HTTP process.
@@ -41,9 +40,11 @@ func NewSidecar(port int, logger *slog.Logger) (*Sidecar, error) {
 			return nil, fmt.Errorf("browser sidecar: closing probe listener: %w", err)
 		}
 	}
+	// Use localhost (not 127.0.0.1) so the readiness probe resolves correctly
+	// regardless of whether the process binds to IPv4 or IPv6 loopback.
 	return &Sidecar{
 		port:    port,
-		baseURL: "http://127.0.0.1:" + strconv.Itoa(port),
+		baseURL: "http://localhost:" + strconv.Itoa(port),
 		logger:  logger,
 	}, nil
 }
@@ -54,9 +55,34 @@ func (s *Sidecar) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// --browser chromium: use the Playwright-managed Chromium build from
+	//   PLAYWRIGHT_BROWSERS_PATH (pre-installed in the Docker image).
+	// --headless: required in Docker (no display server).
+	// --no-sandbox: required when running as non-root inside a container.
+	// --isolated: each HTTP client (MCP session) gets an ephemeral browser
+	//   context in memory — no persistent user-data-dir, no SingletonLock
+	//   conflicts between concurrent sessions.
+	// Run playwright-mcp under the real Node.js binary (not Bun).
+	// Playwright's internal `ws` npm package has a WebSocket hang bug when
+	// executed inside Bun's Node.js compatibility layer; real Node.js is fine.
+	// @playwright/mcp is globally installed via npm in Dockerfile.tools.
+	//
+	// Flags:
+	//   --browser chromium: use Playwright's own Chromium from PLAYWRIGHT_BROWSERS_PATH.
+	//   --headless: required in Docker (no display server).
+	//   --no-sandbox: required when running as non-root inside a container.
+	//   --isolated: each MCP session gets its own ephemeral Chrome process + temp
+	//     profile dir; prevents "browser already in use" conflicts between threads.
+	//   --host 127.0.0.1: bind to IPv4 loopback only; keeps the CSRF host-check
+	//     simple and avoids IPv6/IPv4 ambiguity when clients connect via localhost.
 	cmd := exec.CommandContext(ctx,
-		tools.BunBinary(),
-		"x", "@playwright/mcp@latest",
+		"node",
+		"/usr/local/lib/node_modules/@playwright/mcp/cli.js",
+		"--browser", "chromium",
+		"--headless",
+		"--no-sandbox",
+		"--isolated",
+		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(s.port),
 	)
 	// Inherit the full host environment so PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
@@ -80,18 +106,23 @@ func (s *Sidecar) Start(ctx context.Context) error {
 	go s.pipeToLogger(stdoutPipe, "stdout")
 	go s.pipeToLogger(stderrPipe, "stderr")
 
-	// Poll GET /sse every 500 ms for up to 30 s.
-	probeClient := &http.Client{Timeout: 2 * time.Second}
+	// Poll for readiness every 500 ms for up to 30 s.
+	// Use ResponseHeaderTimeout (not Timeout) so SSE streams don't stall the
+	// probe — we only need the server to respond with any HTTP status.
+	probeClient := &http.Client{
+		Transport: &http.Transport{
+			ResponseHeaderTimeout: 2 * time.Second,
+		},
+	}
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, err := probeClient.Get(s.baseURL + "/sse")
-		if err == nil {
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				// Non-2xx: sidecar not ready yet — drain and continue polling.
+		// Try /sse (legacy SSE transport) first, then / as a fallback.
+		// Any HTTP response — including 404 — confirms the server is up.
+		for _, path := range []string{"/sse", "/"} {
+			resp, err := probeClient.Get(s.baseURL + path)
+			if err == nil {
 				_ = resp.Body.Close()
-			} else {
-				_ = resp.Body.Close()
-				s.logger.Info("browser sidecar ready", "port", s.port)
+				s.logger.Info("browser sidecar ready", "port", s.port, "status", resp.StatusCode)
 				return nil
 			}
 		}
