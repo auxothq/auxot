@@ -171,6 +171,10 @@ func (m *McpInstaller) runInstall(state *installState, pkg, version string) {
 	slog.Info("MCP package installed", "package", pkgSpec)
 }
 
+// BunBinary returns the path to the bun binary.
+// Exported for use by sub-packages (e.g. pkg/tools/browser).
+func BunBinary() string { return bunBinary() }
+
 // bunBinary returns the path to the bun binary.
 // It checks ~/.bun/bin/bun (installed by the official installer) first,
 // then PATH, then falls back to the Docker-installed path.

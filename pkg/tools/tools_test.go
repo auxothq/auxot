@@ -734,6 +734,37 @@ func TestWebFetch_PostBodyAsString(t *testing.T) {
 	}
 }
 
+// --- Result tests ---
+
+// TestResult_ZeroValueImageParts confirms that a zero-value Result has nil
+// ImageParts, preserving backward compatibility for all existing executors
+// that return Result{Output: ...} without setting ImageParts.
+func TestResult_ZeroValueImageParts(t *testing.T) {
+	var r Result
+	if r.ImageParts != nil {
+		t.Errorf("expected nil ImageParts on zero-value Result, got %v", r.ImageParts)
+	}
+}
+
+// TestResult_WithImageParts confirms that ImageParts can carry binary image data.
+func TestResult_WithImageParts(t *testing.T) {
+	data := []byte{0x89, 0x50, 0x4e, 0x47} // PNG header
+	r := Result{
+		ImageParts: []ImagePart{
+			{MIMEType: "image/png", Data: data},
+		},
+	}
+	if len(r.ImageParts) != 1 {
+		t.Fatalf("expected 1 image part, got %d", len(r.ImageParts))
+	}
+	if r.ImageParts[0].MIMEType != "image/png" {
+		t.Errorf("MIMEType = %q, want image/png", r.ImageParts[0].MIMEType)
+	}
+	if string(r.ImageParts[0].Data) != string(data) {
+		t.Errorf("Data mismatch")
+	}
+}
+
 // --- Registry tests ---
 
 func TestRegistry_DefaultTools(t *testing.T) {

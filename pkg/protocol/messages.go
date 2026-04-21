@@ -362,6 +362,11 @@ type Tool struct {
 type JobMessage struct {
 	Type            MessageType    `json:"type"`
 	JobID           string         `json:"job_id"`
+	// ReferenceID is the conversation thread identifier propagated from the
+	// auxot-server coordinator (JSON key "reference_id"). It maps 1:1 to the
+	// chat thread and is used to key browser contexts and for sticky worker
+	// routing. Omitted for non-chat job types.
+	ReferenceID     string         `json:"reference_id,omitempty"`
 	// Model is the per-job routed model for CLI workers (e.g. haiku, sonnet,
 	// claude-haiku-4-5). When set, cliworker prefers this over hello policy model_name.
 	Model           string         `json:"model,omitempty"`

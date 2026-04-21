@@ -89,6 +89,10 @@ type ToolJobMessage struct {
 	Type        MessageType       `json:"type"`
 	JobID       string            `json:"job_id"`                // Unique ID for this tool invocation
 	ParentJobID string            `json:"parent_job_id"`         // The LLM job that triggered this
+	// ThreadID is the conversation thread (reference_id from the GPU job). Used
+	// to key browser contexts and for sticky worker routing. Omitted for
+	// non-chat or legacy job types that do not carry a reference_id.
+	ThreadID    string            `json:"thread_id,omitempty"`
 	ToolName    string            `json:"tool_name"`             // e.g. "code_executor", "web_fetch"
 	ToolCallID  string            `json:"tool_call_id"`          // The LLM's tool_call.id — echoed in result
 	Arguments   json.RawMessage   `json:"arguments"`             // JSON object matching the tool's schema
@@ -126,6 +130,14 @@ type ValidateConfigurationResultMessage struct {
 	Error     string                      `json:"error,omitempty"`
 }
 
+// ImagePart is a binary image returned by a tool, surfaced as multimodal content.
+// Workers populate this alongside the JSON Result when the tool produces screenshots
+// or other binary image output (e.g. the browser executor).
+type ImagePart struct {
+	MIMEType string `json:"mime_type"`
+	Data     []byte `json:"data"` // raw bytes; JSON marshal base64-encodes automatically
+}
+
 // ToolResultMessage is sent by a tools worker after completing (or failing) a tool call.
 type ToolResultMessage struct {
 	Type        MessageType     `json:"type"`
@@ -134,6 +146,10 @@ type ToolResultMessage struct {
 	ToolCallID  string          `json:"tool_call_id"`  // Mirrors ToolJobMessage.ToolCallID
 	ToolName    string          `json:"tool_name"`     // Mirrors ToolJobMessage.ToolName
 	Result      json.RawMessage `json:"result,omitempty"`
+	// ImageParts carries binary images (e.g. screenshots) produced alongside the
+	// text result. The router surfaces these as OpenAI-style multimodal content
+	// parts in the continuation LLM message. Nil for non-image tools.
+	ImageParts  []ImagePart     `json:"image_parts,omitempty"`
 	Error       string          `json:"error,omitempty"`
 	DurationMS  int64           `json:"duration_ms,omitempty"`
 }

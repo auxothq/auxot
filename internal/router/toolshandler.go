@@ -3,10 +3,13 @@ package router
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 	"github.com/auxothq/auxot/pkg/protocol"
 	"github.com/auxothq/auxot/pkg/queue"
 	pkgtools "github.com/auxothq/auxot/pkg/tools"
+	"github.com/auxothq/auxot/pkg/tools/browser"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,13 +56,18 @@ type jobContext struct {
 	temperature     *float64
 	maxTokens       *int
 	reasoningEffort string
+	// threadID is the conversation thread identifier (populated from
+	// JobMessage.ReferenceID). Used for browser context isolation and
+	// sticky worker routing in later phases.
+	threadID string
 }
 
 // toolCallResult holds the result (or error) of a single tool invocation.
 type toolCallResult struct {
-	toolName string
-	result   json.RawMessage // nil if errMsg is set
-	errMsg   string
+	toolName   string
+	result     json.RawMessage    // nil if errMsg is set
+	errMsg     string
+	imageParts []protocol.ImagePart // populated when tool result carries binary images
 }
 
 // pendingContinuation tracks an in-flight multi-tool-call round.
@@ -139,6 +148,14 @@ func NewToolsWSHandler(
 				Parameters:  def.Parameters,
 			},
 		}
+	}
+	builtinDefs["browser"] = protocol.Tool{
+		Type: "function",
+		Function: protocol.ToolDefinition{
+			Name:        browser.Definition.Name,
+			Description: browser.Definition.Description,
+			Parameters:  browser.Definition.Parameters,
+		},
 	}
 
 	return &ToolsWSHandler{
@@ -330,14 +347,18 @@ func (h *ToolsWSHandler) SaveJobContext(jobID string, jobMsg *protocol.JobMessag
 	if len(h.config.AllowedTools) == 0 {
 		return // tools not configured, no context needed
 	}
-	h.jobContextsMu.Lock()
-	h.jobContexts[jobID] = &jobContext{
+	ctx := &jobContext{
 		messages:        jobMsg.Messages,
 		tools:           jobMsg.Tools,
 		temperature:     jobMsg.Temperature,
 		maxTokens:       jobMsg.MaxTokens,
 		reasoningEffort: jobMsg.ReasoningEffort,
 	}
+	if jobMsg.ReferenceID != "" {
+		ctx.threadID = jobMsg.ReferenceID
+	}
+	h.jobContextsMu.Lock()
+	h.jobContexts[jobID] = ctx
 	h.jobContextsMu.Unlock()
 }
 
@@ -389,19 +410,17 @@ func (h *ToolsWSHandler) StartContinuation(ctx context.Context, msg *protocol.Co
 		return false
 	}
 
-	// Check for a connected tools worker.
-	h.toolsWorkersMu.RLock()
-	var worker *toolsConn
-	for _, w := range h.toolsWorkers {
-		worker = w
-		break // pick any — future: capability-based routing
+	// Collect all distinct tool names used in this round so we can select a
+	// worker that advertises every one of them.
+	toolNameSet := make(map[string]struct{}, len(msg.ToolCalls))
+	for _, tc := range msg.ToolCalls {
+		if tc.Function.Name != "" {
+			toolNameSet[tc.Function.Name] = struct{}{}
+		}
 	}
-	h.toolsWorkersMu.RUnlock()
-
-	if worker == nil {
-		// No tools worker — let the GPU complete message fall through to the
-		// token stream unchanged. API callers handle their own tool_calls.
-		return false
+	allToolNames := make([]string, 0, len(toolNameSet))
+	for name := range toolNameSet {
+		allToolNames = append(allToolNames, name)
 	}
 
 	// Look up the saved job context.
@@ -414,6 +433,19 @@ func (h *ToolsWSHandler) StartContinuation(ctx context.Context, msg *protocol.Co
 			"job_id", msg.JobID,
 			"note", "tool calls will be returned to caller",
 		)
+		return false
+	}
+
+	// Select the worker deterministically by thread_id so all browser (and other
+	// stateful) tool calls for this thread land on the same worker.
+	// Filter by ALL tool names in this round so a mixed round (e.g. web_fetch +
+	// browser) lands on a worker that can handle every tool call.
+	threadID := jobCtx.threadID
+	worker := h.pickToolsWorkerAll(allToolNames, threadID)
+
+	if worker == nil {
+		// No tools worker — let the GPU complete message fall through to the
+		// token stream unchanged. API callers handle their own tool_calls.
 		return false
 	}
 
@@ -461,6 +493,7 @@ func (h *ToolsWSHandler) StartContinuation(ctx context.Context, msg *protocol.Co
 			Type:        protocol.TypeToolJob,
 			JobID:       toolJobID,
 			ParentJobID: msg.JobID,
+			ThreadID:    jobCtx.threadID,
 			ToolName:    tc.Function.Name,
 			ToolCallID:  tc.ID,
 			Arguments:   json.RawMessage(tc.Function.Arguments),
@@ -475,7 +508,7 @@ func (h *ToolsWSHandler) StartContinuation(ctx context.Context, msg *protocol.Co
 				"error", err,
 			)
 			// Fail this tool call immediately.
-			h.recordToolResult(msg.JobID, tc.ID, tc.Function.Name, nil, "failed to dispatch to tools worker")
+			h.recordToolResult(msg.JobID, tc.ID, tc.Function.Name, nil, nil, "failed to dispatch to tools worker")
 		} else {
 			h.logger.Info("tool job dispatched",
 				"tool_job_id", toolJobID,
@@ -510,7 +543,7 @@ func (h *ToolsWSHandler) handleToolResult(tc *toolsConn, msg *protocol.ToolResul
 	delete(h.toolJobRefs, msg.JobID)
 	h.toolJobRefsMu.Unlock()
 
-	h.recordToolResult(msg.ParentJobID, msg.ToolCallID, msg.ToolName, msg.Result, msg.Error)
+	h.recordToolResult(msg.ParentJobID, msg.ToolCallID, msg.ToolName, msg.Result, msg.ImageParts, msg.Error)
 }
 
 // handleToolError processes an error message from a tools worker for a specific tool job.
@@ -523,12 +556,12 @@ func (h *ToolsWSHandler) handleToolError(toolJobID, errMsg string) {
 	if !ok {
 		return
 	}
-	h.recordToolResult(ref.parentJobID, ref.toolCallID, "", nil, errMsg)
+	h.recordToolResult(ref.parentJobID, ref.toolCallID, "", nil, nil, errMsg)
 }
 
 // recordToolResult stores one tool call's result and, when all results are in,
 // rebuilds the message history and re-enqueues the GPU job.
-func (h *ToolsWSHandler) recordToolResult(parentJobID, toolCallID, toolName string, result json.RawMessage, errMsg string) {
+func (h *ToolsWSHandler) recordToolResult(parentJobID, toolCallID, toolName string, result json.RawMessage, imageParts []protocol.ImagePart, errMsg string) {
 	h.pendingContsMu.Lock()
 	cont, ok := h.pendingConts[parentJobID]
 	h.pendingContsMu.Unlock()
@@ -553,9 +586,10 @@ func (h *ToolsWSHandler) recordToolResult(parentJobID, toolCallID, toolName stri
 	}
 
 	cont.results[toolCallID] = &toolCallResult{
-		toolName: toolName,
-		result:   result,
-		errMsg:   errMsg,
+		toolName:   toolName,
+		result:     result,
+		errMsg:     errMsg,
+		imageParts: imageParts,
 	}
 	cont.remaining--
 
@@ -605,9 +639,15 @@ func (h *ToolsWSHandler) continueLLMRound(cont *pendingContinuation) {
 		}
 
 		content := toolResultContent(res)
+		var msgContent json.RawMessage
+		if len(res.imageParts) > 0 {
+			msgContent = buildMultimodalContent(content, res.imageParts)
+		} else {
+			msgContent = protocol.ChatContentString(content)
+		}
 		messages = append(messages, protocol.ChatMessage{
 			Role:       "tool",
-			Content:    protocol.ChatContentString(content),
+			Content:    msgContent,
 			ToolCallID: tc.ID,
 		})
 	}
@@ -624,7 +664,8 @@ func (h *ToolsWSHandler) continueLLMRound(cont *pendingContinuation) {
 		ReasoningEffort: cont.ctx.reasoningEffort,
 	}
 
-	// Update the saved job context with the extended message history.
+	// Update the saved job context with the extended message history. Carry
+	// threadID forward so subsequent continuation rounds retain sticky routing.
 	h.jobContextsMu.Lock()
 	h.jobContexts[cont.jobID] = &jobContext{
 		messages:        messages,
@@ -632,6 +673,7 @@ func (h *ToolsWSHandler) continueLLMRound(cont *pendingContinuation) {
 		temperature:     cont.ctx.temperature,
 		maxTokens:       cont.ctx.maxTokens,
 		reasoningEffort: cont.ctx.reasoningEffort,
+		threadID:        cont.ctx.threadID,
 	}
 	h.jobContextsMu.Unlock()
 
@@ -683,6 +725,128 @@ func toolResultContent(res *toolCallResult) string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Worker selection
+// ─────────────────────────────────────────────────────────────────────────────
+
+// pickFromEligible selects one worker from a pre-filtered, already-sorted
+// eligible slice using a deterministic hash of threadID.  When threadID is
+// empty the first worker (index 0) is returned with a warning log.
+// Returns nil if eligible is empty.
+func (h *ToolsWSHandler) pickFromEligible(eligible []*toolsConn, toolName, threadID string) *toolsConn {
+	if len(eligible) == 0 {
+		return nil
+	}
+	// Sort by worker id so map-iteration order doesn't affect selection.
+	sort.Slice(eligible, func(i, j int) bool {
+		return eligible[i].id < eligible[j].id
+	})
+	if threadID == "" {
+		h.logger.Warn("picking tools worker without thread_id — routing is non-sticky",
+			"tool_name", toolName,
+			"worker_id", eligible[0].id,
+		)
+		return eligible[0]
+	}
+	h64 := fnv.New64a()
+	_, _ = h64.Write([]byte(threadID))
+	idx := h64.Sum64() % uint64(len(eligible))
+	return eligible[idx]
+}
+
+// pickToolsWorker returns the tools worker that should handle the given tool
+// for the given threadID. Workers are filtered to those advertising toolName;
+// among those the worker is selected deterministically by
+//
+//	stable_hash(threadID) % len(eligible)
+//
+// When threadID is empty, the first eligible worker (alphabetically by id) is
+// returned with a warning log. When toolName is empty, all connected workers
+// are eligible. Returns nil if no eligible worker is found.
+func (h *ToolsWSHandler) pickToolsWorker(toolName, threadID string) *toolsConn {
+	h.toolsWorkersMu.RLock()
+	defer h.toolsWorkersMu.RUnlock()
+
+	var eligible []*toolsConn
+	for _, w := range h.toolsWorkers {
+		if toolName == "" {
+			eligible = append(eligible, w)
+			continue
+		}
+		for _, t := range w.tools {
+			if t == toolName {
+				eligible = append(eligible, w)
+				break
+			}
+		}
+	}
+	return h.pickFromEligible(eligible, toolName, threadID)
+}
+
+// pickToolsWorkerAll returns the worker that should handle a round of tool calls
+// where multiple distinct tool names may be present.  It selects from workers
+// that advertise ALL of the given tool names so that stateful tools (e.g.
+// browser) stay on the same worker as companion tools in the same round.
+//
+// If no single worker covers all tools, it falls back to workers that cover at
+// least one of them (preferring broader coverage via the same hash selection),
+// and logs a warning about the partial coverage.  Returns nil if no worker
+// advertises any of the requested tools.
+func (h *ToolsWSHandler) pickToolsWorkerAll(toolNames []string, threadID string) *toolsConn {
+	if len(toolNames) == 0 {
+		return h.pickToolsWorker("", threadID)
+	}
+	if len(toolNames) == 1 {
+		return h.pickToolsWorker(toolNames[0], threadID)
+	}
+
+	h.toolsWorkersMu.RLock()
+	defer h.toolsWorkersMu.RUnlock()
+
+	// Build a set of required tool names for O(1) lookup.
+	required := make(map[string]struct{}, len(toolNames))
+	for _, name := range toolNames {
+		required[name] = struct{}{}
+	}
+
+	var allCover []*toolsConn // workers advertising every required tool
+	var anyCover []*toolsConn // workers advertising at least one
+
+	for _, w := range h.toolsWorkers {
+		advertised := make(map[string]struct{}, len(w.tools))
+		for _, t := range w.tools {
+			advertised[t] = struct{}{}
+		}
+		coversAll := true
+		coversAny := false
+		for name := range required {
+			if _, ok := advertised[name]; ok {
+				coversAny = true
+			} else {
+				coversAll = false
+			}
+		}
+		if coversAll {
+			allCover = append(allCover, w)
+		} else if coversAny {
+			anyCover = append(anyCover, w)
+		}
+	}
+
+	if len(allCover) > 0 {
+		return h.pickFromEligible(allCover, "", threadID)
+	}
+
+	if len(anyCover) > 0 {
+		h.logger.Warn("no single tools worker covers all tools in round; using best-coverage worker",
+			"tools", toolNames,
+		)
+		return h.pickFromEligible(anyCover, "", threadID)
+	}
+
+	return nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Pool helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -722,21 +886,9 @@ func (h *ToolsWSHandler) HasToolsWorker() bool {
 // and waits synchronously for the result. Used by the direct tool API endpoint.
 // Returns the result JSON or an error.
 func (h *ToolsWSHandler) DispatchDirectToolCall(ctx context.Context, toolName string, args json.RawMessage) (json.RawMessage, error) {
-	h.toolsWorkersMu.RLock()
-	var worker *toolsConn
-	for _, w := range h.toolsWorkers {
-		for _, t := range w.tools {
-			if t == toolName {
-				worker = w
-				break
-			}
-		}
-		if worker != nil {
-			break
-		}
-	}
-	h.toolsWorkersMu.RUnlock()
-
+	// Direct calls have no thread identity — pickToolsWorker logs a warning and
+	// returns the first eligible worker (alphabetically by id).
+	worker := h.pickToolsWorker(toolName, "")
 	if worker == nil {
 		return nil, fmt.Errorf("no tools worker connected that supports %q", toolName)
 	}
@@ -824,6 +976,46 @@ func (h *ToolsWSHandler) DispatchDirectToolCall(ctx context.Context, toolName st
 	case <-ctx.Done():
 		return nil, fmt.Errorf("tool call timed out: %w", ctx.Err())
 	}
+}
+
+// buildMultimodalContent marshals text + image parts into an OpenAI-compatible
+// multimodal content array:
+//
+//	[{"type":"text","text":"..."},{"type":"image_url","image_url":{"url":"data:<mime>;base64,..."}},...]
+//
+// This format is accepted by vision-capable LLM APIs for tool result messages.
+func buildMultimodalContent(text string, imgs []protocol.ImagePart) json.RawMessage {
+	type textPart struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	type imageURL struct {
+		URL string `json:"url"`
+	}
+	type imagePart struct {
+		Type     string   `json:"type"`
+		ImageURL imageURL `json:"image_url"`
+	}
+
+	parts := make([]any, 0, 1+len(imgs))
+	parts = append(parts, textPart{Type: "text", Text: text})
+	for _, img := range imgs {
+		url := fmt.Sprintf("data:%s;base64,%s",
+			img.MIMEType,
+			base64.StdEncoding.EncodeToString(img.Data),
+		)
+		parts = append(parts, imagePart{
+			Type:     "image_url",
+			ImageURL: imageURL{URL: url},
+		})
+	}
+
+	b, err := json.Marshal(parts)
+	if err != nil {
+		// Fallback: return plain text only so the LLM round is not lost.
+		return protocol.ChatContentString(text)
+	}
+	return json.RawMessage(b)
 }
 
 func newToolsWorkerID() string {

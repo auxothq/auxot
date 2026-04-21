@@ -15,11 +15,41 @@ import (
 	"fmt"
 )
 
+// contextKey is the unexported key type for values stored in context by this package.
+type contextKey string
+
+const threadIDKey contextKey = "thread_id"
+
+// WithThreadID stores the tool job's thread ID in ctx so executors can retrieve it.
+func WithThreadID(ctx context.Context, threadID string) context.Context {
+	return context.WithValue(ctx, threadIDKey, threadID)
+}
+
+// ThreadIDFromContext retrieves the thread ID set by WithThreadID.
+// Returns "" if not set.
+func ThreadIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(threadIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// ImagePart holds a single binary image returned by a tool (e.g. a browser screenshot).
+type ImagePart struct {
+	MIMEType string
+	Data     []byte
+}
+
 // Result is the output of a tool execution.
 type Result struct {
 	// Output is the JSON-encoded result to return to the LLM as the tool content.
 	// It must be valid JSON. String results should be marshaled as JSON strings.
 	Output json.RawMessage
+
+	// ImageParts holds any binary image data returned alongside or instead of Output.
+	// When non-empty, the router surfaces these as multimodal content parts rather than
+	// embedding them in the Output JSON string.
+	ImageParts []ImagePart
 }
 
 // Executor is a function that executes a tool call.

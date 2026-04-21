@@ -388,6 +388,82 @@ func TestMarshalMessage_JobRoundTrip(t *testing.T) {
 	}
 }
 
+// TestJobMessage_ReferenceID verifies that a JSON payload containing
+// "reference_id" deserializes into JobMessage.ReferenceID correctly, and that
+// a message without the field leaves it as the zero value.
+func TestJobMessage_ReferenceID(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		wantRefID   string
+	}{
+		{
+			name:      "reference_id present",
+			input:     `{"type":"job","job_id":"j1","messages":[],"reference_id":"thread-abc"}`,
+			wantRefID: "thread-abc",
+		},
+		{
+			name:      "reference_id absent (omitempty)",
+			input:     `{"type":"job","job_id":"j2","messages":[]}`,
+			wantRefID: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseMessage([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("ParseMessage error: %v", err)
+			}
+			msg, ok := got.(JobMessage)
+			if !ok {
+				t.Fatalf("expected JobMessage, got %T", got)
+			}
+			if msg.ReferenceID != tt.wantRefID {
+				t.Errorf("ReferenceID = %q, want %q", msg.ReferenceID, tt.wantRefID)
+			}
+		})
+	}
+}
+
+// TestToolJobMessage_ThreadID verifies that a JSON payload containing
+// "thread_id" deserializes into ToolJobMessage.ThreadID correctly, and that
+// a message without the field leaves it as the zero value.
+func TestToolJobMessage_ThreadID(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		wantThreadID string
+	}{
+		{
+			name:         "thread_id present",
+			input:        `{"type":"tool_job","job_id":"tj1","parent_job_id":"p1","tool_name":"web_fetch","tool_call_id":"c1","arguments":"{}","thread_id":"thread-xyz"}`,
+			wantThreadID: "thread-xyz",
+		},
+		{
+			name:         "thread_id absent (omitempty)",
+			input:        `{"type":"tool_job","job_id":"tj2","parent_job_id":"p2","tool_name":"web_fetch","tool_call_id":"c2","arguments":"{}"}`,
+			wantThreadID: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseMessage([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("ParseMessage error: %v", err)
+			}
+			msg, ok := got.(ToolJobMessage)
+			if !ok {
+				t.Fatalf("expected ToolJobMessage, got %T", got)
+			}
+			if msg.ThreadID != tt.wantThreadID {
+				t.Errorf("ThreadID = %q, want %q", msg.ThreadID, tt.wantThreadID)
+			}
+		})
+	}
+}
+
 // helpers for pointer types in test data
 func ptrFloat64(v float64) *float64 { return &v }
 func ptrInt(v int) *int             { return &v }
