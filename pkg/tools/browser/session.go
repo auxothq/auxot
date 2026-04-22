@@ -77,6 +77,172 @@ func (sess *Session) close() {
 	})
 }
 
+// startListenLoop maintains the GET /mcp SSE channel required by the
+// Streamable HTTP MCP spec for server-to-client messages.
+//
+// Why this exists: playwright-mcp's server.ts calls startHeartbeat() after
+// the first tool call is processed.  startHeartbeat pings the client every
+// 3 s via server.ping().  If no response arrives within 5 s the server calls
+// server.close(), which disposes the browser context and removes the session
+// from its map — turning the next tool call into a fresh about:blank session.
+//
+// The fix is straightforward: the Streamable HTTP spec defines a GET /mcp
+// SSE stream as the server-to-client channel.  We keep one open per session.
+// When the server delivers a "ping" request through it we POST back the
+// response, the heartbeat succeeds, and the session lives on.
+//
+// The loop exits when the session's done channel is closed and restarts
+// automatically (after a brief pause) if the underlying HTTP connection drops.
+// If runListenOnce detects a 404 it calls sess.close(), which closes sess.done
+// and causes this loop to exit cleanly rather than retrying forever.
+func (sess *Session) startListenLoop(logger *slog.Logger) {
+	go func() {
+		for {
+			select {
+			case <-sess.done:
+				return
+			default:
+			}
+			sess.runListenOnce(logger)
+			// Check again after runListenOnce returns: it may have called
+			// sess.close() (e.g. on 404) which closes sess.done.
+			select {
+			case <-sess.done:
+				return
+			case <-time.After(500 * time.Millisecond): // slightly longer pause between reconnects
+			}
+		}
+	}()
+}
+
+// runListenOnce opens one GET /mcp SSE connection and processes
+// server-initiated requests until the connection closes.
+//
+// On 404 it calls sess.close() so the outer startListenLoop exits cleanly
+// instead of retrying forever against a dead session.
+//
+// A 15-second watchdog timer cancels the request if no SSE data arrives.
+// This prevents ReadString from blocking forever when the TCP connection
+// stays open but the server stops sending (e.g. heartbeat silently died).
+//
+// Accept-Encoding: identity prevents Go's transport from gzip-compressing
+// the SSE stream, which would cause the decompressor to buffer events and
+// delay ping delivery.
+func (sess *Session) runListenOnce(logger *slog.Logger) {
+	sess.mu.Lock()
+	sessionID := sess.sessionID
+	sess.mu.Unlock()
+	if sessionID == "" {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-sess.done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		sess.sidecar.baseURL+"/mcp", nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Mcp-Session-Id", sessionID)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Accept-Encoding", "identity") // disable gzip — SSE needs immediate flush
+
+	resp, err := mcpHTTPClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// normal path — fall through to SSE reading below
+	case http.StatusNotFound:
+		// Server already deleted this session (heartbeat killed it).
+		// Close our Go-side session so startListenLoop exits and the next
+		// Call() triggers a reconnect via the isSessionDead path.
+		logger.Debug("browser listen loop: session gone (404); closing",
+			"thread_id", sess.threadID)
+		go sess.close()
+		return
+	default:
+		logger.Debug("browser listen loop: unexpected status",
+			"thread_id", sess.threadID, "status", resp.StatusCode)
+		return
+	}
+
+	// Watchdog: if no SSE data arrives in 15 s the server must have stopped
+	// sending (heartbeat died, connection silently dropped, etc.).  Cancel the
+	// request so the outer loop can reconnect.  15 s = 3× the 5-second server
+	// heartbeat timeout, giving three missed pings before we give up.
+	watchdog := time.AfterFunc(15*time.Second, cancel)
+	defer watchdog.Stop()
+
+	br := bufio.NewReader(resp.Body)
+	var currentData strings.Builder
+	for {
+		line, err := br.ReadString('\n')
+		line = strings.TrimRight(line, "\r\n")
+
+		if line != "" {
+			watchdog.Reset(15 * time.Second) // any SSE activity resets the watchdog
+		}
+
+		if strings.HasPrefix(line, "data: ") {
+			currentData.WriteString(strings.TrimPrefix(line, "data: "))
+		} else if line == "" && currentData.Len() > 0 {
+			data := currentData.String()
+			currentData.Reset()
+
+			var msg struct {
+				JSONRPC string       `json:"jsonrpc"`
+				ID      *json.Number `json:"id"`
+				Method  string       `json:"method"`
+			}
+			if jsonErr := json.Unmarshal([]byte(data), &msg); jsonErr == nil &&
+				msg.Method == "ping" && msg.ID != nil {
+				pingID := msg.ID
+				logger.Debug("browser listen loop: ping received; responding",
+					"thread_id", sess.threadID, "id", pingID.String())
+				go func() {
+					pingCtx, pingCancel := context.WithTimeout(context.Background(), 4*time.Second)
+					defer pingCancel()
+					body, _ := json.Marshal(map[string]any{
+						"jsonrpc": "2.0",
+						"id":      pingID,
+						"result":  map[string]any{},
+					})
+					pingReq, _ := http.NewRequestWithContext(pingCtx, http.MethodPost,
+						sess.sidecar.baseURL+"/mcp", bytes.NewReader(body))
+					pingReq.Header.Set("Content-Type", "application/json")
+					pingReq.Header.Set("Accept", "application/json, text/event-stream")
+					pingReq.Header.Set("Mcp-Session-Id", sessionID)
+					r, e := mcpHTTPClient.Do(pingReq)
+					if e != nil {
+						logger.Debug("browser listen loop: ping reply failed",
+							"thread_id", sess.threadID, "error", e)
+						return
+					}
+					_ = r.Body.Close()
+					logger.Debug("browser listen loop: ping reply sent",
+						"thread_id", sess.threadID, "id", pingID.String(), "status", r.StatusCode)
+				}()
+			}
+		}
+
+		if err != nil {
+			return
+		}
+	}
+}
+
 // connect performs the MCP initialize handshake and stores the session ID.
 func (sess *Session) connect(logger *slog.Logger) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -257,6 +423,60 @@ func NewRegistry(ctx context.Context, sidecar *Sidecar, logger *slog.Logger) *Re
 	return r
 }
 
+// DiscoverTools queries the sidecar's tools/list endpoint using a temporary
+// MCP session and returns the names of all tools the server actually exposes.
+// This is used at startup to avoid advertising tool names that the installed
+// @playwright/mcp version does not support (which would surface as
+// "MCP error: Unknown tool" errors at call time).
+func (r *Registry) DiscoverTools(ctx context.Context) ([]string, error) {
+	// Temporary session — we close it immediately after the query.
+	sess := &Session{
+		threadID: "__discover__",
+		sidecar:  r.sidecar,
+		lastUsed: r.now(),
+		done:     make(chan struct{}),
+	}
+	if err := sess.connect(r.logger); err != nil {
+		return nil, fmt.Errorf("browser DiscoverTools: connect: %w", err)
+	}
+	defer func() { go sess.close() }()
+
+	sess.mu.Lock()
+	id := sess.nextID
+	sess.nextID++
+	sessionID := sess.sessionID
+	sess.mu.Unlock()
+
+	raw, _, err := sess.postMCP(ctx, sessionID, id, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "tools/list",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("browser DiscoverTools: tools/list: %w", err)
+	}
+
+	var resp struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("browser DiscoverTools: parse: %w", err)
+	}
+
+	names := make([]string, 0, len(resp.Result.Tools))
+	for _, t := range resp.Result.Tools {
+		if t.Name != "" {
+			names = append(names, t.Name)
+		}
+	}
+	r.logger.Info("browser sidecar tool discovery", "available", names)
+	return names, nil
+}
+
 // GetOrCreate returns the existing Session for threadID, or creates and
 // connects a new one.  It touches lastUsed on every call.
 func (r *Registry) GetOrCreate(threadID string) (*Session, error) {
@@ -294,6 +514,8 @@ func (r *Registry) GetOrCreate(threadID string) (*Session, error) {
 		go sess.close()
 		return nil, fmt.Errorf("browser session for thread %q: %w", threadID, err)
 	}
+	// Open the GET /mcp SSE channel so the server's heartbeat pings reach us.
+	sess.startListenLoop(r.logger)
 	return sess, nil
 }
 
@@ -302,7 +524,7 @@ func (r *Registry) GetOrCreate(threadID string) (*Session, error) {
 // browser operations (heavy pages, screenshots) respect the job timeout.
 func (r *Registry) Call(ctx context.Context, sess *Session, method string, params any) (json.RawMessage, error) {
 	raw, err := r.doCall(ctx, sess, method, params)
-	if err != nil && isSessionNotFound(err) {
+	if err != nil && isSessionDead(err) {
 		// The playwright-mcp server lost this session (sidecar restart, proxy
 		// timeout dropping the idle connection, etc.).  Evict the dead session
 		// and reconnect transparently so the caller never has to handle this.
@@ -323,9 +545,16 @@ func (r *Registry) Call(ctx context.Context, sess *Session, method string, param
 	return raw, err
 }
 
-// isSessionNotFound reports whether err indicates that the playwright-mcp
-// server returned 404 "Session not found" for a stale Mcp-Session-Id.
-func isSessionNotFound(err error) bool {
+// isSessionDead reports whether err indicates that the playwright-mcp server
+// no longer has a valid session for this Mcp-Session-Id.  When true, Call()
+// evicts the Go-side session and reconnects transparently.
+//
+// We only treat an explicit 404 "Session not found" as a dead session.
+// "SSE stream closed before matching response" is NOT treated as a dead
+// session — it can occur for other reasons (e.g. a tool that triggers a
+// navigation or a timeout) and does not indicate the session is gone.
+// Reconnecting on such errors throws away the browser state unnecessarily.
+func isSessionDead(err error) bool {
 	s := err.Error()
 	return strings.Contains(s, "404") && strings.Contains(s, "Session not found")
 }

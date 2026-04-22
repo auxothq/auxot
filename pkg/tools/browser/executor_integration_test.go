@@ -256,6 +256,58 @@ func TestIntegration_SessionIsolation(t *testing.T) {
 	}
 }
 
+// TestIntegration_SessionPersistenceAcrossDelay verifies that the listen-loop
+// heartbeat fix keeps the playwright-mcp session alive across a real idle gap.
+//
+// playwright-mcp's server.ts fires startHeartbeat() after the first tool call.
+// It pings the client every 3 s; if no response arrives within 5 s it calls
+// server.close() — killing the BrowserContext and dropping the session.
+// Sleeping 8 s covers at least one full ping/response cycle.  If the session
+// survives, the snapshot must still show example.com content, not about:blank.
+func TestIntegration_SessionPersistenceAcrossDelay(t *testing.T) {
+	const thread = "integ-heartbeat"
+	defer closeThread(t, thread)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	reg := sharedRegistry(t)
+	navExec := NewPerToolExecutor("browser_navigate", reg)
+	snapExec := NewPerToolExecutor("browser_snapshot", reg)
+
+	threadCtx := tools.WithThreadID(ctx, thread)
+
+	navArgs, _ := json.Marshal(map[string]string{"url": "https://example.com"})
+	if _, err := navExec.Execute(threadCtx, navArgs); err != nil {
+		t.Fatalf("browser_navigate example.com: %v", err)
+	}
+
+	// Wait long enough for at least one full heartbeat cycle to fire and be
+	// responded to.  playwright-mcp pings every 3 s with a 5 s response window;
+	// 8 s guarantees the session MUST have survived a ping or already be dead.
+	t.Log("sleeping 8s to let playwright-mcp heartbeat cycle complete...")
+	time.Sleep(8 * time.Second)
+
+	snapResult, err := snapExec.Execute(threadCtx, json.RawMessage("{}"))
+	if err != nil {
+		t.Fatalf("browser_snapshot after 8 s delay: %v", err)
+	}
+
+	var snapText string
+	if err := json.Unmarshal(snapResult.Output, &snapText); err != nil {
+		t.Fatalf("browser_snapshot output is not a JSON string: %v (raw=%s)", err, snapResult.Output)
+	}
+	t.Logf("browser_snapshot excerpt: %.300s", snapText)
+
+	lower := strings.ToLower(snapText)
+	if strings.Contains(lower, "about:blank") {
+		t.Fatal("Session lost: heartbeat not being responded to — browser returned about:blank")
+	}
+	if !strings.Contains(lower, "example") {
+		t.Errorf("snapshot does not mention 'example' after 8 s delay; got: %.300s", snapText)
+	}
+}
+
 // closeThread removes a session from the shared registry after a test completes.
 func closeThread(t *testing.T, threadID string) {
 	t.Helper()

@@ -69,33 +69,32 @@ func (s *Sidecar) Start(ctx context.Context) error {
 	//   --host 127.0.0.1: bind to IPv4 loopback only; avoids IPv6/IPv4 ambiguity
 	//     inside Docker and satisfies Playwright MCP's CSRF host-check.
 	//
-	// Non-isolated mode: one Chrome process shared across all MCP sessions on this
-	// sidecar.  Each thread gets its own BrowserContext (separate cookies,
-	// localStorage, auth state) via a distinct Mcp-Session-Id.
+	// --isolated: keeps the browser profile in memory rather than writing it to
+	// disk (see config.d.ts).  Without this flag, PersistentContextFactory uses
+	// launchPersistentContext with a persistent user data directory.  Because all
+	// sessions share the same process, a second session would fail with "Browser
+	// is already in use" while the first holds the profile lock.  --isolated
+	// avoids that by using an in-memory profile per session.
 	//
-	// Why NOT --isolated:
-	//   --isolated gives each MCP session its own Chrome process AND its own idle
-	//   timeout on the playwright-mcp side (~10 s).  After that timeout the session
-	//   is dropped server-side, so a subsequent call from the same thread gets
-	//   "404: Session not found" and our reconnect logic creates a fresh Chrome —
-	//   losing all navigation state.
+	// NOTE: newer playwright-mcp explicitly forbids --user-data-dir with
+	// --isolated ("Browser userDataDir is not supported in isolated mode").  Do
+	// NOT add --user-data-dir here.
 	//
-	// Why non-isolated works safely with concurrent threads:
-	//   Our Registry closes sessions on the server with DELETE /mcp when the Go
-	//   side decides to evict them (TTL, explicit close).  This frees the
-	//   BrowserContext in the shared Chrome.  Without that explicit close, two
-	//   concurrent live sessions would race for the browser; the DELETE keeps them
-	//   orderly.
-	//
-	// --user-data-dir: stable path keeps Chrome profile data (cache, cookies not
-	//   managed by BrowserContext) from accumulating in random temp dirs.
+	// Session persistence across run_script calls is handled by the Streamable
+	// HTTP MCP transport: our Go client maintains a GET /mcp SSE channel per
+	// session (session.go startListenLoop) so the server's heartbeat pings reach
+	// us.  Without that channel, server.ts startHeartbeat kills the session after
+	// ~5 s of no ping response, resetting the browser to about:blank.
+	// --user-data-dir is intentionally omitted: newer playwright-mcp validates
+	// that userDataDir and --isolated are mutually exclusive and throws
+	// "Browser userDataDir is not supported in isolated mode" if both are set.
 	cmd := exec.CommandContext(ctx,
 		"node",
 		"/usr/local/lib/node_modules/@playwright/mcp/cli.js",
 		"--browser", "chromium",
 		"--headless",
 		"--no-sandbox",
-		"--user-data-dir", "/opt/auxot/browser-profile",
+		"--isolated",
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(s.port),
 	)

@@ -185,14 +185,25 @@ func (e *PerToolExecutor) mapResult(pw playwrightResult) (tools.Result, error) {
 	return result, nil
 }
 
-// RegisterAll registers a PerToolExecutor for each allowed Playwright MCP tool name
-// in the given tools registry. After this call, the LLM invokes each browser action
-// directly with its proper schema — e.g. browser_navigate({ url: "..." }) — rather
-// than routing through an opaque aggregate wrapper.
+// RegisterAll registers a PerToolExecutor for each Playwright MCP tool name that
+// appears in both AllowedTools and the supplied available set (from DiscoverTools).
+// Passing a nil or empty available set falls back to registering everything in
+// AllowedTools — this keeps existing unit tests working without a live sidecar.
+//
+// Only registering tools the sidecar actually exposes prevents "MCP error:
+// Unknown tool" errors when the installed @playwright/mcp version uses different
+// names than those in AllowedTools.
 func RegisterAll(reg interface {
 	Register(string, tools.Executor)
-}, registry *Registry) {
+}, registry *Registry, available []string) {
+	allowed := make(map[string]bool, len(available))
+	for _, name := range available {
+		allowed[name] = true
+	}
 	for _, name := range AllowedToolNames() {
+		if len(allowed) > 0 && !allowed[name] {
+			continue // sidecar does not expose this tool name
+		}
 		exec := NewPerToolExecutor(name, registry)
 		reg.Register(name, exec.Execute)
 	}

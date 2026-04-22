@@ -109,6 +109,77 @@ func detectToolLoop(messages []protocol.ChatMessage) (bool, string) {
 	)
 }
 
+// extractContextSize reads context_size from job.Data (injected by the server
+// at dispatch time so the worker knows the model's n_ctx).
+func extractContextSize(data map[string]any) int {
+	if data == nil {
+		return 0
+	}
+	v, ok := data["context_size"]
+	if !ok {
+		return 0
+	}
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case int64:
+		return int(n)
+	}
+	return 0
+}
+
+// msgContentBytes returns a byte-length approximation for a single message.
+func msgContentBytes(m openai.Message) int {
+	n := len(m.Content)
+	for _, tc := range m.ToolCalls {
+		n += len(tc.Function.Name) + len(tc.Function.Arguments)
+	}
+	return n
+}
+
+// lastResortContextTruncation drops the oldest non-system messages until the
+// estimated byte payload fits within contextSize. It uses 3 bytes/token as a
+// conservative estimate (better than /4 for URL-encoded / JSON-dense content)
+// and reserves 20% of the window for tools, system prompt, and output.
+// Called on every job so the worker never sends an exceed_context_size error.
+func lastResortContextTruncation(messages []openai.Message, contextSize int, logger *slog.Logger, jobID string) []openai.Message {
+	if contextSize <= 0 {
+		return messages
+	}
+	// 80% of tokens × 3 bytes/token gives a conservative byte ceiling.
+	maxBytes := int(float64(contextSize) * 0.80 * 3)
+
+	total := 0
+	for _, m := range messages {
+		total += msgContentBytes(m)
+	}
+	if total <= maxBytes {
+		return messages
+	}
+
+	logger.Warn("worker: context too large — applying last-resort message truncation",
+		"job_id", jobID, "total_bytes", total, "max_bytes", maxBytes, "context_size", contextSize)
+
+	// Locate the first non-system message so we never drop the system prompt.
+	first := 0
+	for first < len(messages) && messages[first].Role == "system" {
+		first++
+	}
+
+	// Drop from the oldest end, one message at a time.
+	for total > maxBytes && first < len(messages)-1 {
+		dropped := messages[first]
+		total -= msgContentBytes(dropped)
+		messages = append(messages[:first], messages[first+1:]...)
+		logger.Warn("worker: dropped message to reduce context",
+			"job_id", jobID, "role", dropped.Role, "bytes", msgContentBytes(dropped))
+	}
+
+	return messages
+}
+
 // Execute runs a job: converts protocol messages to llama.cpp request,
 // streams tokens via sendToken, and sends completion/error via the callbacks.
 // sendReasoningToken is called for thinking/reasoning tokens (may be nil if not supported).
@@ -164,6 +235,14 @@ func (e *Executor) Execute(
 		}
 		messages[i] = msg
 	}
+
+	// Last-resort context truncation: the server compacts aggressively, but
+	// URL-encoded content and JSON blobs tokenise 2–4× denser than plain
+	// English, so the heuristic estimator can still under-count. If we detect
+	// the payload is too large for the model's context window, drop the oldest
+	// non-system messages one round at a time until we fit. A degraded response
+	// is always better than a hard exceed_context_size error that kills the job.
+	messages = lastResortContextTruncation(messages, extractContextSize(job.Data), e.logger, job.JobID)
 
 	// When mmproj is loaded, check whether any message carries image content.
 	// If so, append a vision capability note to the system message so the model

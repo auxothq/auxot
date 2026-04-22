@@ -85,15 +85,28 @@ func (w *Worker) Run(ctx context.Context) error {
 		if err := sc.Start(ctx); err != nil {
 			w.logger.Error("browser sidecar failed to start", "error", err)
 		} else {
-			w.sidecar = sc
-			w.browserRegistry = browser.NewRegistry(ctx, sc, w.logger)
-			defer sc.Stop()
+		w.sidecar = sc
+		w.browserRegistry = browser.NewRegistry(ctx, sc, w.logger)
+		defer sc.Stop()
 
-			// Register individual Playwright MCP tool executors so each browser
-			// action appears as its own tool in discovery with a proper schema.
-			// The LLM calls browser_navigate({ url: "..." }) directly — no wrapper.
-			browser.RegisterAll(w.registry, w.browserRegistry)
-			w.conn.UpdateAdvertisedTools(w.registry.Names())
+		// Discover which tools the installed @playwright/mcp version actually
+		// exposes before registering them.  Different versions use different
+		// names (e.g. browser_snapshot vs browser_take_accessibility_snapshot),
+		// so we only register tools that are present in the real sidecar.
+		discoverCtx, discoverCancel := context.WithTimeout(ctx, 15*time.Second)
+		available, discoverErr := w.browserRegistry.DiscoverTools(discoverCtx)
+		discoverCancel()
+		if discoverErr != nil {
+			w.logger.Warn("browser tool discovery failed — registering all allowed tools",
+				"error", discoverErr)
+			available = nil // fall back to AllowedTools list
+		}
+
+		// Register individual Playwright MCP tool executors so each browser
+		// action appears as its own tool in discovery with a proper schema.
+		// The LLM calls browser_navigate({ url: "..." }) directly — no wrapper.
+		browser.RegisterAll(w.registry, w.browserRegistry, available)
+		w.conn.UpdateAdvertisedTools(w.registry.Names())
 		}
 	}
 

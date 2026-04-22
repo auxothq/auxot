@@ -16,9 +16,18 @@ import (
 // mcpMock simulates the Playwright MCP sidecar using the Streamable HTTP
 // transport (MCP 2025-03-26 spec).  Every client message is a POST to /mcp;
 // responses are SSE streams or 202 Accepted for notifications.
+//
+// Heartbeat simulation fields (optional):
+//   - Set pingIntervalNs (via Store) before GetOrCreate to enable SSE pings.
+//   - pingDelayNs controls the initial delay before the first ping;
+//     defaults to pingIntervalNs when zero.
+//   - pingResponses counts ping JSON-RPC responses received from the client.
 type mcpMock struct {
-	srv     *httptest.Server
-	sessCtr atomic.Int64
+	srv            *httptest.Server
+	sessCtr        atomic.Int64
+	pingIntervalNs atomic.Int64 // nanoseconds; 0 = no pings (default)
+	pingDelayNs    atomic.Int64 // nanoseconds; 0 = use pingIntervalNs
+	pingResponses  atomic.Int64 // ping responses received via POST
 }
 
 func newMCPMock(t *testing.T) *mcpMock {
@@ -36,6 +45,12 @@ func newMCPMock(t *testing.T) *mcpMock {
 }
 
 func (m *mcpMock) handleMCP(w http.ResponseWriter, r *http.Request) {
+	// GET /mcp: the SSE server-to-client channel (heartbeat pings).
+	if r.Method == http.MethodGet {
+		m.handleSSE(w, r)
+		return
+	}
+
 	// DELETE /mcp: session termination — acknowledge and return.
 	if r.Method == http.MethodDelete {
 		w.WriteHeader(http.StatusOK)
@@ -47,11 +62,20 @@ func (m *mcpMock) handleMCP(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID     *json.RawMessage `json:"id"`
 		Method string           `json:"method"`
+		Result *json.RawMessage `json:"result"`
 	}
 	_ = json.Unmarshal(body, &req)
 
 	// Notifications have no id — acknowledge with 202 and no body.
 	if req.ID == nil || string(*req.ID) == "null" {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	// JSON-RPC responses (ping replies) have a result field but no method.
+	// The listen loop sends these back when it receives a ping over SSE.
+	if req.Result != nil && req.Method == "" {
+		m.pingResponses.Add(1)
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
@@ -89,6 +113,62 @@ func (m *mcpMock) handleMCP(w http.ResponseWriter, r *http.Request) {
 		"result":  result,
 	})
 	fmt.Fprintf(w, "data: %s\n\n", resp)
+}
+
+// handleSSE serves GET /mcp as an SSE stream for server-to-client messages.
+// When pingIntervalNs is non-zero the mock emits JSON-RPC "ping" events to
+// exercise the listen-loop heartbeat path.  Otherwise the connection is kept
+// open but silent, which is safe for tests that do not care about pings.
+func (m *mcpMock) handleSSE(w http.ResponseWriter, r *http.Request) {
+	fl, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	fl.Flush()
+
+	interval := time.Duration(m.pingIntervalNs.Load())
+	if interval == 0 {
+		// No pings configured — keep the channel open until the client
+		// disconnects (context cancelled by server or session close).
+		<-r.Context().Done()
+		return
+	}
+
+	delay := time.Duration(m.pingDelayNs.Load())
+	if delay == 0 {
+		delay = interval
+	}
+
+	// Initial delay before the first ping (mirrors playwright-mcp firing
+	// startHeartbeat only after the first tool call is processed).
+	select {
+	case <-r.Context().Done():
+		return
+	case <-time.After(delay):
+	}
+
+	var pingID int64 = 1
+	for {
+		msg, _ := json.Marshal(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      pingID,
+			"method":  "ping",
+		})
+		fmt.Fprintf(w, "data: %s\n\n", msg)
+		fl.Flush()
+		pingID++
+
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(interval):
+		}
+	}
 }
 
 func (m *mcpMock) close() { m.srv.Close() }
@@ -187,5 +267,61 @@ func TestRegistry_Touch(t *testing.T) {
 
 	reg.mu.Lock()
 	reg.closeSession("thread-touch")
+	reg.mu.Unlock()
+}
+
+// TestRegistry_HeartbeatKeepsSessionAlive verifies that the listen loop
+// (startListenLoop / runListenOnce) correctly responds to SSE ping requests
+// sent by the server-side heartbeat mechanism.
+//
+// The mock is configured to send a JSON-RPC "ping" via SSE after an initial
+// delay, then every 800 ms.  The test asserts:
+//  1. A second Call() after a multi-second delay succeeds (session still alive).
+//  2. The mock received at least one ping response POST from the client.
+func TestRegistry_HeartbeatKeepsSessionAlive(t *testing.T) {
+	t.Parallel()
+
+	mock := newMCPMock(t)
+	defer mock.close()
+
+	// Configure heartbeat simulation: first ping after 1 s, then every 800 ms.
+	mock.pingIntervalNs.Store(int64(800 * time.Millisecond))
+	mock.pingDelayNs.Store(int64(time.Second))
+
+	reg := newTestRegistry(t, mock, time.Now)
+
+	sess, err := reg.GetOrCreate("thread-heartbeat")
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+
+	// Give the listen loop time to open GET /mcp before any pings fire.
+	time.Sleep(200 * time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// First tool call — exercises the normal request path.
+	if _, err := reg.Call(ctx, sess, "tools/list", nil); err != nil {
+		t.Fatalf("first Call (tools/list): %v", err)
+	}
+
+	// Wait long enough for several heartbeat ping/response cycles to complete.
+	// With 1 s initial delay + 800 ms interval, 5 s gives ~5 pings.
+	time.Sleep(5 * time.Second)
+
+	// The session must still be alive — listen loop kept responding to pings.
+	if _, err := reg.Call(ctx, sess, "tools/list", nil); err != nil {
+		t.Fatalf("second Call (tools/list) after heartbeat delay: %v — session may have been killed by missed pings", err)
+	}
+
+	// Confirm the listen loop actually sent ping responses back to the mock.
+	if got := mock.pingResponses.Load(); got < 1 {
+		t.Errorf("expected at least 1 ping response, got %d — listen loop may not be responding to pings", got)
+	}
+	t.Logf("ping responses received by mock: %d", mock.pingResponses.Load())
+
+	reg.mu.Lock()
+	reg.closeSession("thread-heartbeat")
 	reg.mu.Unlock()
 }

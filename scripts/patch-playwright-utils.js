@@ -1,0 +1,130 @@
+#!/usr/bin/env node
+//
+// patch-playwright-utils.js
+//
+// Patches waitForCompletion in playwright-core/lib/tools/backend/utils.js to
+// correctly wait for navigation to commit before checking load state.
+//
+// Root cause of the stale-snapshot bug:
+//
+// 1. waitForTimeout(500) calls page.evaluate(() => setTimeout(f, 1e3)) in the
+//    browser context.  When the click triggers navigation the old page context
+//    is destroyed, page.evaluate rejects immediately via .catch(()=>{}), so the
+//    500 ms pause becomes ~0 ms.  disposeListeners() may then run before the CDP
+//    "request" event fires, causing requestedNavigation to be false even when a
+//    navigation did start.
+//
+// 2. Even when requestedNavigation IS true, waitForLoadState("load") returns
+//    immediately because the frame's _firedLifecycleEvents still contains the
+//    OLD "load" entry — the navigation has been *requested* (HTTP request sent)
+//    but hasn't *committed* yet (new document hasn't started loading).
+//    waitForLoadState only blocks if "load" is NOT already in the set, so it
+//    returns at once and the snapshot is taken against the still-alive old page.
+//
+// Fix:
+//   1. Add setImmediate() after waitForTimeout and before disposeListeners() so
+//      any already-queued CDP events get dispatched before the listener is torn
+//      down.
+//   2. When requestedNavigation is true, poll tab.page.url() every 100 ms (up to
+//      3 s) until the URL changes — that signals navigation commit (Playwright
+//      updates page.url() when the new document starts loading).  Only THEN call
+//      waitForLoadState("load"), which now properly blocks until the new page
+//      finishes loading because the lifecycle was cleared during commit.
+//
+// This script is run once during the Docker image build (see Dockerfile.tools,
+// Stage 3: node-source) after `npm install -g @playwright/mcp@latest`.
+
+'use strict';
+
+const fs = require('fs');
+
+const UTILS_PATH =
+  '/usr/local/lib/node_modules/@playwright/mcp/node_modules/playwright-core/lib/tools/backend/utils.js';
+
+let src = fs.readFileSync(UTILS_PATH, 'utf8');
+
+// ── Patch 1: setImmediate before disposeListeners ──────────────────────────
+// Original:
+//   } finally {
+//     disposeListeners();
+//   }
+//
+// Patched:
+//   } finally {
+//     await new Promise((f) => setImmediate(f));
+//     disposeListeners();
+//   }
+const PATCH1_OLD = `  } finally {
+    disposeListeners();
+  }`;
+const PATCH1_NEW = `  } finally {
+    await new Promise((f) => setImmediate(f));
+    disposeListeners();
+  }`;
+
+if (!src.includes(PATCH1_OLD)) {
+  // Already patched or file changed — skip rather than double-apply.
+  if (src.includes('setImmediate')) {
+    console.log('[patch-playwright-utils] Patch 1 already applied, skipping.');
+  } else {
+    throw new Error(
+      `[patch-playwright-utils] PATCH 1 FAILED: target string not found in ${UTILS_PATH}\n` +
+      'The playwright-core version may have changed. Update the patch.'
+    );
+  }
+} else {
+  src = src.replace(PATCH1_OLD, PATCH1_NEW);
+  console.log('[patch-playwright-utils] Patch 1 applied: setImmediate before disposeListeners.');
+}
+
+// ── Patch 2: poll for URL change before waitForLoadState ──────────────────
+// Original:
+//   if (requestedNavigation) {
+//     await tab.page.mainFrame().waitForLoadState("load", { timeout: 1e4 }).catch(() => {
+//     });
+//     return result;
+//   }
+//
+// Patched:
+//   if (requestedNavigation) {
+//     const _navStartUrl = tab.page.url();
+//     const _navDeadline = Date.now() + 3e3;
+//     while (Date.now() < _navDeadline && tab.page.url() === _navStartUrl) {
+//       await new Promise((f) => setTimeout(f, 100));
+//     }
+//     await tab.page.mainFrame().waitForLoadState("load", { timeout: 1e4 }).catch(() => {
+//     });
+//     return result;
+//   }
+const PATCH2_OLD = `  if (requestedNavigation) {
+    await tab.page.mainFrame().waitForLoadState("load", { timeout: 1e4 }).catch(() => {
+    });
+    return result;
+  }`;
+const PATCH2_NEW = `  if (requestedNavigation) {
+    const _navStartUrl = tab.page.url();
+    const _navDeadline = Date.now() + 3e3;
+    while (Date.now() < _navDeadline && tab.page.url() === _navStartUrl) {
+      await new Promise((f) => setTimeout(f, 100));
+    }
+    await tab.page.mainFrame().waitForLoadState("load", { timeout: 1e4 }).catch(() => {
+    });
+    return result;
+  }`;
+
+if (!src.includes(PATCH2_OLD)) {
+  if (src.includes('_navStartUrl')) {
+    console.log('[patch-playwright-utils] Patch 2 already applied, skipping.');
+  } else {
+    throw new Error(
+      `[patch-playwright-utils] PATCH 2 FAILED: target string not found in ${UTILS_PATH}\n` +
+      'The playwright-core version may have changed. Update the patch.'
+    );
+  }
+} else {
+  src = src.replace(PATCH2_OLD, PATCH2_NEW);
+  console.log('[patch-playwright-utils] Patch 2 applied: URL-change poll before waitForLoadState.');
+}
+
+fs.writeFileSync(UTILS_PATH, src, 'utf8');
+console.log('[patch-playwright-utils] Done. utils.js patched successfully.');
