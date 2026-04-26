@@ -153,22 +153,38 @@ func (w *Worker) Run(ctx context.Context) error {
 
 // handleValidateConfiguration is called when the router sends a
 // validate_configuration message (e.g. when an admin adds an MCP server).
-// It instantiates the MCP server without env vars, calls tools/list, and
-// returns the tool definitions.
+// It obtains the MCP server's tool list and returns it to the server.
+//
+// HTTP mode (req.URL != ""): calls McpHttpIntrospect with pre-resolved headers.
+// Stdio mode (req.URL == ""): installs the npm package, then calls McpIntrospect.
 func (w *Worker) handleValidateConfiguration(req protocol.ValidateConfigurationMessage) {
-	version := req.Version
-	if version == "" {
-		version = "latest"
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	defs, err := tools.McpIntrospect(ctx, req.Package, version)
+	var defs []tools.McpToolDef
+	var err error
+
+	if req.URL != "" {
+		// HTTP MCP mode: server has pre-resolved auth headers.
+		w.logger.Info("validate_configuration (HTTP MCP)",
+			"request_id", req.RequestID,
+			"url", req.URL,
+		)
+		defs, err = tools.McpHttpIntrospect(ctx, req.URL, req.ResolvedHeaders)
+	} else {
+		// Stdio MCP mode: install package then introspect.
+		version := req.Version
+		if version == "" {
+			version = "latest"
+		}
+		defs, err = tools.McpIntrospect(ctx, req.Package, version)
+	}
+
 	if err != nil {
 		w.logger.Warn("validate_configuration failed",
 			"request_id", req.RequestID,
 			"package", req.Package,
+			"url", req.URL,
 			"error", err,
 		)
 		_ = w.conn.SendValidateConfigurationResult(protocol.ValidateConfigurationResultMessage{
@@ -191,6 +207,7 @@ func (w *Worker) handleValidateConfiguration(req protocol.ValidateConfigurationM
 	w.logger.Info("validate_configuration success",
 		"request_id", req.RequestID,
 		"package", req.Package,
+		"url", req.URL,
 		"tools", len(toolList),
 	)
 
@@ -203,9 +220,23 @@ func (w *Worker) handleValidateConfiguration(req protocol.ValidateConfigurationM
 	}
 }
 
+// policyMcpResult holds the introspection result for one MCP server during
+// a handleReloadPolicy run.
+type policyMcpResult struct {
+	srv    protocol.McpServerConfig
+	schema protocol.McpAggregateSchema
+}
+
 // handleReloadPolicy is called (in a goroutine) when the router sends a
 // reload_policy message or when the initial policy arrives in hello_ack.
-// It installs MCP packages, introspects their tool lists, and notifies the server.
+//
+// For stdio MCP servers: installs npm packages, introspects tool lists.
+// For HTTP MCP servers: skips install, introspects via McpHttpIntrospect.
+//   - ResolvedHeaders must be populated by the server in the policy message.
+//   - If ResolvedHeaders is empty for an HTTP server (e.g. server could not
+//     resolve tokens), introspect may return 401 — the server is advertised
+//     without a schema and the error is logged (non-fatal). Tool calls will
+//     still work as long as McpHeaders is populated on ToolJobMessage.
 func (w *Worker) handleReloadPolicy(policy protocol.ToolsPolicy) {
 	w.policyMu.Lock()
 	w.policy = policy
@@ -216,12 +247,7 @@ func (w *Worker) handleReloadPolicy(policy protocol.ToolsPolicy) {
 		"mcp_servers", len(policy.McpServers),
 	)
 
-	// Install all MCP packages in parallel, then introspect each one.
-	type mcpResult struct {
-		srv    protocol.McpServerConfig
-		schema protocol.McpAggregateSchema
-	}
-	results := make([]mcpResult, len(policy.McpServers))
+	results := make([]policyMcpResult, len(policy.McpServers))
 
 	var wg sync.WaitGroup
 	for i, srv := range policy.McpServers {
@@ -233,48 +259,11 @@ func (w *Worker) handleReloadPolicy(policy protocol.ToolsPolicy) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 
-			if err := w.installer.EnsureInstalled(ctx, srv.Package, srv.Version); err != nil {
-				w.logger.Error("MCP package install failed",
-					"package", srv.Package, "version", srv.Version, "error", err)
-				return
+			if srv.URL != "" {
+				results[i] = w.introspectHTTPServer(ctx, srv)
+			} else {
+				results[i] = w.introspectStdioServer(ctx, srv)
 			}
-
-			slug := tools.McpPackageSlug(srv.Package)
-
-			// Introspect the MCP server to get its available tools.
-			defs, err := tools.McpIntrospect(ctx, srv.Package, srv.Version)
-			if err != nil {
-				w.logger.Warn("MCP introspect failed — advertising tool without schema",
-					"package", srv.Package, "error", err)
-				results[i] = mcpResult{srv: srv, schema: protocol.McpAggregateSchema{
-					ToolName:    slug,
-					Package:     srv.Package,
-					Version:     srv.Version,
-					Description: "MCP server " + srv.Package + " (schema unavailable)",
-				}}
-				return
-			}
-
-			// Build a compact description listing all commands + parameter names.
-			desc := buildMcpDescription(srv.Package, defs)
-			commands := make([]string, len(defs))
-			for j, d := range defs {
-				commands[j] = d.Name
-			}
-
-			results[i] = mcpResult{srv: srv, schema: protocol.McpAggregateSchema{
-				ToolName:    slug,
-				Package:     srv.Package,
-				Version:     srv.Version,
-				Description: desc,
-				Commands:    commands,
-			}}
-
-			w.logger.Info("MCP server ready",
-				"tool_name", slug,
-				"package", srv.Package,
-				"commands", len(defs),
-			)
 		}()
 	}
 	wg.Wait()
@@ -284,19 +273,93 @@ func (w *Worker) handleReloadPolicy(policy protocol.ToolsPolicy) {
 	var mcpSchemas []protocol.McpAggregateSchema
 	for _, r := range results {
 		if r.schema.ToolName == "" {
-			continue // install failed
+			continue // install or introspect failed fatally
 		}
 		advertised = append(advertised, r.schema.ToolName)
 		mcpSchemas = append(mcpSchemas, r.schema)
 	}
 
-	// Persist the updated list so future reconnects advertise it.
 	w.conn.UpdateAdvertisedTools(advertised)
 
-	// Inform the server of the new capabilities.
 	if err := w.conn.SendPolicyReloaded(advertised, mcpSchemas); err != nil {
 		w.logger.Error("sending policy_reloaded", "error", err)
 	}
+}
+
+// introspectHTTPServer introspects a remote Streamable HTTP MCP server and
+// returns a policyMcpResult. On introspect failure the schema is partially
+// filled so the tool is still advertised (tool calls may still work).
+func (w *Worker) introspectHTTPServer(ctx context.Context, srv protocol.McpServerConfig) policyMcpResult {
+	slug := tools.McpHttpSlug(srv.ID, srv.URL)
+
+	defs, err := tools.McpHttpIntrospect(ctx, srv.URL, srv.ResolvedHeaders)
+	if err != nil {
+		w.logger.Warn("HTTP MCP introspect failed — advertising tool without schema",
+			"url", srv.URL, "slug", slug, "error", err)
+		return policyMcpResult{srv: srv, schema: protocol.McpAggregateSchema{
+			ToolName:    slug,
+			Description: "HTTP MCP server " + srv.URL + " (schema unavailable)",
+		}}
+	}
+
+	desc := buildMcpDescription(srv.URL, defs)
+	commands := make([]string, len(defs))
+	for j, d := range defs {
+		commands[j] = d.Name
+	}
+
+	w.logger.Info("HTTP MCP server ready",
+		"tool_name", slug,
+		"url", srv.URL,
+		"commands", len(defs),
+	)
+	return policyMcpResult{srv: srv, schema: protocol.McpAggregateSchema{
+		ToolName:    slug,
+		Description: desc,
+		Commands:    commands,
+	}}
+}
+
+// introspectStdioServer installs and introspects a stdio MCP server.
+func (w *Worker) introspectStdioServer(ctx context.Context, srv protocol.McpServerConfig) policyMcpResult {
+	if err := w.installer.EnsureInstalled(ctx, srv.Package, srv.Version); err != nil {
+		w.logger.Error("MCP package install failed",
+			"package", srv.Package, "version", srv.Version, "error", err)
+		return policyMcpResult{} // empty ToolName skips advertising
+	}
+
+	slug := tools.McpPackageSlug(srv.Package)
+
+	defs, err := tools.McpIntrospect(ctx, srv.Package, srv.Version)
+	if err != nil {
+		w.logger.Warn("MCP introspect failed — advertising tool without schema",
+			"package", srv.Package, "error", err)
+		return policyMcpResult{srv: srv, schema: protocol.McpAggregateSchema{
+			ToolName:    slug,
+			Package:     srv.Package,
+			Version:     srv.Version,
+			Description: "MCP server " + srv.Package + " (schema unavailable)",
+		}}
+	}
+
+	desc := buildMcpDescription(srv.Package, defs)
+	commands := make([]string, len(defs))
+	for j, d := range defs {
+		commands[j] = d.Name
+	}
+
+	w.logger.Info("MCP server ready",
+		"tool_name", slug,
+		"package", srv.Package,
+		"commands", len(defs),
+	)
+	return policyMcpResult{srv: srv, schema: protocol.McpAggregateSchema{
+		ToolName:    slug,
+		Package:     srv.Package,
+		Version:     srv.Version,
+		Description: desc,
+		Commands:    commands,
+	}}
 }
 
 // buildMcpDescription constructs a compact human-readable description of an MCP
@@ -417,8 +480,16 @@ func (w *Worker) handleToolJob(job protocol.ToolJobMessage) {
 		err    error
 	)
 
-	if job.McpPackage != "" {
-		// MCP path: ensure the package is installed (warm cache), then invoke it.
+	if job.McpURL != "" {
+		// HTTP MCP path: call the remote server with pre-resolved headers.
+		logger.Info("routing to HTTP MCP executor",
+			"mcp_url", job.McpURL,
+			"mcp_transport", job.McpTransport,
+			"header_count", len(job.McpHeaders),
+		)
+		result, err = tools.McpHttpExecute(ctx, job.McpURL, job.McpHeaders, job.ToolName, job.Arguments)
+	} else if job.McpPackage != "" {
+		// Stdio MCP path: ensure the package is installed (warm cache), then invoke it.
 		logger.Info("routing to MCP executor", "mcp_package", job.McpPackage, "mcp_version", job.McpVersion)
 		if installErr := w.installer.EnsureInstalled(ctx, job.McpPackage, job.McpVersion); installErr != nil {
 			err = fmt.Errorf("MCP package install for %s@%s: %w", job.McpPackage, job.McpVersion, installErr)

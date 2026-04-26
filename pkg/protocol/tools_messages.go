@@ -35,11 +35,52 @@ type ToolsCapabilities struct {
 	Tools []string `json:"tools"`
 }
 
-// McpServerConfig describes a bun-compatible MCP server to run per-request.
+// McpHttpHeader describes how one HTTP header is built for an HTTP MCP server.
+// It mirrors McpEnvVar semantics but targets an HTTP header instead of a
+// subprocess environment variable. The resolved value is:
+//
+//	<value_prefix><resolved_credential_value>
+//
+// Sources: "oauth" uses ResolveAccessToken via OauthProvider+CredentialID;
+// "org_secret" / "user_secret" use SecretName; "static" uses StaticValue.
+type McpHttpHeader struct {
+	HeaderName    string `json:"header_name"`              // e.g. "Authorization", "X-Api-Key"
+	ValuePrefix   string `json:"value_prefix,omitempty"`   // e.g. "Bearer "
+	Source        string `json:"source"`                   // "oauth" | "org_secret" | "user_secret" | "static"
+	OauthProvider string `json:"oauth_provider,omitempty"` // provider slug for source=="oauth"
+	CredentialID  string `json:"credential_id,omitempty"`  // connection id for source=="oauth"
+	SecretName    string `json:"secret_name,omitempty"`    // for source=="org_secret"|"user_secret"
+	StaticValue   string `json:"static_value,omitempty"`   // for source=="static"
+}
+
+// McpServerConfig describes an MCP server the worker can connect to.
+//
+// Stdio mode (legacy): Package and Version are set; URL is empty.
 // Every tool call spawns a fresh "bun x @package@version" process.
+//
+// HTTP mode: URL is non-empty. The worker uses Streamable HTTP (POST JSON-RPC)
+// to reach the remote server. No bun install is required.
+// Headers carries the auth header binding descriptors (persisted in DB).
+// ResolvedHeaders carries pre-resolved header values sent on the wire from
+// server to worker only — it is never persisted.
 type McpServerConfig struct {
-	Package string `json:"package"` // e.g. "@modelcontextprotocol/server-github"
-	Version string `json:"version"` // e.g. "1.2.3" or "latest"
+	// ID is an optional stable identifier for the server (used for aggregate
+	// tool naming when the package slug is ambiguous or absent for HTTP servers).
+	ID      string `json:"id,omitempty"`
+	Package string `json:"package,omitempty"` // e.g. "@modelcontextprotocol/server-github"
+	Version string `json:"version,omitempty"` // e.g. "1.2.3" or "latest"
+
+	// HTTP mode fields.
+	URL       string          `json:"url,omitempty"`       // e.g. "https://api.githubcopilot.com/mcp/"
+	Transport string          `json:"transport,omitempty"` // "streamable-http" (default for HTTP) or "sse"
+	Headers   []McpHttpHeader `json:"headers,omitempty"`   // auth header bindings (persisted)
+
+	// ResolvedHeaders is populated by the server at reload_policy send time
+	// with the actual header name→value pairs derived from Headers bindings.
+	// It is intentionally omitted from persistence (DB stores Headers only).
+	// Workers use ResolvedHeaders for HTTP introspect; it has the same
+	// sensitivity level as Credentials already carried on ToolJobMessage.
+	ResolvedHeaders map[string]string `json:"resolved_headers,omitempty"`
 }
 
 // ToolsPolicy is sent in hello_ack and reload_policy.
@@ -85,6 +126,15 @@ type PolicyReloadedMessage struct {
 
 // ToolJobMessage is sent by the server to assign a tool call to a tools worker.
 // The router sends one ToolJobMessage per tool call in the LLM's response.
+//
+// Credential contract for HTTP MCP jobs:
+//   - Credentials (map[string]string) continues to carry env-var-style values
+//     for stdio MCP (e.g. GITHUB_TOKEN=ghp_xxx).
+//   - McpHeaders (map[string]string) carries pre-resolved HTTP header values
+//     for HTTP MCP jobs (e.g. {"Authorization": "Bearer ghp_xxx"}).
+//     The server fills McpHeaders by resolving the McpHttpHeader bindings from
+//     the tool key; the worker injects them verbatim into every HTTP request.
+//     When McpURL is non-empty, the worker routes via McpHttpExecute, not stdio.
 type ToolJobMessage struct {
 	Type        MessageType       `json:"type"`
 	JobID       string            `json:"job_id"`                // Unique ID for this tool invocation
@@ -98,19 +148,34 @@ type ToolJobMessage struct {
 	Arguments   json.RawMessage   `json:"arguments"`             // JSON object matching the tool's schema
 	Credentials map[string]string `json:"credentials,omitempty"` // Env-var style credential envelope (e.g. GITHUB_API_KEY=xxx)
 
-	// MCP-specific fields (zero value for built-in tools).
+	// Stdio MCP-specific fields (zero value for built-in tools and HTTP MCP).
 	McpPackage string `json:"mcp_package,omitempty"` // e.g. "@modelcontextprotocol/server-github"
 	McpVersion string `json:"mcp_version,omitempty"` // e.g. "1.2.3"
+
+	// HTTP MCP-specific fields. McpURL non-empty signals HTTP mode.
+	McpURL       string            `json:"mcp_url,omitempty"`       // e.g. "https://api.githubcopilot.com/mcp/"
+	McpTransport string            `json:"mcp_transport,omitempty"` // "streamable-http" (default) or "sse"
+	McpHeaders   map[string]string `json:"mcp_headers,omitempty"`   // pre-resolved header name→value pairs
 }
 
 // ValidateConfigurationMessage is sent by the server when an admin wants to
 // verify an MCP server configuration (e.g. when adding a new MCP server).
 // The worker must respond with ValidateConfigurationResultMessage.
+//
+// Stdio mode: Package and Version are set; URL is empty.
+// HTTP mode: URL is non-empty. ResolvedHeaders carries pre-resolved header
+// values the worker must inject on every Streamable HTTP request. The worker
+// does NOT resolve OAuth itself — the server pre-resolves and sends the values.
 type ValidateConfigurationMessage struct {
 	Type      MessageType `json:"type"`
 	RequestID string      `json:"request_id"`
-	Package   string      `json:"package"` // pkg in Go; JSON key "package"
-	Version   string      `json:"version"`
+	Package   string      `json:"package,omitempty"` // pkg in Go; JSON key "package"
+	Version   string      `json:"version,omitempty"`
+
+	// HTTP mode fields.
+	URL             string            `json:"url,omitempty"`              // non-empty = HTTP mode
+	Transport       string            `json:"transport,omitempty"`        // "streamable-http" or "sse"
+	ResolvedHeaders map[string]string `json:"resolved_headers,omitempty"` // pre-resolved header name→value
 }
 
 // ValidateConfigurationTool is a single tool from MCP tools/list, for the
