@@ -27,6 +27,7 @@ type Connection struct {
 	onJob            func(job protocol.JobMessage)
 	onCancel         func(jobID string)
 	onToolCallResult func(msg protocol.JobToolCallResultMessage)
+	onPolicyUpdate   func(policy *protocol.Policy)
 }
 
 // NewConnection creates a Connection to the router.
@@ -53,6 +54,14 @@ func (c *Connection) OnCancel(fn func(jobID string)) {
 // of a tool call requested via SendToolCallRequest (live-continuation mode).
 func (c *Connection) OnToolCallResult(fn func(msg protocol.JobToolCallResultMessage)) {
 	c.onToolCallResult = fn
+}
+
+// OnPolicyUpdate registers a callback invoked when the server pushes a
+// policy_update message (triggered by an admin editing the provider row).
+// The worker should apply the new policy — e.g. update context size,
+// max parallelism, and model parameters — without restarting.
+func (c *Connection) OnPolicyUpdate(fn func(policy *protocol.Policy)) {
+	c.onPolicyUpdate = fn
 }
 
 // GPUID returns the server-assigned GPU ID.
@@ -246,6 +255,16 @@ func (c *Connection) RunMessageLoop() error {
 		case protocol.JobToolCallResultMessage:
 			if c.onToolCallResult != nil {
 				c.onToolCallResult(m)
+			}
+		case protocol.PolicyUpdateMessage:
+			c.logger.Info("policy_update received", "model", func() string {
+				if m.Policy != nil {
+					return m.Policy.ModelName
+				}
+				return ""
+			}())
+			if m.Policy != nil && c.onPolicyUpdate != nil {
+				go c.onPolicyUpdate(m.Policy)
 			}
 		default:
 			c.logger.Warn("unexpected message from router", "type", fmt.Sprintf("%T", m))

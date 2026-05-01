@@ -63,6 +63,11 @@ const (
 	// requeue it for retry after RetryAfterSecs (0 = use server default of 5 min)."
 	TypeJobOverload MessageType = "job.overload"
 
+	// Server → GPU/CLI worker: provider row was updated by an admin.
+	// The worker should apply the new policy immediately (e.g. update
+	// context size, max parallelism, model parameters).
+	TypePolicyUpdate MessageType = "policy_update"
+
 	// Server → Agent worker: push file bytes to the VM's working directory.
 	TypeFileUpload MessageType = "file.upload"
 	// Agent worker → Server: file written to VM, resolved absolute path returned.
@@ -411,6 +416,14 @@ type CancelMessage struct {
 	JobID string      `json:"job_id"`
 }
 
+// PolicyUpdateMessage is sent by the server to a GPU or CLI worker when an admin
+// edits the provider row. The worker should apply the new policy immediately.
+// The embedded Policy has the same shape as the policy delivered in HelloAckMessage.
+type PolicyUpdateMessage struct {
+	Type   MessageType `json:"type"`
+	Policy *Policy     `json:"policy"`
+}
+
 // ParseMessage reads a raw WebSocket message and returns the typed message.
 // It first parses the envelope to determine the type, then unmarshals
 // into the concrete struct.
@@ -510,6 +523,13 @@ func ParseMessage(data []byte) (any, error) {
 		var msg CancelMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
 			return nil, fmt.Errorf("parsing cancel message: %w", err)
+		}
+		return msg, nil
+
+	case TypePolicyUpdate:
+		var msg PolicyUpdateMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("parsing policy_update message: %w", err)
 		}
 		return msg, nil
 

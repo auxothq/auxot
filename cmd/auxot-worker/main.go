@@ -349,7 +349,7 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 		break
 	}
 
-	defer llama.Stop()
+	defer func() { llama.Stop() }()
 
 	if parallelism < policy.MaxParallelism {
 		logger.Info("parallelism reduced from router policy",
@@ -483,10 +483,15 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 	})
 
 	// Handle llama.cpp crash → auto-restart
+	var llamaMu sync.Mutex
+
 	llama.OnCrash(func(exitCode int, err error) {
 		logger.Error("llama.cpp crashed", "exit_code", exitCode, "error", err)
 		logger.Info("restarting llama.cpp")
 		time.Sleep(2 * time.Second)
+
+		llamaMu.Lock()
+		defer llamaMu.Unlock()
 
 		if restartErr := llama.Start(); restartErr != nil {
 			logger.Error("failed to restart llama.cpp", "error", restartErr)
@@ -497,6 +502,81 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 			return
 		}
 		logger.Info("llama.cpp recovered")
+	})
+
+	// Handle policy_update from the server: restart llama.cpp with new settings.
+	// If the model itself changed we exit cleanly so the daemon manager relaunches
+	// the worker and FetchPolicy picks up the new model. For context_size /
+	// max_parallelism changes we restart llama.cpp in place.
+	conn.OnPolicyUpdate(func(newPolicy *protocol.Policy) {
+		if newPolicy.ModelName != policy.ModelName || newPolicy.Quantization != policy.Quantization {
+			logger.Info("policy_update: model changed, exiting for clean restart",
+				"old_model", policy.ModelName, "new_model", newPolicy.ModelName,
+				"old_quant", policy.Quantization, "new_quant", newPolicy.Quantization,
+			)
+			os.Exit(0)
+			return
+		}
+
+		if newPolicy.ContextSize == policy.ContextSize && newPolicy.MaxParallelism == policy.MaxParallelism {
+			logger.Info("policy_update: no llama.cpp parameters changed, skipping restart")
+			return
+		}
+
+		logger.Info("policy_update: restarting llama.cpp with new settings",
+			"old_ctx", policy.ContextSize, "new_ctx", newPolicy.ContextSize,
+			"old_par", policy.MaxParallelism, "new_par", newPolicy.MaxParallelism,
+		)
+
+		llamaMu.Lock()
+		defer llamaMu.Unlock()
+
+		llama.Stop()
+
+		newOpts := worker.LlamaOpts{
+			BinaryPath:       binaryPath,
+			ModelPath:        modelPath,
+			MmprojPath:       mmprojPath,
+			ContextSize:      newPolicy.ContextSize,
+			Parallelism:      newPolicy.MaxParallelism,
+			Port:             llamaPort,
+			Host:             "127.0.0.1",
+			GPULayers:        cfg.GPULayers,
+			Threads:          cfg.Threads,
+			ChatTemplateFile: patchedTemplatePath,
+		}
+		llama = worker.NewLlamaProcess(newOpts, logger)
+
+		if startErr := llama.Start(); startErr != nil {
+			logger.Error("policy_update: failed to restart llama.cpp", "error", startErr)
+			return
+		}
+		if readyErr := llama.WaitForReady(ctx, 10*time.Minute); readyErr != nil {
+			logger.Error("policy_update: llama.cpp not ready", "error", readyErr)
+			return
+		}
+		llama.Warmup()
+
+		// Re-register crash handler for the new process.
+		llama.OnCrash(func(exitCode int, err error) {
+			logger.Error("llama.cpp crashed after policy update", "exit_code", exitCode, "error", err)
+			time.Sleep(2 * time.Second)
+			llamaMu.Lock()
+			defer llamaMu.Unlock()
+			if restartErr := llama.Start(); restartErr != nil {
+				logger.Error("failed to restart llama.cpp", "error", restartErr)
+				return
+			}
+			if readyErr := llama.WaitForReady(ctx, 10*time.Minute); readyErr != nil {
+				logger.Error("restarted llama.cpp not ready", "error", readyErr)
+				return
+			}
+			logger.Info("llama.cpp recovered after policy update crash")
+		})
+
+		policy = newPolicy
+		logger.Info("policy_update applied",
+			"ctx_size", newPolicy.ContextSize, "parallelism", newPolicy.MaxParallelism)
 	})
 
 	// Block on message loop (reconnects on disconnect)
