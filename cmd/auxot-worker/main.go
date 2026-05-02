@@ -173,12 +173,36 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 
 	// ----------------------------------------------------------------
 	// Phase 1: Fetch policy from router (temporary connection)
+	// Exponential backoff until the router is reachable. Auth failures
+	// (bad key) are permanent — bail immediately. Everything else
+	// (connection refused, network hiccup) is retried indefinitely.
+	// Backoff resets to cfg.ReconnectDelay on a successful connect.
 	// ----------------------------------------------------------------
 	conn := worker.NewConnection(cfg.RouterURL, cfg.AdminKey, cfg, logger)
 
-	policy, err := conn.FetchPolicy()
-	if err != nil {
-		return fmt.Errorf("fetching policy: %w", err)
+	var policy *protocol.Policy
+	{
+		delay := cfg.ReconnectDelay
+		for {
+			var fetchErr error
+			policy, fetchErr = conn.FetchPolicy()
+			if fetchErr == nil {
+				break
+			}
+			if strings.Contains(fetchErr.Error(), "authentication failed") {
+				return fmt.Errorf("fetching policy: %w", fetchErr)
+			}
+			logger.Warn("router unavailable, retrying", "error", fetchErr.Error(), "delay", delay.String())
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+			delay *= 2
+			if delay > cfg.ReconnectMaxDelay {
+				delay = cfg.ReconnectMaxDelay
+			}
+		}
 	}
 	logger.Info("authenticated", "gpu_id", conn.GPUID())
 	logger.Info("policy",
