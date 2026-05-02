@@ -792,11 +792,12 @@ type JobToolCallRequestMessage struct {
 // JobToolCallResultMessage is sent by the server back to the CLI worker after the
 // tool call requested via JobToolCallRequestMessage completes.
 type JobToolCallResultMessage struct {
-	Type    MessageType `json:"type"`    // TypeJobToolCallResult
-	JobID   string      `json:"job_id"`
-	CallID  string      `json:"call_id"` // matches JobToolCallRequestMessage.CallID
-	Result  string      `json:"result"`  // tool output (plain text or JSON)
-	IsError bool        `json:"is_error,omitempty"`
+	Type       MessageType `json:"type"`    // TypeJobToolCallResult
+	JobID      string      `json:"job_id"`
+	CallID     string      `json:"call_id"` // matches JobToolCallRequestMessage.CallID
+	Result     string      `json:"result"`  // tool output (plain text or JSON)
+	IsError    bool        `json:"is_error,omitempty"`
+	ImageParts []ImagePart `json:"image_parts,omitempty"`
 }
 
 // MarshalMessage serializes a message to JSON bytes for sending over WebSocket.

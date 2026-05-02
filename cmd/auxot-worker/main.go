@@ -41,8 +41,9 @@ type pendingToolCall struct {
 }
 
 type liveToolResult struct {
-	Result  string
-	IsError bool
+	Result     string
+	ImageParts []protocol.ImagePart
+	IsError    bool
 }
 
 // appendErrorDetails appends truncated stderr or other detail text for job errors.
@@ -683,7 +684,7 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 			"is_error", msg.IsError)
 		if v, ok := pendingLiveTools.LoadAndDelete(msg.CallID); ok {
 			pending := v.(pendingToolCall)
-			pending.ch <- liveToolResult{Result: msg.Result, IsError: msg.IsError}
+			pending.ch <- liveToolResult{Result: msg.Result, IsError: msg.IsError, ImageParts: msg.ImageParts}
 		} else {
 			logger.Warn("live_tool_result_no_waiter", "call_id", msg.CallID)
 		}
@@ -716,20 +717,20 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 		// onToolCall bridges live-MCP tool execution between the in-process proxy
 		// and the server. It sends TypeJobToolCallRequest to the server via WebSocket
 		// and blocks until TypeJobToolCallResult arrives (via OnToolCallResult above).
-		onToolCall := func(jobID, callID, toolName, arguments string) (result string, isError bool, err error) {
+		onToolCall := func(jobID, callID, toolName, arguments string) (result string, imageParts []protocol.ImagePart, isError bool, err error) {
 			ch := make(chan liveToolResult, 1)
 			pendingLiveTools.Store(callID, pendingToolCall{ch: ch})
 			defer pendingLiveTools.Delete(callID)
 
 			if sendErr := conn.SendToolCallRequest(jobID, callID, toolName, arguments); sendErr != nil {
-				return "", false, fmt.Errorf("sending tool call request: %w", sendErr)
+				return "", nil, false, fmt.Errorf("sending tool call request: %w", sendErr)
 			}
 
 			select {
 			case res := <-ch:
-				return res.Result, res.IsError, nil
+				return res.Result, res.ImageParts, res.IsError, nil
 			case <-abortCtx.Done():
-				return "", false, abortCtx.Err()
+				return "", nil, false, abortCtx.Err()
 			}
 		}
 
@@ -741,14 +742,14 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 				Model:        modelName,
 				BuiltinTools: builtinTools,
 				// Live-MCP mode executes server tools in-band via the MCP subprocess.
-			// Disabled when the job has caller-defined tools (API proxy jobs)
-			// because those tools have no server-side executor — they must be
-			// returned as unresolved tool_calls via the deny-kill path so the
-			// coordinator fan-in can route them back to the HTTP caller.
-			// API proxy jobs spawn a fresh Claude invocation per turn (no
-			// --resume), so the original deny-kill bug does not apply.
-			LiveMCP: len(job.Tools) > 0 && len(job.CallerTools) == 0,
-				OnToolCall:   onToolCall,
+				// Disabled when the job has caller-defined tools (API proxy jobs)
+				// because those tools have no server-side executor — they must be
+				// returned as unresolved tool_calls via the deny-kill path so the
+				// coordinator fan-in can route them back to the HTTP caller.
+				// API proxy jobs spawn a fresh Claude invocation per turn (no
+				// --resume), so the original deny-kill bug does not apply.
+				LiveMCP:    len(job.Tools) > 0 && len(job.CallerTools) == 0,
+				OnToolCall: onToolCall,
 			},
 			func(token string) error { return conn.SendToken(job.JobID, token) },
 			func(token string) error { return conn.SendReasoningToken(job.JobID, token) },

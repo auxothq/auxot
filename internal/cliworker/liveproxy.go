@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/auxothq/auxot/pkg/protocol"
 )
 
 // toolCallResult carries the server's response to a live tool call request.
@@ -24,10 +26,10 @@ type toolCallResult struct {
 // callback (which sends it to the server via WebSocket), then blocks until the result
 // is available and streams it back to the MCP subprocess.
 type liveToolProxy struct {
-	server    *http.Server
-	addr      string
-	pending   sync.Map // callID → chan toolCallResult
-	log       *slog.Logger
+	server  *http.Server
+	addr    string
+	pending sync.Map // callID → chan toolCallResult
+	log     *slog.Logger
 }
 
 // startLiveToolProxy binds to a random localhost port, starts the HTTP proxy,
@@ -41,7 +43,7 @@ type liveToolProxy struct {
 // The proxy shuts down automatically when ctx is cancelled.
 func startLiveToolProxy(
 	ctx context.Context,
-	onToolCall func(jobID, callID, toolName, arguments string) (result string, isError bool, err error),
+	onToolCall func(jobID, callID, toolName, arguments string) (result string, imageParts []protocol.ImagePart, isError bool, err error),
 ) (*liveToolProxy, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -78,7 +80,7 @@ func startLiveToolProxy(
 			"tool", req.ToolName)
 
 		// Call the bridge callback — blocks until server delivers the result.
-		result, isError, callErr := onToolCall(req.JobID, req.CallID, req.ToolName, req.Arguments)
+		result, imageParts, isError, callErr := onToolCall(req.JobID, req.CallID, req.ToolName, req.Arguments)
 
 		w.Header().Set("Content-Type", "application/json")
 		if callErr != nil {
@@ -92,10 +94,12 @@ func startLiveToolProxy(
 		p.log.Info("liveproxy: tool call result ready",
 			"call_id", req.CallID,
 			"is_error", isError,
-			"result_len", len(result))
+			"result_len", len(result),
+			"image_parts", len(imageParts))
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"result":   result,
-			"is_error": isError,
+			"result":      result,
+			"is_error":    isError,
+			"image_parts": imageParts,
 		})
 	})
 

@@ -2,10 +2,12 @@ package codingtools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -13,7 +15,23 @@ const (
 	defaultReadLines = 100
 	defaultReadBytes = 4_096       // 4 KB default in byte mode
 	maxReadBytes     = 100 * 1024  // 100 KB hard cap in byte mode
+	maxImageBytes    = 5 * 1024 * 1024 // 5 MB hard cap for image reads
 )
+
+// imageMediaTypes maps lowercase file extensions to their MIME types.
+// Any file with one of these extensions is returned as a vision data URI
+// instead of raw bytes so the LLM can see it directly.
+var imageMediaTypes = map[string]string{
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".bmp":  "image/bmp",
+	".tiff": "image/tiff",
+	".tif":  "image/tiff",
+	".ico":  "image/x-icon",
+}
 
 // ReadArgs are the arguments for the read tool.
 type ReadArgs struct {
@@ -33,7 +51,9 @@ type ReadArgs struct {
 func ReadTool() Tool {
 	return Tool{
 		Name: "read",
-		Description: "Read a file. Line mode (default): returns up to 100 lines from offset_line. " +
+		Description: "Read a file. Image files (png, jpg, jpeg, gif, webp, bmp, tiff, ico) are " +
+			"returned as inline vision data so the model can see them directly. " +
+			"Line mode (default): returns up to 100 lines from offset_line. " +
 			"Byte mode: set offset_byte/limit_bytes for binary-safe or large-file reading. " +
 			"Output is capped inline — use tool_recall or repeat with offset to read further.",
 		Parameters: json.RawMessage(`{
@@ -90,12 +110,42 @@ func executeRead(workDir string, rawArgs json.RawMessage) (string, error) {
 		return "", err
 	}
 
+	// Image files are returned as vision data URIs so the LLM can see them.
+	if mime := imageMediaType(args.Path); mime != "" {
+		return executeReadImage(absPath, args.Path, mime)
+	}
+
 	// Byte mode takes precedence when offset_byte > 0 or limit_bytes > 0.
 	if args.OffsetByte > 0 || args.LimitBytes > 0 {
 		return executeReadBytes(absPath, args)
 	}
 
 	return executeReadLines(absPath, args)
+}
+
+// imageMediaType returns the MIME type for image files based on extension,
+// or empty string if the file is not a recognised image format.
+func imageMediaType(path string) string {
+	return imageMediaTypes[strings.ToLower(filepath.Ext(path))]
+}
+
+// executeReadImage reads an image file, base64-encodes it, and returns a
+// data URI that the vision pipeline can extract and forward to the LLM.
+func executeReadImage(absPath, origPath, mimeType string) (string, error) {
+	fi, err := os.Stat(absPath)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", origPath, err)
+	}
+	if fi.Size() > maxImageBytes {
+		return "", fmt.Errorf("image %s is too large (%d bytes, max %d); use offset_byte/limit_bytes to retrieve chunks",
+			origPath, fi.Size(), maxImageBytes)
+	}
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", origPath, err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(data)
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, encoded), nil
 }
 
 func executeReadBytes(absPath string, args ReadArgs) (string, error) {

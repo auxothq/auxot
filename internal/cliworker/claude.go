@@ -45,7 +45,7 @@ type JobConfig struct {
 	// Model is the --model flag value, e.g. "claude-sonnet-4-6"; empty = CLI default.
 	Model string
 	// BuiltinTools lists which claude CLI built-in tools to enable.
-	// nil/empty → only MCP tools (--tools "").
+	// nil/empty → only MCP tools (--tools none).
 	// ["default"] → all built-in tools.
 	// Any other list → specific tools, e.g. ["Bash","WebSearch"].
 	BuiltinTools []string
@@ -67,9 +67,8 @@ type JobConfig struct {
 	// The implementation should send TypeJobToolCallRequest to the server via WebSocket
 	// and block until TypeJobToolCallResult is received, then return the result.
 	// Required when LiveMCP is true; ignored otherwise.
-	OnToolCall func(jobID, callID, toolName, arguments string) (result string, isError bool, err error)
+	OnToolCall func(jobID, callID, toolName, arguments string) (result string, imageParts []protocol.ImagePart, isError bool, err error)
 }
-
 
 // workerEnv builds the subprocess environment for the claude CLI.
 // It inherits the current process environment, overlays the variables that
@@ -115,7 +114,6 @@ func workerEnv(configDir, proxyAddr string, credentials map[string]string) []str
 	}
 	return append(env, overlay...)
 }
-
 
 // RunJob executes a single job using the Claude Code CLI and streams results
 // via the provided callbacks.
@@ -387,19 +385,23 @@ func runJobOnce(
 	// them to the in-worker HTTP proxy. In deny-kill mode, tools/call responses
 	// are stub errors; the actual execution happens server-side after the turn.
 	var mcpCleanup func()
+	// liveProxy is set when live-MCP mode starts.
+	// tool results (with data URIs intact) for the DB-stored tool_result field.
+	var liveProxy *liveToolProxy
 	if hasTools {
 		var mcpArgs []string
 		var setupErr error
 		if cfg.LiveMCP && cfg.OnToolCall != nil {
 			// Start the live tool proxy first so we have its address for the MCP config.
-			proxy, proxyErr := startLiveToolProxy(claudeCtx, cfg.OnToolCall)
+			var proxyErr error
+			liveProxy, proxyErr = startLiveToolProxy(claudeCtx, cfg.OnToolCall)
 			if proxyErr != nil {
 				log.Error("liveproxy_start_failed", "error", proxyErr)
 				_ = onError("failed to start live tool proxy", proxyErr.Error())
 				return nil
 			}
-			log.Info("cliworker: live tool proxy started", "addr", proxy.Addr())
-			mcpArgs, mcpCleanup, setupErr = setupMCPLive(job.Tools, proxy.Addr(), job.JobID)
+			log.Info("cliworker: live tool proxy started", "addr", liveProxy.Addr())
+			mcpArgs, mcpCleanup, setupErr = setupMCPLive(job.Tools, liveProxy.Addr(), job.JobID)
 		} else {
 			mcpArgs, mcpCleanup, setupErr = setupMCP(job.Tools)
 		}
@@ -543,14 +545,14 @@ func runJobOnce(
 
 			for _, block := range event.Message.Content {
 				switch block.Type {
-			case "text":
-				if block.Text != "" {
-					fullText.WriteString(block.Text)
-					switch {
-					case seenMCPTool && !cfg.LiveMCP:
-						// Deny-kill path: we killed Claude after collecting tool calls,
-						// so this text is from the (suppressed) retry turn — discard.
-					case seenBuiltinResult:
+				case "text":
+					if block.Text != "" {
+						fullText.WriteString(block.Text)
+						switch {
+						case seenMCPTool && !cfg.LiveMCP:
+							// Deny-kill path: we killed Claude after collecting tool calls,
+							// so this text is from the (suppressed) retry turn — discard.
+						case seenBuiltinResult:
 							// Post-builtin response: the agent's reply after tool results.
 							postToolText.WriteString(block.Text)
 							_ = onToken(block.Text)
@@ -626,108 +628,111 @@ func runJobOnce(
 						stdinPipe = nil
 						cancelClaude()
 					}
-				} else if cfg.LiveMCP {
-					// In live-MCP mode, each MCP tool result echoes back as a separate
-					// user event with a single tool_result block (one event per tool,
-					// not one event for all tools). Capture the result text and signal
-					// that any subsequent assistant text is the post-tool response.
-				liveToolResults[block.ToolUseID] = block.ResultContent()
+			} else if cfg.LiveMCP {
+			// In live-MCP mode, each MCP tool result echoes back as a separate
+			// user event with a single tool_result block (one event per tool,
+			// not one event for all tools). Capture the result text for use in
+			// liveToolResults — the server-side cache in activeJobState is the
+			// authoritative source for full results (including image data URIs);
+			// this session echo value serves as a fallback only.
+			captured := block.ResultContent()
+			liveToolResults[block.ToolUseID] = captured
 				seenBuiltinResult = true
 				log.Info("cliworker: live-MCP tool result captured",
 					"tool_use_id", block.ToolUseID,
-					"result_len", len(liveToolResults[block.ToolUseID]))
-				}
+					"result_len", len(captured))
+			}
 			}
 
-	case "rate_limit_event":
-		// Parse rate_limit_info first — it's present on every turn regardless
-		// of whether the account is actually limited. We use it two ways:
-		//   1. Detect when the account IS limited (status != "allowed") so we
-		//      can cancel Claude early and requeue the job rather than failing.
-		//   2. Capture the snapshot (resetsAt, status) to send to the server
-		//      so the provider record stays up-to-date.
-		if rli := event.RateLimitInfo; rli != nil {
-			// Capture for the provider snapshot regardless of status.
-			rateLimitResetsAt = rli.ResetsAt
-			rateLimitStatus = rli.Status
-			rateLimitType = rli.RateLimitType
+		case "rate_limit_event":
+			// Parse rate_limit_info first — it's present on every turn regardless
+			// of whether the account is actually limited. We use it two ways:
+			//   1. Detect when the account IS limited (status != "allowed") so we
+			//      can cancel Claude early and requeue the job rather than failing.
+			//   2. Capture the snapshot (resetsAt, status) to send to the server
+			//      so the provider record stays up-to-date.
+			if rli := event.RateLimitInfo; rli != nil {
+				// Capture for the provider snapshot regardless of status.
+				rateLimitResetsAt = rli.ResetsAt
+				rateLimitStatus = rli.Status
+				rateLimitType = rli.RateLimitType
 
-			if rli.Status != "allowed" {
-				// Account is rate-limited. Compute retry delay from resetsAt.
-				retryAfter := 0
-				if rli.ResetsAt > 0 {
-					secs := int(rli.ResetsAt - time.Now().Unix())
-					if secs < 0 {
-						secs = 0
+				if rli.Status != "allowed" {
+					// Account is rate-limited. Compute retry delay from resetsAt.
+					retryAfter := 0
+					if rli.ResetsAt > 0 {
+						secs := int(rli.ResetsAt - time.Now().Unix())
+						if secs < 0 {
+							secs = 0
+						}
+						retryAfter = secs
 					}
-					retryAfter = secs
+					log.Warn("cliworker: provider rate limited via rate_limit_event",
+						"status", rli.Status,
+						"rate_limit_type", rli.RateLimitType,
+						"resets_at", rli.ResetsAt,
+						"retry_after_secs", retryAfter)
+					// Kill the Claude process — it's going to emit a rate-limit
+					// text response anyway, which we want to suppress.
+					cancelClaude()
+					return &rateLimitError{
+						retryAfterSecs: retryAfter,
+						resetsAt:       rli.ResetsAt,
+						status:         rli.Status,
+						rateLimitType:  rli.RateLimitType,
+					}
 				}
-				log.Warn("cliworker: provider rate limited via rate_limit_event",
-					"status", rli.Status,
-					"rate_limit_type", rli.RateLimitType,
-					"resets_at", rli.ResetsAt,
-					"retry_after_secs", retryAfter)
-				// Kill the Claude process — it's going to emit a rate-limit
-				// text response anyway, which we want to suppress.
+			}
+
+			// In live-MCP mode, rate_limit_event just signals the end of one
+			// inference batch. Claude is still running (waiting for tool results
+			// from the MCP subprocess) — do NOT kill it. It will emit a `result`
+			// event when it reaches natural completion.
+			if cfg.LiveMCP {
+				log.Info("cliworker: live-MCP rate_limit_event — Claude still running")
+				break
+			}
+
+			batchComplete = true
+			// rate_limit_event fires immediately after the model finishes streaming,
+			// BEFORE the user event carrying builtin tool results.  Only kill Claude
+			// once all pending builtin tools have delivered their results — otherwise
+			// we'd discard the WebSearch / Bash result in a mixed turn.
+			if len(toolCalls) > 0 && len(pendingBuiltin) == 0 && stdinPipe != nil {
+				log.Info("batch_complete",
+					"mcp_tool_calls", len(toolCalls),
+					"builtin_pending", 0)
+				stdinPipe.Close()
+				stdinPipe = nil
 				cancelClaude()
-				return &rateLimitError{
-					retryAfterSecs: retryAfter,
-					resetsAt:       rli.ResetsAt,
-					status:         rli.Status,
-					rateLimitType:  rli.RateLimitType,
+			} else if len(toolCalls) > 0 && len(pendingBuiltin) > 0 {
+				log.Info("batch_complete_waiting_for_builtins",
+					"mcp_tool_calls", len(toolCalls),
+					"builtin_pending", len(pendingBuiltin))
+			}
+
+		case "result":
+			if event.Usage != nil {
+				if t := event.Usage.totalInputTokens(); t > inputTokens {
+					inputTokens = t
+				}
+				if event.Usage.OutputTokens > outputTokens {
+					outputTokens = event.Usage.OutputTokens
 				}
 			}
-		}
-
-		// In live-MCP mode, rate_limit_event just signals the end of one
-		// inference batch. Claude is still running (waiting for tool results
-		// from the MCP subprocess) — do NOT kill it. It will emit a `result`
-		// event when it reaches natural completion.
-		if cfg.LiveMCP {
-			log.Info("cliworker: live-MCP rate_limit_event — Claude still running")
-			break
-		}
-
-		batchComplete = true
-		// rate_limit_event fires immediately after the model finishes streaming,
-		// BEFORE the user event carrying builtin tool results.  Only kill Claude
-		// once all pending builtin tools have delivered their results — otherwise
-		// we'd discard the WebSearch / Bash result in a mixed turn.
-		if len(toolCalls) > 0 && len(pendingBuiltin) == 0 && stdinPipe != nil {
-			log.Info("batch_complete",
-				"mcp_tool_calls", len(toolCalls),
-				"builtin_pending", 0)
-			stdinPipe.Close()
-			stdinPipe = nil
-			cancelClaude()
-		} else if len(toolCalls) > 0 && len(pendingBuiltin) > 0 {
-			log.Info("batch_complete_waiting_for_builtins",
-				"mcp_tool_calls", len(toolCalls),
-				"builtin_pending", len(pendingBuiltin))
-		}
-
-	case "result":
-		if event.Usage != nil {
-			if t := event.Usage.totalInputTokens(); t > inputTokens {
-				inputTokens = t
+			// Capture cumulative session cost and session ID from the terminal result.
+			// These are present only on the final "result" event, not on intermediate
+			// assistant/user events.
+			if event.TotalCostUSD > 0 {
+				totalCostUSD = event.TotalCostUSD
 			}
-			if event.Usage.OutputTokens > outputTokens {
-				outputTokens = event.Usage.OutputTokens
+			if event.SessionID != "" {
+				sessionID = event.SessionID
 			}
-		}
-		// Capture cumulative session cost and session ID from the terminal result.
-		// These are present only on the final "result" event, not on intermediate
-		// assistant/user events.
-		if event.TotalCostUSD > 0 {
-			totalCostUSD = event.TotalCostUSD
-		}
-		if event.SessionID != "" {
-			sessionID = event.SessionID
-		}
-		if stdinPipe != nil {
-			stdinPipe.Close()
-			stdinPipe = nil
-		}
+			if stdinPipe != nil {
+				stdinPipe.Close()
+				stdinPipe = nil
+			}
 
 		case "control_request":
 			if event.Request == nil || event.Request.Subtype != "can_use_tool" || stdinPipe == nil {
@@ -975,9 +980,9 @@ func setupMCPLive(tools []protocol.Tool, proxyURL, jobID string) (args []string,
 				"command": workerBin,
 				"args":    []string{},
 				"env": map[string]string{
-					"AUXOT_MCP_TOOLS_FILE":  toolsFile.Name(),
-					"AUXOT_MCP_TOOL_PROXY":  proxyURL,
-					"AUXOT_MCP_JOB_ID":      jobID,
+					"AUXOT_MCP_TOOLS_FILE": toolsFile.Name(),
+					"AUXOT_MCP_TOOL_PROXY": proxyURL,
+					"AUXOT_MCP_JOB_ID":     jobID,
 				},
 			},
 		},
@@ -1189,7 +1194,7 @@ func buildSessionFile(
 		switch msg.Role {
 		case "user":
 			claudeRole = "user"
-			var blocks []map[string]any
+			blocks := make([]map[string]any, 0)
 			if t := msg.ContentString(); t != "" {
 				blocks = append(blocks, map[string]any{"type": "text", "text": t})
 			}
@@ -1199,7 +1204,7 @@ func buildSessionFile(
 
 		case "assistant":
 			claudeRole = "assistant"
-			var blocks []map[string]any
+			blocks := make([]map[string]any, 0)
 			if t := msg.ContentString(); t != "" {
 				blocks = append(blocks, map[string]any{"type": "text", "text": t})
 			}
@@ -1226,7 +1231,7 @@ func buildSessionFile(
 			// Consecutive tool-result messages → one user message with multiple
 			// tool_result content blocks (the canonical Anthropic API format).
 			claudeRole = "user"
-			var toolBlocks []map[string]any
+			toolBlocks := make([]map[string]any, 0)
 			for i < len(history) && history[i].Role == "tool" {
 				tr := history[i]
 				toolBlocks = append(toolBlocks, map[string]any{
@@ -1387,7 +1392,6 @@ func extractImageBlocks(content json.RawMessage) []map[string]any {
 	return blocks
 }
 
-
 // filterShadowedBuiltins removes built-in tool names that collide with tools
 // provided by the API caller. Colliding tools will be exposed via MCP instead
 // so Claude calls them through the caller's tool resolution, not its own.
@@ -1409,11 +1413,11 @@ func filterShadowedBuiltins(builtins []string, jobTools []protocol.Tool) []strin
 }
 
 // buildToolsFlag converts the BuiltinTools policy list into the value for --tools.
-// Empty/nil → "" (disable all built-ins).
+// Empty/nil → "none" (explicitly disable all built-ins).
 // Any other list → comma-joined names, e.g. "Bash,Read,WebSearch".
 func buildToolsFlag(tools []string) string {
 	if len(tools) == 0 {
-		return ""
+		return "none"
 	}
 	return strings.Join(tools, ",")
 }
@@ -1434,7 +1438,6 @@ func stripMCPPrefix(name string) string {
 	}
 	return name
 }
-
 
 // ── Claude NDJSON types ────────────────────────────────────────────────────────
 
@@ -1498,8 +1501,8 @@ type claudeBlock struct {
 	// Builtin tools: `content` is a plain JSON string.
 	// MCP tools:    `content` is a JSON array of {type, text} objects.
 	// Use ResultContent() to get a normalised string in both cases.
-	ToolUseID         string          `json:"tool_use_id,omitempty"`
-	ResultContentRaw  json.RawMessage `json:"content,omitempty"`
+	ToolUseID        string          `json:"tool_use_id,omitempty"`
+	ResultContentRaw json.RawMessage `json:"content,omitempty"`
 }
 
 // ResultContent returns the tool result as a plain string regardless of

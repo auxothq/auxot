@@ -77,7 +77,7 @@ if (!src.includes(PATCH1_OLD)) {
   console.log('[patch-playwright-utils] Patch 1 applied: setImmediate before disposeListeners.');
 }
 
-// ── Patch 2: poll for URL change before waitForLoadState ──────────────────
+// ── Patch 2: poll for URL change before waitForLoadState, then networkidle ──
 // Original:
 //   if (requestedNavigation) {
 //     await tab.page.mainFrame().waitForLoadState("load", { timeout: 1e4 }).catch(() => {
@@ -94,6 +94,11 @@ if (!src.includes(PATCH1_OLD)) {
 //     }
 //     await tab.page.mainFrame().waitForLoadState("load", { timeout: 1e4 }).catch(() => {
 //     });
+//     // Wait for networkidle so JS-rendered content (lazy sections, etc.) is
+//     // fully painted before a screenshot can be taken.  5 s timeout is generous
+//     // but capped so a chatty page never blocks indefinitely.
+//     await tab.page.mainFrame().waitForLoadState("networkidle", { timeout: 5e3 }).catch(() => {
+//     });
 //     return result;
 //   }
 const PATCH2_OLD = `  if (requestedNavigation) {
@@ -108,6 +113,8 @@ const PATCH2_NEW = `  if (requestedNavigation) {
       await new Promise((f) => setTimeout(f, 100));
     }
     await tab.page.mainFrame().waitForLoadState("load", { timeout: 1e4 }).catch(() => {
+    });
+    await tab.page.mainFrame().waitForLoadState("networkidle", { timeout: 5e3 }).catch(() => {
     });
     return result;
   }`;
