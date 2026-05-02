@@ -61,7 +61,7 @@ ARG TARGETARCH
 
 RUN apk add --no-cache curl && \
     if [ "${TARGETARCH}" = "amd64" ]; then PNPM_ARCH="x64"; else PNPM_ARCH="${TARGETARCH}"; fi && \
-    curl -fsSL "https://github.com/pnpm/pnpm/releases/latest/download/pnpm-linux-${PNPM_ARCH}" \
+    curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v10.33.2/pnpm-linux-${PNPM_ARCH}" \
       -o /usr/local/bin/pnpm && \
     chmod +x /usr/local/bin/pnpm && \
     mkdir -p /opt/auxot/mcp-cache && chown 65534:65534 /opt/auxot/mcp-cache
