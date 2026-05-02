@@ -37,9 +37,35 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 
-const UTILS_PATH =
-  '/usr/local/lib/node_modules/@playwright/mcp/node_modules/playwright-core/lib/tools/backend/utils.js';
+// Resolve the path to playwright-core's utils.js. npm global installs may
+// hoist playwright-core to the top-level node_modules instead of nesting it
+// under @playwright/mcp, so we try both locations.
+function resolveUtilsPath() {
+  const candidates = [
+    // nested (older npm / npm <=8 behaviour)
+    '/usr/local/lib/node_modules/@playwright/mcp/node_modules/playwright-core/lib/tools/backend/utils.js',
+    // hoisted (npm >=9 default behaviour)
+    '/usr/local/lib/node_modules/playwright-core/lib/tools/backend/utils.js',
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  // Fallback: ask Node's resolver, searching from the @playwright/mcp package root
+  try {
+    return require.resolve('playwright-core/lib/tools/backend/utils', {
+      paths: ['/usr/local/lib/node_modules/@playwright/mcp', '/usr/local/lib/node_modules'],
+    });
+  } catch (_) {}
+  throw new Error(
+    '[patch-playwright-utils] Cannot locate playwright-core/lib/tools/backend/utils.js.\n' +
+    'Tried: ' + candidates.join(', ')
+  );
+}
+
+const UTILS_PATH = resolveUtilsPath();
+console.log('[patch-playwright-utils] Resolved utils path:', UTILS_PATH);
 
 let src = fs.readFileSync(UTILS_PATH, 'utf8');
 
