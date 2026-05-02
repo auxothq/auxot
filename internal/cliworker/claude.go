@@ -173,6 +173,13 @@ func RunJob(
 		_ = runJobOnce(ctx, job, cfg, onToken, onReasoningToken, onBuiltinTool, onComplete, onError)
 		return
 	}
+	if errors.Is(err, errImageLoadError) {
+		log.Warn("cliworker: image load error — retrying without images",
+			"original_msgs", len(job.Messages))
+		job.Messages = stripJobChatMessages(job.Messages)
+		_ = runJobOnce(ctx, job, cfg, onToken, onReasoningToken, onBuiltinTool, onComplete, onError)
+		return
+	}
 	if err == errPromptTooLong {
 		// Trim the oldest non-system conversation messages and retry once.
 		// Drop 20% of messages from the oldest end (excluding system prompt).
@@ -221,6 +228,10 @@ func trimOldestMessages(msgs []protocol.ChatMessage, fraction float64) []protoco
 
 var errCacheControlRetry = fmt.Errorf("cache_control_400_retry")
 var errPromptTooLong = fmt.Errorf("prompt_too_long_retry")
+
+// errImageLoadError signals that Claude CLI failed to decode an attached image;
+// RunJob strips images from the job once and retries.
+var errImageLoadError = errors.New("cliworker: image load error")
 
 // rateLimitError is returned from runJobOnce when the rate_limit_event signals
 // that the account has hit its usage limit (status != "allowed"). It carries
@@ -808,6 +819,10 @@ func runJobOnce(
 			if strings.Contains(stderr, "cache_control") && strings.Contains(stderr, "maximum of 4") {
 				log.Warn("cliworker: cache_control limit error detected, will retry")
 				return errCacheControlRetry
+			}
+			if stderrIndicatesImageLoadError(stderr) {
+				log.Warn("cliworker: image load error detected, will retry without images")
+				return errImageLoadError
 			}
 			log.Error("claude_exited_with_error",
 				"error", err,
