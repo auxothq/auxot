@@ -39,28 +39,27 @@
 const fs = require('fs');
 const path = require('path');
 
-// Resolve the path to playwright-core's utils.js. npm global installs may
-// hoist playwright-core to the top-level node_modules instead of nesting it
-// under @playwright/mcp, so we try both locations.
+// Resolve playwright-core's utils.js. npm global installs may hoist
+// playwright-core to the top-level node_modules (npm >=9) or nest it under
+// @playwright/mcp/node_modules (npm <=8). Try both.
+//
+// NOTE: only @playwright/mcp <=0.0.70 ships a separate utils.js; versions
+// 0.0.71+ bundle everything into playwright-core/lib/coreBundle.js.
+// Dockerfile.tools pins to 0.0.70 to keep this patch viable.
 function resolveUtilsPath() {
   const candidates = [
-    // nested (older npm / npm <=8 behaviour)
-    '/usr/local/lib/node_modules/@playwright/mcp/node_modules/playwright-core/lib/tools/backend/utils.js',
-    // hoisted (npm >=9 default behaviour)
+    // hoisted (npm >=9 default)
     '/usr/local/lib/node_modules/playwright-core/lib/tools/backend/utils.js',
+    // nested (npm <=8)
+    '/usr/local/lib/node_modules/@playwright/mcp/node_modules/playwright-core/lib/tools/backend/utils.js',
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
   }
-  // Fallback: ask Node's resolver, searching from the @playwright/mcp package root
-  try {
-    return require.resolve('playwright-core/lib/tools/backend/utils', {
-      paths: ['/usr/local/lib/node_modules/@playwright/mcp', '/usr/local/lib/node_modules'],
-    });
-  } catch (_) {}
   throw new Error(
     '[patch-playwright-utils] Cannot locate playwright-core/lib/tools/backend/utils.js.\n' +
-    'Tried: ' + candidates.join(', ')
+    'Searched:\n  ' + candidates.join('\n  ') + '\n' +
+    'Ensure @playwright/mcp is pinned to <=0.0.70 in Dockerfile.tools.'
   );
 }
 
