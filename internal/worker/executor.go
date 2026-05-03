@@ -21,29 +21,6 @@ import (
 // removing any actual content the model generated inside them.
 var thinkTagRe = regexp.MustCompile(`</?think>`)
 
-// thinkingBudgetForEffort maps a reasoning_effort string to a per-request
-// thinking token cap passed to llama.cpp as thinking_budget_tokens. This
-// prevents small models from entering infinite reasoning loops.
-//
-// The --reasoning-budget CLI flag (2048) is the absolute ceiling; it matches
-// the "low" effort level, which is the highest effort the UI currently exposes.
-// Per-request values are preserved for when medium/high are added to the UI.
-//
-//	low    → 2 048  matches CLI ceiling; the current UI maximum
-//	medium → 4 096  balanced; enough room for multi-step reasoning
-//	high   → 8 192  full budget (only reachable via API, not the UI toggle)
-//	""     → 4 096  unset defaults to medium
-func thinkingBudgetForEffort(effort string) int {
-	switch strings.ToLower(effort) {
-	case "low":
-		return 2048
-	case "high":
-		return 8192
-	default: // "", "medium", or any unknown value
-		return 4096
-	}
-}
-
 // Executor runs chat-completions against an OpenAI-compatible HTTP server
 // (llama.cpp or any compatible backend).
 type Executor struct {
@@ -311,14 +288,6 @@ func (e *Executor) Execute(
 			"enable_thinking": false, // Qwen3, DeepSeek-R1
 			"thinking":        false, // Kimi K2.5
 		}
-	} else {
-		// Cap reasoning tokens per request to prevent 30B models from spinning
-		// into infinite thinking loops. The --reasoning-budget CLI ceiling (2048)
-		// acts as a hard backstop. Because the CLI value takes precedence in
-		// llama.cpp, the per-request budget here is preserved as correct
-		// architecture for when the UI exposes medium/high effort levels.
-		budget := thinkingBudgetForEffort(job.ReasoningEffort)
-		req.ThinkingBudgetTokens = &budget
 	}
 
 	// Debug log the request to llama.cpp (level 2)
@@ -517,6 +486,12 @@ func (e *Executor) Execute(
 		if token.Timings != nil {
 			finalTimings = token.Timings
 		}
+	}
+
+	// If the job context was cancelled (WebSocket disconnect or server cancel),
+	// there is no live connection to write to — skip sendComplete/sendError.
+	if jobCtx.Err() != nil {
+		return
 	}
 
 	// Convert merged tool calls to protocol format (sorted by index)

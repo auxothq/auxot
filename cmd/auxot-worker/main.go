@@ -46,6 +46,19 @@ type liveToolResult struct {
 	IsError    bool
 }
 
+// cancelAllActiveJobs cancels every in-flight inference context stored in the
+// sync.Map. It is called when the WebSocket disconnects so that orphaned
+// llama.cpp HTTP streams are aborted immediately rather than running to
+// completion with no consumer.
+func cancelAllActiveJobs(activeJobs *sync.Map) {
+	activeJobs.Range(func(key, value any) bool {
+		if cancel, ok := value.(context.CancelFunc); ok {
+			cancel()
+		}
+		return true
+	})
+}
+
 // appendErrorDetails appends truncated stderr or other detail text for job errors.
 func appendErrorDetails(errMsg, details string) string {
 	if details == "" {
@@ -329,16 +342,15 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 
 	for parallelism >= 1 {
 		llama = worker.NewLlamaProcess(worker.LlamaOpts{
-			BinaryPath:      binaryPath,
-			ModelPath:       modelPath,
-			MmprojPath:      mmprojPath,
-			ContextSize:     policy.ContextSize,
-			Parallelism:     parallelism,
-			Port:            llamaPort,
-			Host:            "127.0.0.1",
-			GPULayers:       cfg.GPULayers,
-			Threads:         cfg.Threads,
-			ReasoningBudget: 2048,
+			BinaryPath:  binaryPath,
+			ModelPath:   modelPath,
+			MmprojPath:  mmprojPath,
+			ContextSize: policy.ContextSize,
+			Parallelism: parallelism,
+			Port:        llamaPort,
+			Host:        "127.0.0.1",
+			GPULayers:   cfg.GPULayers,
+			Threads:     cfg.Threads,
 		}, logger)
 
 		if err := llama.Start(); err != nil {
@@ -417,7 +429,6 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 			GPULayers:        cfg.GPULayers,
 			Threads:          cfg.Threads,
 			ChatTemplateFile: patchedTemplatePath,
-			ReasoningBudget:  2048,
 		}, logger)
 
 		if err := llama.Start(); err != nil {
@@ -571,7 +582,6 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 			GPULayers:        cfg.GPULayers,
 			Threads:          cfg.Threads,
 			ChatTemplateFile: patchedTemplatePath,
-			ReasoningBudget:  2048,
 		}
 		llama = worker.NewLlamaProcess(newOpts, logger)
 
@@ -610,6 +620,7 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 	// Block on message loop (reconnects on disconnect)
 	for {
 		err := conn.RunMessageLoop()
+		cancelAllActiveJobs(activeJobs) // abort all in-flight inferences on disconnect
 		if ctx.Err() != nil {
 			logger.Info("shutting down")
 			return nil
@@ -803,6 +814,7 @@ func runCLIWorker(ctx context.Context, cfg *worker.Config, conn *worker.Connecti
 
 	for {
 		err := conn.RunMessageLoop()
+		cancelAllActiveJobs(activeJobs) // abort all in-flight inferences on disconnect
 		if ctx.Err() != nil {
 			logger.Info("cli worker shutting down")
 			return nil
@@ -977,6 +989,7 @@ func runWithStableDiffusion(ctx context.Context, cfg *worker.Config, conn *worke
 
 	for {
 		err := conn.RunMessageLoop()
+		cancelAllActiveJobs(activeJobs) // abort all in-flight inferences on disconnect
 		if ctx.Err() != nil {
 			logger.Info("shutting down")
 			return nil
@@ -1079,6 +1092,7 @@ func runWithExternalLlama(ctx context.Context, cfg *worker.Config, conn *worker.
 	})
 
 	<-ctx.Done()
+	cancelAllActiveJobs(activeJobs) // abort all in-flight inferences on shutdown
 	return nil
 }
 
