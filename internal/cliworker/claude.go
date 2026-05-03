@@ -181,10 +181,15 @@ func RunJob(
 		return
 	}
 	if err == errPromptTooLong {
-		// Trim the oldest non-system conversation messages and retry once.
-		// Drop 20% of messages from the oldest end (excluding system prompt).
-		trimmed := trimOldestMessages(job.Messages, 0.20)
-		log.Warn("cliworker: prompt too long — retrying with trimmed history",
+		// Recovery hierarchy for "Prompt is too long":
+		//  1. Strip images from old turns; keep only the latest image in the
+		//     current user→assistant turn (screenshot-heavy captcha loops can
+		//     accumulate many frames that account for most of the token bloat).
+		//  2. Also drop the oldest 20% of non-system messages so even worst-case
+		//     many-image scenarios recover in a single retry.
+		stripped := stripJobImagesExceptLatestInCurrentTurn(job.Messages)
+		trimmed := trimOldestMessages(stripped, 0.20)
+		log.Warn("cliworker: prompt too long — retrying with stripped images and trimmed history",
 			"original_msgs", len(job.Messages),
 			"trimmed_msgs", len(trimmed),
 		)

@@ -224,12 +224,16 @@ func (e *Executor) Execute(
 			ToolCallID: m.ToolCallID,
 		}
 		for _, tc := range m.ToolCalls {
+			args := tc.Function.Arguments
+			if args == "" {
+				args = "{}"
+			}
 			msg.ToolCalls = append(msg.ToolCalls, openai.ToolCall{
 				ID:   tc.ID,
 				Type: tc.Type,
 				Function: openai.ToolCallFunction{
 					Name:      tc.Function.Name,
-					Arguments: tc.Function.Arguments,
+					Arguments: args,
 				},
 			})
 		}

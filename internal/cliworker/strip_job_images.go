@@ -10,6 +10,97 @@ import (
 
 const imageOmittedRetryText = "[image omitted — retry without vision]"
 
+// stripJobImagesExceptLatestInCurrentTurn returns a deep copy of msgs with
+// images aggressively stripped to recover from a "prompt too long" error:
+//
+//   - All images in turns BEFORE the last user message are removed entirely.
+//   - In the current turn (at and after the last user message), only the
+//     single most-recent image is kept; all earlier images in that turn are
+//     stripped. This handles screenshot-heavy captcha/agentic loops where
+//     many frames were captured but only the latest matters.
+//
+// This is the primary recovery path for errPromptTooLong. If the stripped
+// prompt is still too long, the caller should additionally drop the oldest
+// messages via trimOldestMessages.
+func stripJobImagesExceptLatestInCurrentTurn(msgs []protocol.ChatMessage) []protocol.ChatMessage {
+	if len(msgs) == 0 {
+		return msgs
+	}
+
+	// Find the last user message — that is the boundary of the current turn.
+	lastUserIdx := -1
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "user" {
+			lastUserIdx = i
+			break
+		}
+	}
+
+	out := make([]protocol.ChatMessage, len(msgs))
+	for i := range msgs {
+		out[i] = msgs[i]
+	}
+
+	// All messages strictly BEFORE the last user message: strip all images.
+	for i := 0; i < lastUserIdx; i++ {
+		out[i].Content = stripChatMessageContent(msgs[i].Content)
+	}
+
+	// Current turn (lastUserIdx onward): keep only the LATEST image across the
+	// entire turn, strip the rest. Walk backwards so the first image we find is
+	// the most recent; mark it kept and strip any subsequent images we encounter.
+	latestKept := false
+	for i := len(out) - 1; i >= lastUserIdx; i-- {
+		if !chatMessageHasImage(out[i].Content) {
+			continue
+		}
+		if !latestKept {
+			latestKept = true // preserve the most recent image in this turn
+			continue
+		}
+		out[i].Content = stripChatMessageContent(out[i].Content)
+	}
+
+	return out
+}
+
+// chatMessageHasImage returns true when the message content contains at least
+// one image_url or image part. Handles both multimodal JSON arrays and plain
+// strings with embedded data URIs.
+func chatMessageHasImage(content json.RawMessage) bool {
+	if len(content) == 0 {
+		return false
+	}
+	trimmed := bytes.TrimSpace(content)
+	if len(trimmed) == 0 {
+		return false
+	}
+	switch trimmed[0] {
+	case '[':
+		var parts []struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(content, &parts); err != nil {
+			return false
+		}
+		for _, p := range parts {
+			t := strings.ToLower(strings.TrimSpace(p.Type))
+			if t == "image_url" || t == "image" {
+				return true
+			}
+		}
+		return false
+	case '"':
+		var s string
+		if err := json.Unmarshal(content, &s); err != nil {
+			return false
+		}
+		return dataURIRe.MatchString(s)
+	default:
+		return false
+	}
+}
+
 // stderrIndicatesImageLoadError matches Claude CLI stderr when the API rejects
 // an image (corrupt or unsupported), prompting a single retry without vision.
 func stderrIndicatesImageLoadError(stderr string) bool {
