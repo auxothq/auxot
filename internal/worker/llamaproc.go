@@ -45,6 +45,7 @@ type LlamaOpts struct {
 	Threads          int
 	ReasoningFormat  string // "deepseek" to enable thinking token extraction, "" to disable
 	ChatTemplateFile string // Path to a patched Jinja template file (overrides model's built-in template)
+	ReasoningBudget  int    // Max reasoning tokens per request; -1 = unlimited (llama.cpp default). When set, overrides per-request thinking_budget_tokens.
 }
 
 // NewLlamaProcess creates a LlamaProcess manager.
@@ -93,6 +94,10 @@ func (lp *LlamaProcess) Start() error {
 		"--reasoning-format", "deepseek",
 		"--swa-full",
 	)
+
+	if lp.opts.ReasoningBudget >= 0 {
+		args = append(args, "--reasoning-budget", strconv.Itoa(lp.opts.ReasoningBudget))
+	}
 
 	if lp.opts.Threads > 0 {
 		args = append(args, "--threads", strconv.Itoa(lp.opts.Threads))

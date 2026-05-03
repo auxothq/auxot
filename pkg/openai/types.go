@@ -26,9 +26,10 @@ type ChatCompletionRequest struct {
 	Tools              []Tool         `json:"tools,omitempty"`
 	TopP               *float64       `json:"top_p,omitempty"`
 	Stop               any            `json:"stop,omitempty"`                    // string or []string
-	ReasoningEffort    string         `json:"reasoning_effort,omitempty"`        // "none", "low", "medium", "high" — controls thinking
-	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`   // llama.cpp extension: passed to Jinja template (e.g. enable_thinking)
-	ReturnProgress     bool           `json:"return_progress,omitempty"`        // llama.cpp extension: emit prompt processing progress in stream
+	ReasoningEffort      string         `json:"reasoning_effort,omitempty"`          // "none", "low", "medium", "high" — controls thinking
+	ChatTemplateKwargs   map[string]any `json:"chat_template_kwargs,omitempty"`     // llama.cpp extension: passed to Jinja template (e.g. enable_thinking)
+	ReturnProgress       bool           `json:"return_progress,omitempty"`          // llama.cpp extension: emit prompt processing progress in stream
+	ThinkingBudgetTokens *int           `json:"thinking_budget_tokens,omitempty"`   // llama.cpp extension: max reasoning tokens per request (prevents infinite thinking loops)
 }
 
 // Message represents a single message in the conversation.

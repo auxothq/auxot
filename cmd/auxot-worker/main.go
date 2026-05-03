@@ -329,15 +329,16 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 
 	for parallelism >= 1 {
 		llama = worker.NewLlamaProcess(worker.LlamaOpts{
-			BinaryPath:  binaryPath,
-			ModelPath:   modelPath,
-			MmprojPath:  mmprojPath,
-			ContextSize: policy.ContextSize,
-			Parallelism: parallelism,
-			Port:        llamaPort,
-			Host:        "127.0.0.1",
-			GPULayers:   cfg.GPULayers,
-			Threads:     cfg.Threads,
+			BinaryPath:      binaryPath,
+			ModelPath:       modelPath,
+			MmprojPath:      mmprojPath,
+			ContextSize:     policy.ContextSize,
+			Parallelism:     parallelism,
+			Port:            llamaPort,
+			Host:            "127.0.0.1",
+			GPULayers:       cfg.GPULayers,
+			Threads:         cfg.Threads,
+			ReasoningBudget: 2048,
 		}, logger)
 
 		if err := llama.Start(); err != nil {
@@ -416,6 +417,7 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 			GPULayers:        cfg.GPULayers,
 			Threads:          cfg.Threads,
 			ChatTemplateFile: patchedTemplatePath,
+			ReasoningBudget:  2048,
 		}, logger)
 
 		if err := llama.Start(); err != nil {
@@ -569,6 +571,7 @@ func run(ctx context.Context, cfg *worker.Config, logger *slog.Logger) error {
 			GPULayers:        cfg.GPULayers,
 			Threads:          cfg.Threads,
 			ChatTemplateFile: patchedTemplatePath,
+			ReasoningBudget:  2048,
 		}
 		llama = worker.NewLlamaProcess(newOpts, logger)
 
