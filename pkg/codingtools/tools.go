@@ -22,7 +22,7 @@ type Tool struct {
 
 // AllTools returns the full set of coding tools available to the agent.
 func AllTools() []Tool {
-	return []Tool{ReadTool(), WriteTool(), EditTool(), BashTool(), UseSkillTool(), SaveMemoryTool()}
+	return []Tool{ReadTool(), WriteTool(), EditTool(), BashTool()}
 }
 
 // OpenAIToolDefs converts AllTools into the OpenAI chat completions tool format

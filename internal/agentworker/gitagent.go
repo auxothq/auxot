@@ -134,7 +134,7 @@ func (ga *GitAgent) BuildSystemPrompt(auxotContext string, toolNames []string) s
 
 	if len(ga.Skills) > 0 {
 		b.WriteString("\n\n[available skills]\n")
-		b.WriteString("Skills available in your skills/ directory. Call useSkill(skill_id) to load full instructions.\n\n")
+		b.WriteString("Skills available in your skills/ directory. Use Read on skills/<skill_id>/SKILL.md to load full instructions.\n\n")
 		for _, s := range ga.Skills {
 			b.WriteString(fmt.Sprintf("- **%s** (%s): %s\n", s.Name, s.ID, s.Description))
 		}
@@ -155,7 +155,7 @@ func (ga *GitAgent) BuildSystemPrompt(auxotContext string, toolNames []string) s
 			b.WriteString(ga.MemoryCtx)
 			b.WriteString("\n")
 		}
-		b.WriteString("\nUse Read/Write on memory/ for full history. Use saveMemory to persist learnings for next session.\n")
+		b.WriteString("\nUse Read/Write on memory/ for full history and to persist learnings for the next session.\n")
 		b.WriteString("[/memory]")
 	}
 

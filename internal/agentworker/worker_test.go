@@ -10,7 +10,7 @@ import (
 
 func TestLocalToolNames(t *testing.T) {
 	got := localToolNames()
-	want := []string{"read", "write", "edit", "bash", "useSkill", "saveMemory"}
+	want := []string{"read", "write", "edit", "bash"}
 
 	if len(got) != len(want) {
 		t.Fatalf("localToolNames() returned %d tools, want %d", len(got), len(want))
